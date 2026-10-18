@@ -1,0 +1,121 @@
+/* Pi Ephemeral Wayland Overlay - Clean Minimalist Design */
+
+window {
+    background-color: transparent;
+}
+
+#drawer-container {
+    background-color: #0c0d0e;
+    border-top-left-radius: 16px;
+    border-bottom-left-radius: 16px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: -16px 0px 48px rgba(0, 0, 0, 0.6);
+    margin: 0;
+    padding: 20px;
+}
+
+/* Header Area */
+.header-box {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.title-label {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #f4f4f5;
+}
+
+.status-badge {
+    font-size: 11px;
+    color: #71717a;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.status-badge.working {
+    color: #a1a1aa;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.btn-header {
+    background: transparent;
+    color: #a1a1aa;
+    border: none;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 120ms ease-out;
+}
+
+.btn-header:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: #f4f4f5;
+}
+
+/* Chat Transcript */
+.chat-scroll {
+    background: transparent;
+}
+
+.chat-view {
+    background: transparent;
+    color: #e4e4e7;
+    font-size: 13.5px;
+    padding: 4px;
+}
+
+.chat-view text {
+    background: transparent;
+}
+
+/* Input Area */
+.input-box {
+    margin-top: 6px;
+}
+
+.prompt-entry {
+    background: #141416;
+    color: #fafafa;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 11px 14px;
+    font-size: 13.5px;
+    transition: border-color 150ms ease-out;
+}
+
+.prompt-entry:focus {
+    border-color: rgba(255, 255, 255, 0.28);
+    outline: none;
+}
+
+.btn-send {
+    background: #27272a;
+    color: #fafafa;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 120ms ease-out;
+}
+
+.btn-send:hover {
+    background: #3f3f46;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Footer & Keyboard Shortcuts */
+.footer-box {
+    margin-top: 6px;
+}
+
+.shortcut-label {
+    font-size: 11px;
+    color: #52525b;
+}
