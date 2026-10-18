@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::io::AsyncReadExt;
+use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
 pub fn get_socket_path() -> PathBuf {
@@ -8,11 +8,22 @@ pub fn get_socket_path() -> PathBuf {
     PathBuf::from(runtime_dir).join("pi-ephemeral-overlay.sock")
 }
 
-pub async fn send_toggle() -> Result<(), Box<dyn std::error::Error>> {
+pub fn try_send_toggle() -> bool {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream as StdUnixStream;
+
     let socket_path = get_socket_path();
-    let mut stream = UnixStream::connect(socket_path).await?;
-    stream.write_all(b"TOGGLE\n").await?;
-    Ok(())
+    if let Ok(mut stream) = StdUnixStream::connect(&socket_path) {
+        let _ = stream.write_all(b"TOGGLE\n");
+        let _ = stream.flush();
+        true
+    } else {
+        // Stale socket or not running: remove if broken file exists
+        if socket_path.exists() {
+            let _ = std::fs::remove_file(&socket_path);
+        }
+        false
+    }
 }
 
 pub fn start_ipc_listener(tx: mpsc::UnboundedSender<()>) {

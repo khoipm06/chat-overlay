@@ -26,18 +26,15 @@ struct AppContext {
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
 
-    // If invoked with --toggle: send IPC signal and exit immediately
-    if args.contains(&"--toggle".to_string()) {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create tokio runtime");
-
-        if let Err(e) = rt.block_on(ipc::send_toggle()) {
-            eprintln!("Failed to toggle overlay: {}", e);
-            std::process::exit(1);
-        }
+    // Fast path: if an instance is already running, toggle it and exit immediately (< 2ms)
+    if ipc::try_send_toggle() {
         return glib::ExitCode::SUCCESS;
+    }
+
+    // If explicit --toggle requested but no running instance, return failure
+    if args.contains(&"--toggle".to_string()) {
+        eprintln!("[pi-overlay] Overlay is not running.");
+        return glib::ExitCode::FAILURE;
     }
 
     // Auto-register KDE global shortcut Ctrl+Alt+L if on KDE Plasma
@@ -91,12 +88,16 @@ fn ensure_kde_global_shortcut() {
     if let Ok(exe_path) = std::env::current_exe() {
         let exe_str = exe_path.to_string_lossy();
         let content = format!(
-            "[Desktop Entry]\nName=Pi\nExec={}\nType=Application\nX-KDE-GlobalAccel-CommandShortcut=true\nNoDisplay=true\n",
+            "[Desktop Entry]\nName=Pi\nExec={}\nType=Application\nX-KDE-GlobalAccel-CommandShortcut=true\nNoDisplay=true\nStartupNotify=false\n",
             exe_str
         );
         let _ = std::fs::write(&desktop_file, content);
 
-        let check = std::process::Command::new("kreadconfig6")
+        // Update KDE Sycoca cache so desktop file is indexed
+        let _ = std::process::Command::new("kbuildsycoca6").status();
+
+        // Write configuration into kglobalshortcutsrc for persistence across reboots
+        let _ = std::process::Command::new("kwriteconfig6")
             .args([
                 "--file",
                 "kglobalshortcutsrc",
@@ -106,40 +107,47 @@ fn ensure_kde_global_shortcut() {
                 "pi-overlay.desktop",
                 "--key",
                 "_launch",
+                "Ctrl+Alt+L,none,Pi",
             ])
-            .output();
+            .status();
 
-        let needs_write = match check {
-            Ok(out) => !String::from_utf8_lossy(&out.stdout).contains("Ctrl+Alt+L"),
-            Err(_) => true,
-        };
+        // Register action with live kglobalacceld session
+        let _ = std::process::Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "org.kde.kglobalaccel",
+                "/kglobalaccel",
+                "org.kde.KGlobalAccel",
+                "doRegister",
+                "as",
+                "4",
+                "pi-overlay.desktop",
+                "_launch",
+                "Pi",
+                "Pi",
+            ])
+            .status();
 
-        if needs_write {
-            let _ = std::process::Command::new("kwriteconfig6")
-                .args([
-                    "--file",
-                    "kglobalshortcutsrc",
-                    "--group",
-                    "services",
-                    "--group",
-                    "pi-overlay.desktop",
-                    "--key",
-                    "_launch",
-                    "Ctrl+Alt+L,none,Pi",
-                ])
-                .status();
-
-            let _ = std::process::Command::new("busctl")
-                .args([
-                    "--user",
-                    "call",
-                    "org.kde.KWin",
-                    "/KWin",
-                    "org.kde.KWin",
-                    "reconfigure",
-                ])
-                .status();
-        }
+        // Bind foreign shortcut Ctrl+Alt+L (Qt key code: 201326668) in live kglobalacceld
+        let _ = std::process::Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "org.kde.kglobalaccel",
+                "/kglobalaccel",
+                "org.kde.KGlobalAccel",
+                "setForeignShortcut",
+                "asai",
+                "4",
+                "pi-overlay.desktop",
+                "_launch",
+                "Pi",
+                "Pi",
+                "1",
+                "201326668",
+            ])
+            .status();
     }
 }
 

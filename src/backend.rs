@@ -27,8 +27,8 @@ impl PiRunner {
         self.generation
     }
 
-    /// Hủy tác vụ hiện tại ngay lập tức: tăng generation đồng bộ để ngắt các event cũ
-    /// và reap child process bất đồng bộ tránh zombie.
+    /// Immediately abort active task: increment generation synchronously to cancel stale events,
+    /// and asynchronously reap child process to prevent zombie processes.
     pub fn abort(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         if let Some(mut child) = self.child.take() {
@@ -44,11 +44,11 @@ impl PiRunner {
         prompt: String,
         tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Hủy session cũ trước khi khởi động session mới
+        // Abort previous session before launching new prompt
         self.abort();
         let gen = self.generation;
 
-        // Thư mục session tạm cho chế độ ephemeral
+        // Ephemeral temp session directory
         let session_dir = std::env::temp_dir().join("pi-overlay-sessions");
         let _ = std::fs::create_dir_all(&session_dir);
 
@@ -64,7 +64,7 @@ impl PiRunner {
         let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
         let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
 
-        // Task đọc stdout
+        // Task reading stdout stream
         let tx_out = tx.clone();
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout).lines();
@@ -76,7 +76,7 @@ impl PiRunner {
             let _ = tx_out.send((gen, StreamEvent::Done));
         });
 
-        // Task đọc stderr (tránh pipe buffer deadlock và chuyển thông báo lỗi)
+        // Task reading stderr stream (avoids pipe deadlock and forwards errors)
         let tx_err = tx;
         tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
