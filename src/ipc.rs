@@ -51,3 +51,14 @@ pub fn start_ipc_listener(tx: mpsc::UnboundedSender<()>) {
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_socket_path_structure() {
+        let path = get_socket_path();
+        assert!(path.ends_with("pi-ephemeral-overlay.sock"));
+    }
+}

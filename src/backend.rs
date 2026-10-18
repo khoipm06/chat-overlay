@@ -54,9 +54,10 @@ impl PiRunner {
 
         let mut cmd = Command::new("pi");
         cmd.arg("-p")
-            .arg(prompt)
             .arg("--session-dir")
             .arg(session_dir)
+            .arg("--")
+            .arg(prompt)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -90,5 +91,45 @@ impl PiRunner {
 
         self.child = Some(child);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_runner_initial_state() {
+        let runner = PiRunner::new();
+        assert_eq!(runner.generation(), 1);
+        assert!(runner.child.is_none());
+    }
+
+    #[test]
+    fn test_runner_abort_increments_generation() {
+        let mut runner = PiRunner::new();
+        runner.abort();
+        assert_eq!(runner.generation(), 2);
+        runner.abort();
+        assert_eq!(runner.generation(), 3);
+    }
+
+    #[test]
+    fn test_stream_event_variants() {
+        let content = StreamEvent::Content("hello world".into());
+        let error = StreamEvent::Error("failed to run".into());
+        let done = StreamEvent::Done;
+
+        match content {
+            StreamEvent::Content(c) => assert_eq!(c, "hello world"),
+            _ => panic!("Expected Content variant"),
+        }
+
+        match error {
+            StreamEvent::Error(e) => assert_eq!(e, "failed to run"),
+            _ => panic!("Expected Error variant"),
+        }
+
+        matches!(done, StreamEvent::Done);
     }
 }

@@ -1,4 +1,5 @@
 mod backend;
+mod format;
 mod ipc;
 mod overlay;
 
@@ -6,15 +7,41 @@ use backend::{PiRunner, StreamEvent};
 use gtk4::gdk;
 use gtk4::glib;
 use gtk4::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use tokio::sync::mpsc;
 
 const APP_ID: &str = "com.github.khoipm.pi-overlay";
 
+const THEMES: &[(&str, &str, &str)] = &[
+    ("theme-acrylic", "🌌 Frosted Acrylic", "Translucent dark glass"),
+    ("theme-oled", "⬛ OLED Midnight", "Pure deep black"),
+    ("theme-ocean", "🌊 Deep Ocean", "Deep navy & cyan"),
+    ("theme-emerald", "🌲 Cyber Emerald", "Obsidian & emerald"),
+    ("theme-light", "☀️ Frosted Light", "Bright translucent glass"),
+];
+
+struct TrackedPrompt {
+    #[allow(dead_code)]
+    index: usize,
+    #[allow(dead_code)]
+    text: String,
+    #[allow(dead_code)]
+    widget: gtk4::Box,
+    #[allow(dead_code)]
+    bubble: gtk4::Box,
+}
+
+struct ActiveStreamTarget {
+    label: gtk4::Label,
+    thinking_badge: gtk4::Label,
+    full_text: Rc<RefCell<String>>,
+}
+
 struct AppState {
     visible: bool,
     runner: PiRunner,
+    prompts: Vec<TrackedPrompt>,
 }
 
 struct AppContext {
@@ -169,7 +196,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let window = gtk4::ApplicationWindow::builder()
         .application(app)
         .title("Pi")
-        .default_width(480)
+        .default_width(500)
         .build();
 
     overlay::init_layer_shell(&window);
@@ -180,13 +207,14 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     root_box.set_vexpand(true);
     root_box.set_halign(gtk4::Align::End);
 
-    let drawer = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
+    let drawer = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
     drawer.set_widget_name("drawer-container");
-    drawer.set_width_request(480);
+    drawer.add_css_class("theme-acrylic");
+    drawer.set_width_request(500);
     drawer.set_vexpand(true);
 
     // Header Area: Title + Status + Action Buttons
-    let header_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let header_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
     header_box.add_css_class("header-box");
 
     let title_label = gtk4::Label::new(Some("Pi"));
@@ -197,9 +225,117 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let status_label = gtk4::Label::new(Some("ready"));
     status_label.add_css_class("status-badge");
     status_label.set_halign(gtk4::Align::Start);
-    status_label.set_hexpand(true);
     header_box.append(&status_label);
 
+    let header_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    header_spacer.set_hexpand(true);
+    header_box.append(&header_spacer);
+
+    // ChatGPT-Style Prompt Navigator Button & Popover
+    let btn_prompts = gtk4::MenuButton::builder()
+        .label("💬 Prompts (0)")
+        .css_classes(["btn-header"])
+        .tooltip_text("Jump to previous prompts")
+        .build();
+
+    let prompt_popover = gtk4::Popover::new();
+    prompt_popover.add_css_class("prompt-popover");
+
+    let popover_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    let popover_title = gtk4::Label::builder()
+        .label("Session Prompts")
+        .css_classes(["popover-header-title"])
+        .xalign(0.0)
+        .build();
+    popover_box.append(&popover_title);
+
+    let nav_scrolled = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .max_content_height(260)
+        .propagate_natural_height(true)
+        .build();
+
+    let prompt_list_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    prompt_list_box.set_width_request(260);
+
+    let prompt_empty_placeholder = gtk4::Label::builder()
+        .label("No prompts yet in this session")
+        .css_classes(["prompt-nav-text"])
+        .xalign(0.0)
+        .margin_top(8)
+        .margin_bottom(8)
+        .margin_start(4)
+        .build();
+    prompt_list_box.append(&prompt_empty_placeholder);
+
+    nav_scrolled.set_child(Some(&prompt_list_box));
+    popover_box.append(&nav_scrolled);
+    prompt_popover.set_child(Some(&popover_box));
+    btn_prompts.set_popover(Some(&prompt_popover));
+    header_box.append(&btn_prompts);
+
+    // Theme Switcher Button & Popover
+    let btn_theme = gtk4::MenuButton::builder()
+        .label("🎨 Theme")
+        .css_classes(["btn-header"])
+        .tooltip_text("Switch visual theme")
+        .build();
+
+    let theme_popover = gtk4::Popover::new();
+    theme_popover.add_css_class("theme-popover");
+
+    let theme_pop_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    let theme_title = gtk4::Label::builder()
+        .label("Choose Theme")
+        .css_classes(["popover-header-title"])
+        .xalign(0.0)
+        .build();
+    theme_pop_box.append(&theme_title);
+
+    let theme_list_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    theme_list_box.set_width_request(190);
+
+    let theme_buttons: Rc<RefCell<Vec<(&'static str, gtk4::Button)>>> = Rc::new(RefCell::new(Vec::new()));
+
+    for &(theme_id, theme_name, _) in THEMES {
+        let t_btn = gtk4::Button::builder()
+            .label(theme_name)
+            .css_classes(["btn-menu-item"])
+            .build();
+        if theme_id == "theme-acrylic" {
+            t_btn.add_css_class("active");
+        }
+
+        let drawer_for_theme = drawer.clone();
+        let popover_for_theme = theme_popover.clone();
+        let buttons_list = theme_buttons.clone();
+
+        t_btn.connect_clicked(move |_| {
+            for &(other_id, _, _) in THEMES {
+                drawer_for_theme.remove_css_class(other_id);
+            }
+            drawer_for_theme.add_css_class(theme_id);
+
+            for (id, btn) in buttons_list.borrow().iter() {
+                if *id == theme_id {
+                    btn.add_css_class("active");
+                } else {
+                    btn.remove_css_class("active");
+                }
+            }
+            popover_for_theme.popdown();
+        });
+
+        theme_buttons.borrow_mut().push((theme_id, t_btn.clone()));
+        theme_list_box.append(&t_btn);
+    }
+    theme_pop_box.append(&theme_list_box);
+    theme_popover.set_child(Some(&theme_pop_box));
+    btn_theme.set_popover(Some(&theme_popover));
+    header_box.append(&btn_theme);
+
+    // Clear Button
     let btn_clear = gtk4::Button::builder()
         .label("Clear")
         .css_classes(["btn-header"])
@@ -207,6 +343,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         .build();
     header_box.append(&btn_clear);
 
+    // Close Button
     let btn_close = gtk4::Button::builder()
         .label("✕")
         .css_classes(["btn-header"])
@@ -216,7 +353,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
     drawer.append(&header_box);
 
-    // Chat transcript container
+    // Chat transcript scroll area
     let scrolled = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
@@ -224,30 +361,41 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         .css_classes(["chat-scroll"])
         .build();
 
-    let text_view = gtk4::TextView::builder()
-        .editable(false)
-        .wrap_mode(gtk4::WrapMode::WordChar)
-        .cursor_visible(false)
-        .css_classes(["chat-view"])
+    let messages_box = gtk4::Box::new(gtk4::Orientation::Vertical, 14);
+    messages_box.add_css_class("messages-container");
+    messages_box.set_vexpand(true);
+    messages_box.set_valign(gtk4::Align::Start);
+
+    // Welcome placeholder
+    let welcome_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    welcome_box.add_css_class("welcome-box");
+    welcome_box.set_halign(gtk4::Align::Center);
+    welcome_box.set_valign(gtk4::Align::Center);
+    welcome_box.set_vexpand(true);
+
+    let welcome_icon = gtk4::Label::builder()
+        .label("✨")
+        .css_classes(["welcome-icon"])
+        .xalign(0.5)
         .build();
-    let text_buffer = text_view.buffer();
+    welcome_box.append(&welcome_icon);
 
-    let tag_table = text_buffer.tag_table();
-
-    let user_tag = gtk4::TextTag::builder()
-        .name("user_prompt")
-        .weight(600)
-        .foreground("#ffffff")
+    let welcome_title = gtk4::Label::builder()
+        .label("How can I help you today?")
+        .css_classes(["welcome-title"])
+        .xalign(0.5)
         .build();
-    tag_table.add(&user_tag);
+    welcome_box.append(&welcome_title);
 
-    let err_tag = gtk4::TextTag::builder()
-        .name("error_msg")
-        .foreground("#f87171")
+    let welcome_sub = gtk4::Label::builder()
+        .label("Type your query below • Ctrl+Alt+L to toggle overlay")
+        .css_classes(["welcome-subtitle"])
+        .xalign(0.5)
         .build();
-    tag_table.add(&err_tag);
+    welcome_box.append(&welcome_sub);
 
-    scrolled.set_child(Some(&text_view));
+    messages_box.append(&welcome_box);
+    scrolled.set_child(Some(&messages_box));
     drawer.append(&scrolled);
 
     // Input Area: Entry + Send button
@@ -285,24 +433,96 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let state = Rc::new(RefCell::new(AppState {
         visible: true,
         runner: PiRunner::new(),
+        prompts: Vec::new(),
     }));
 
+    let active_stream: Rc<RefCell<Option<ActiveStreamTarget>>> = Rc::new(RefCell::new(None));
+
+    let autoscroll_enabled = Rc::new(Cell::new(true));
+
+    // Auto-scroll to bottom whenever content size changes if autoscroll is active
+    {
+        let autoscroll = autoscroll_enabled.clone();
+        scrolled.vadjustment().connect_changed(move |adj| {
+            if autoscroll.get() {
+                adj.set_value((adj.upper() - adj.page_size()).max(0.0));
+            }
+        });
+    }
+
+    // Smooth scroll to bottom function
     let scroll_to_bottom = {
-        let text_view = text_view.clone();
-        let text_buffer = text_buffer.clone();
+        let scrolled = scrolled.clone();
+        let autoscroll = autoscroll_enabled.clone();
         Rc::new(move || {
-            let iter = text_buffer.end_iter();
-            let mark = text_buffer.create_mark(None, &iter, false);
-            text_view.scroll_to_mark(&mark, 0.0, false, 0.0, 1.0);
+            autoscroll.set(true);
+            let scrolled_clone = scrolled.clone();
+            glib::idle_add_local_once(move || {
+                let vadj = scrolled_clone.vadjustment();
+                vadj.set_value((vadj.upper() - vadj.page_size()).max(0.0));
+            });
         })
     };
 
-    // Hide and reset ephemeral state
-    let hide_and_clean = {
-        let window = window.clone();
-        let entry = entry.clone();
-        let text_buffer = text_buffer.clone();
+    // Scroll to specific widget function (for Prompt Navigator)
+    let scroll_to_widget = {
+        let scrolled = scrolled.clone();
+        let messages_box = messages_box.clone();
+        let autoscroll = autoscroll_enabled.clone();
+        Rc::new(move |widget: &gtk4::Box| {
+            autoscroll.set(false);
+            if let Some((_, y)) = widget.translate_coordinates(&messages_box, 0.0, 0.0) {
+                let scrolled_clone = scrolled.clone();
+                glib::idle_add_local_once(move || {
+                    let vadj = scrolled_clone.vadjustment();
+                    vadj.set_value(y.max(0.0));
+                });
+            }
+        })
+    };
+
+    // Clear all conversation state
+    let clear_conversation = {
+        let messages_box = messages_box.clone();
+        let welcome_box = welcome_box.clone();
+        let prompt_list_box = prompt_list_box.clone();
+        let prompt_empty_placeholder = prompt_empty_placeholder.clone();
+        let btn_prompts = btn_prompts.clone();
         let status_label = status_label.clone();
+        let state = state.clone();
+        let active_stream = active_stream.clone();
+        let autoscroll = autoscroll_enabled.clone();
+        let entry = entry.clone();
+
+        Rc::new(move || {
+            while let Some(child) = messages_box.first_child() {
+                messages_box.remove(&child);
+            }
+            messages_box.append(&welcome_box);
+            welcome_box.set_visible(true);
+
+            state.borrow_mut().prompts.clear();
+
+            while let Some(child) = prompt_list_box.first_child() {
+                prompt_list_box.remove(&child);
+            }
+            prompt_list_box.append(&prompt_empty_placeholder);
+            prompt_empty_placeholder.set_visible(true);
+            btn_prompts.set_label("💬 Prompts (0)");
+
+            status_label.set_text("ready");
+            status_label.remove_css_class("working");
+            state.borrow_mut().runner.abort();
+            *active_stream.borrow_mut() = None;
+            autoscroll.set(true);
+            entry.set_text("");
+            entry.grab_focus();
+        })
+    };
+
+    // Hide overlay window (preserves conversation transcript)
+    let hide_overlay = {
+        let window = window.clone();
         let state = state.clone();
 
         Rc::new(move || {
@@ -311,14 +531,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 return;
             }
             st.visible = false;
-
             overlay::hide_overlay(&window);
-            st.runner.abort();
-
-            text_buffer.set_text("");
-            entry.set_text("");
-            status_label.set_text("ready");
-            status_label.remove_css_class("working");
         })
     };
 
@@ -343,13 +556,13 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     // Toggle drawer
     let toggle = {
         let show_drawer = show_drawer.clone();
-        let hide_and_clean = hide_and_clean.clone();
+        let hide_overlay = hide_overlay.clone();
         let state = state.clone();
 
         Rc::new(move || {
             let is_vis = state.borrow().visible;
             if is_vis {
-                hide_and_clean();
+                hide_overlay();
             } else {
                 show_drawer();
             }
@@ -357,29 +570,23 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     };
 
     // Connect Close button
-    let on_close_click = hide_and_clean.clone();
+    let on_close_click = hide_overlay.clone();
     btn_close.connect_clicked(move |_| {
         on_close_click();
     });
 
     // Connect Clear button
-    let buffer_for_clear_btn = text_buffer.clone();
-    let status_for_clear_btn = status_label.clone();
-    let state_for_clear_btn = state.clone();
+    let on_clear_click = clear_conversation.clone();
     btn_clear.connect_clicked(move |_| {
-        buffer_for_clear_btn.set_text("");
-        status_for_clear_btn.set_text("ready");
-        status_for_clear_btn.remove_css_class("working");
-        state_for_clear_btn.borrow_mut().runner.abort();
+        on_clear_click();
     });
 
     // Handle Keyboard Shortcuts on Window
     let key_controller = gtk4::EventControllerKey::new();
+    key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
     let toggle_on_hotkey = toggle.clone();
-    let hide_on_esc = hide_and_clean.clone();
-    let buffer_for_ctrl_l = text_buffer.clone();
-    let status_for_ctrl_l = status_label.clone();
-    let state_for_ctrl_l = state.clone();
+    let hide_on_esc = hide_overlay.clone();
+    let clear_on_ctrl_l = clear_conversation.clone();
 
     key_controller.connect_key_pressed(move |_, keyval, _, state_modifier| {
         let is_ctrl = state_modifier.contains(gdk::ModifierType::CONTROL_MASK);
@@ -394,10 +601,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             glib::Propagation::Stop
         } else if (keyval == gdk::Key::l || keyval == gdk::Key::L) && is_ctrl && !is_alt {
             // Ctrl + L to clear
-            buffer_for_ctrl_l.set_text("");
-            status_for_ctrl_l.set_text("ready");
-            status_for_ctrl_l.remove_css_class("working");
-            state_for_ctrl_l.borrow_mut().runner.abort();
+            clear_on_ctrl_l();
             glib::Propagation::Stop
         } else {
             glib::Propagation::Proceed
@@ -407,34 +611,45 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
     // Channel for streamed output from Pi
     let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<(u64, StreamEvent)>();
-    let buffer_clone = text_buffer.clone();
     let status_clone = status_label.clone();
     let state_clone = state.clone();
     let scroll_fn = scroll_to_bottom.clone();
+    let active_stream_clone = active_stream.clone();
 
     glib::spawn_future_local(async move {
         while let Some((gen, event)) = stream_rx.recv().await {
             let st = state_clone.borrow();
-            if !st.visible || gen != st.runner.generation() {
+            if gen != st.runner.generation() {
                 continue;
             }
 
             match event {
                 StreamEvent::Content(line) => {
-                    let mut iter = buffer_clone.end_iter();
-                    buffer_clone.insert(&mut iter, &format!("{}\n", line));
+                    if let Some(ref target) = *active_stream_clone.borrow() {
+                        let mut full = target.full_text.borrow_mut();
+                        if !full.is_empty() {
+                            full.push('\n');
+                        }
+                        full.push_str(&line);
+                        format::apply_assistant_markup(&target.label, &full);
+                    }
                     scroll_fn();
                 }
                 StreamEvent::Error(err_line) => {
-                    let mut iter = buffer_clone.end_iter();
-                    buffer_clone.insert_with_tags_by_name(
-                        &mut iter,
-                        &format!("[Error] {}\n", err_line),
-                        &["error_msg"],
-                    );
+                    if let Some(ref target) = *active_stream_clone.borrow() {
+                        let mut full = target.full_text.borrow_mut();
+                        if !full.is_empty() {
+                            full.push('\n');
+                        }
+                        full.push_str(&format!("[Error] {}", err_line));
+                        format::apply_assistant_markup(&target.label, &full);
+                    }
                     scroll_fn();
                 }
                 StreamEvent::Done => {
+                    if let Some(ref target) = *active_stream_clone.borrow() {
+                        target.thinking_badge.set_text("");
+                    }
                     status_clone.set_text("ready");
                     status_clone.remove_css_class("working");
                     scroll_fn();
@@ -446,11 +661,18 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     // Prompt submission logic
     let submit_prompt = {
         let entry = entry.clone();
-        let text_buffer = text_buffer.clone();
+        let messages_box = messages_box.clone();
+        let welcome_box = welcome_box.clone();
+        let prompt_list_box = prompt_list_box.clone();
+        let prompt_empty_placeholder = prompt_empty_placeholder.clone();
+        let btn_prompts = btn_prompts.clone();
+        let prompt_popover = prompt_popover.clone();
         let status_label = status_label.clone();
         let state = state.clone();
+        let active_stream = active_stream.clone();
         let stream_tx = stream_tx.clone();
         let scroll_fn = scroll_to_bottom.clone();
+        let scroll_to_widget = scroll_to_widget.clone();
 
         Rc::new(move || {
             let prompt = entry.text().to_string();
@@ -459,13 +681,148 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             }
 
             entry.set_text("");
+            welcome_box.set_visible(false);
 
-            let mut iter = text_buffer.end_iter();
-            text_buffer.insert_with_tags_by_name(
-                &mut iter,
-                &format!("❯ {}\n\n", prompt),
-                &["user_prompt"],
-            );
+            let prompt_idx = state.borrow().prompts.len() + 1;
+
+            // 1. Create User Message Bubble (Messenger / iMessage pill)
+            let user_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+            user_row.set_halign(gtk4::Align::End);
+            user_row.add_css_class("bubble-user-row");
+
+            let user_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+            user_bubble.add_css_class("chat-bubble-user");
+
+            let user_label = gtk4::Label::builder()
+                .label(&prompt)
+                .wrap(true)
+                .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                .selectable(true)
+                .xalign(0.0)
+                .css_classes(["bubble-user-text"])
+                .build();
+            user_bubble.append(&user_label);
+            user_row.append(&user_bubble);
+            messages_box.append(&user_row);
+
+            // 2. Track in Prompt Navigator
+            state.borrow_mut().prompts.push(TrackedPrompt {
+                index: prompt_idx,
+                text: prompt.clone(),
+                widget: user_row.clone(),
+                bubble: user_bubble.clone(),
+            });
+
+            btn_prompts.set_label(&format!("💬 Prompts ({})", prompt_idx));
+            prompt_empty_placeholder.set_visible(false);
+
+            let nav_btn = gtk4::Button::builder()
+                .css_classes(["btn-menu-item"])
+                .build();
+            let nav_btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            let nav_badge = gtk4::Label::builder()
+                .label(&format!("#{}", prompt_idx))
+                .css_classes(["prompt-nav-badge"])
+                .build();
+            let snippet = if prompt.chars().count() > 28 {
+                format!("{}…", prompt.chars().take(28).collect::<String>())
+            } else {
+                prompt.clone()
+            };
+            let nav_text = gtk4::Label::builder()
+                .label(&snippet)
+                .css_classes(["prompt-nav-text"])
+                .ellipsize(gtk4::pango::EllipsizeMode::End)
+                .xalign(0.0)
+                .build();
+            nav_text.set_hexpand(true);
+            nav_btn_box.append(&nav_badge);
+            nav_btn_box.append(&nav_text);
+            nav_btn.set_child(Some(&nav_btn_box));
+
+            let target_row = user_row.clone();
+            let target_bubble = user_bubble.clone();
+            let popover_clone = prompt_popover.clone();
+            let scroll_fn_widget = scroll_to_widget.clone();
+
+            nav_btn.connect_clicked(move |_| {
+                popover_clone.popdown();
+                scroll_fn_widget(&target_row);
+                target_bubble.add_css_class("bubble-highlight");
+                let b_clone = target_bubble.clone();
+                glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+                    b_clone.remove_css_class("bubble-highlight");
+                });
+            });
+            prompt_list_box.append(&nav_btn);
+
+            // 3. Create Assistant Message Bubble
+            let asst_row = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+            asst_row.set_halign(gtk4::Align::Fill);
+            asst_row.add_css_class("bubble-assistant-row");
+
+            let asst_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+            asst_bubble.add_css_class("chat-bubble-assistant");
+
+            let asst_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+            asst_header.add_css_class("bubble-assistant-header");
+
+            let asst_badge = gtk4::Label::new(Some("⚡ Pi"));
+            asst_badge.add_css_class("bubble-assistant-badge");
+            asst_header.append(&asst_badge);
+
+            let thinking_badge = gtk4::Label::new(Some("thinking..."));
+            thinking_badge.add_css_class("bubble-thinking-badge");
+            asst_header.append(&thinking_badge);
+
+            let asst_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+            asst_spacer.set_hexpand(true);
+            asst_header.append(&asst_spacer);
+
+            let btn_copy = gtk4::Button::builder()
+                .label("📋 Copy")
+                .css_classes(["btn-bubble-copy"])
+                .tooltip_text("Copy response to clipboard")
+                .build();
+            asst_header.append(&btn_copy);
+            asst_bubble.append(&asst_header);
+
+            let divider = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+            divider.add_css_class("bubble-divider");
+            asst_bubble.append(&divider);
+
+            let asst_label = gtk4::Label::builder()
+                .selectable(true)
+                .wrap(true)
+                .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                .xalign(0.0)
+                .css_classes(["bubble-assistant-text"])
+                .build();
+            asst_bubble.append(&asst_label);
+            asst_row.append(&asst_bubble);
+            messages_box.append(&asst_row);
+
+            let full_text = Rc::new(RefCell::new(String::new()));
+            let copy_text_ref = full_text.clone();
+            let copy_btn_clone = btn_copy.clone();
+            btn_copy.connect_clicked(move |_| {
+                let content = copy_text_ref.borrow().clone();
+                if let Some(display) = gdk::Display::default() {
+                    display.clipboard().set_text(&content);
+                }
+                copy_btn_clone.set_label("✓ Copied");
+                let reset_btn = copy_btn_clone.clone();
+                glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+                    reset_btn.set_label("📋 Copy");
+                });
+            });
+
+            *active_stream.borrow_mut() = Some(ActiveStreamTarget {
+                label: asst_label.clone(),
+                thinking_badge: thinking_badge.clone(),
+                full_text: full_text.clone(),
+            });
+
             scroll_fn();
 
             status_label.set_text("thinking...");
@@ -473,12 +830,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
             let mut st = state.borrow_mut();
             if let Err(e) = st.runner.spawn_prompt(prompt, stream_tx.clone()) {
-                let mut iter = text_buffer.end_iter();
-                text_buffer.insert_with_tags_by_name(
-                    &mut iter,
-                    &format!("[Error] Failed to spawn pi: {}\n\n", e),
-                    &["error_msg"],
-                );
+                let err_str = format!("[Error] Failed to spawn pi: {}", e);
+                full_text.borrow_mut().push_str(&err_str);
+                format::apply_assistant_markup(&asst_label, &err_str);
+                thinking_badge.set_text("");
                 status_label.set_text("error");
                 status_label.remove_css_class("working");
                 scroll_fn();
