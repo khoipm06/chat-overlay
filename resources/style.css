@@ -491,3 +491,113 @@ popover contents {
 .theme-light .shortcut-label {
     color: #a1a1aa;
 }
+
+/* =========================================================================
+   Floating Bubble (Messenger Chat Head) Styling
+   ========================================================================= */
+.floating-bubble-btn {
+    min-width: 56px;
+    min-height: 56px;
+    border-radius: 28px;
+    background-color: rgba(15, 17, 23, 0.84);
+    border: 1.5px solid rgba(255, 255, 255, 0.2);
+    box-shadow: -4px 8px 30px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    padding: 0;
+    margin: 2px;
+    transition: all 200ms ease-out;
+}
+
+.floating-bubble-btn:hover {
+    background-color: rgba(25, 30, 44, 0.94);
+    border-color: rgba(56, 189, 248, 0.7);
+    box-shadow: -4px 10px 34px rgba(56, 189, 248, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.floating-bubble-btn:active {
+    background-color: rgba(12, 14, 20, 0.96);
+    border-color: #38bdf8;
+    box-shadow: -2px 4px 14px rgba(56, 189, 248, 0.45);
+}
+
+.floating-bubble-icon {
+    font-size: 28px;
+    font-weight: 700;
+    color: #38bdf8;
+    line-height: 1;
+}
+
+.floating-bubble-dot {
+    background-color: #38bdf8;
+    border: 2px solid #0f1117;
+    border-radius: 50%;
+    margin-top: 4px;
+    margin-right: 4px;
+    min-width: 10px;
+    min-height: 10px;
+}
+
+.floating-bubble-btn.thinking {
+    border-color: #38bdf8;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+/* Floating Bubble Themes */
+.floating-bubble-btn.theme-acrylic {
+    background-color: rgba(15, 17, 23, 0.84);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.floating-bubble-btn.theme-acrylic .floating-bubble-icon {
+    color: #38bdf8;
+}
+
+.floating-bubble-btn.theme-oled {
+    background-color: #000000;
+    border-color: #3f3f46;
+    box-shadow: -4px 8px 30px rgba(0, 0, 0, 0.95);
+}
+
+.floating-bubble-btn.theme-oled .floating-bubble-icon {
+    color: #f4f4f5;
+}
+
+.floating-bubble-btn.theme-ocean {
+    background-color: rgba(10, 22, 40, 0.88);
+    border-color: rgba(56, 189, 248, 0.35);
+    box-shadow: -4px 8px 30px rgba(0, 10, 25, 0.8);
+}
+
+.floating-bubble-btn.theme-ocean .floating-bubble-icon {
+    color: #38bdf8;
+}
+
+.floating-bubble-btn.theme-emerald {
+    background-color: rgba(10, 22, 18, 0.88);
+    border-color: rgba(16, 185, 129, 0.35);
+    box-shadow: -4px 8px 30px rgba(0, 15, 10, 0.8);
+}
+
+.floating-bubble-btn.theme-emerald .floating-bubble-icon {
+    color: #10b981;
+}
+
+.floating-bubble-btn.theme-emerald .floating-bubble-dot {
+    background-color: #10b981;
+}
+
+.floating-bubble-btn.theme-light {
+    background-color: rgba(248, 249, 252, 0.94);
+    border-color: rgba(0, 0, 0, 0.16);
+    box-shadow: -4px 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.floating-bubble-btn.theme-light .floating-bubble-icon {
+    color: #0284c7;
+}
+
+.floating-bubble-btn.theme-light:hover {
+    background-color: #ffffff;
+    border-color: #0284c7;
+    box-shadow: -4px 10px 28px rgba(2, 132, 199, 0.28);
+}
+

@@ -274,5 +274,91 @@ mod tests {
 
         let (_, asst_h) = asst_bubble.preferred_size();
         assert!(asst_h.height() > 0, "Assistant bubble must have non-zero height!");
+
+        // 3. Verify Floating Bubble (Messenger Chat Head) widget and size transitions
+        let bubble_button = gtk4::Button::builder()
+            .css_classes(["floating-bubble-btn", "theme-acrylic"])
+            .valign(gtk4::Align::Center)
+            .halign(gtk4::Align::End)
+            .width_request(56)
+            .height_request(56)
+            .visible(false)
+            .build();
+
+        let bubble_overlay = gtk4::Overlay::new();
+        let bubble_label = gtk4::Label::builder()
+            .label("π")
+            .css_classes(["floating-bubble-icon"])
+            .halign(gtk4::Align::Center)
+            .valign(gtk4::Align::Center)
+            .build();
+        bubble_overlay.set_child(Some(&bubble_label));
+
+        let bubble_dot = gtk4::Box::builder()
+            .css_classes(["floating-bubble-dot"])
+            .halign(gtk4::Align::End)
+            .valign(gtk4::Align::Start)
+            .width_request(10)
+            .height_request(10)
+            .visible(false)
+            .build();
+        bubble_overlay.add_overlay(&bubble_dot);
+        bubble_button.set_child(Some(&bubble_overlay));
+
+        // Drawer simulation
+        let drawer = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
+        drawer.add_css_class("theme-acrylic");
+        drawer.set_width_request(500);
+        drawer.set_vexpand(true);
+
+        // Assemble Root Box
+        let root_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        root_box.set_halign(gtk4::Align::End);
+        root_box.append(&bubble_button);
+        root_box.append(&drawer);
+
+        let bubble_win = gtk4::Window::builder()
+            .default_width(500)
+            .default_height(700)
+            .child(&root_box)
+            .build();
+        bubble_win.present();
+
+        // Verify Expanded state measurement
+        drawer.set_visible(true);
+        bubble_button.set_visible(false);
+        let (_, expanded_req) = root_box.preferred_size();
+        assert!(expanded_req.width() >= 500, "Expanded mode must request >= 500px width");
+
+        // Verify Collapsed state measurement
+        drawer.set_visible(false);
+        bubble_button.set_visible(true);
+        let (_, collapsed_req) = root_box.preferred_size();
+        assert!(collapsed_req.width() <= 70, "Collapsed bubble mode must request compact width (~56px)");
+        assert!(collapsed_req.height() <= 70, "Collapsed bubble mode must request compact height (~56px)");
+
+        // Verify Thinking status indicator
+        bubble_dot.set_visible(true);
+        bubble_button.add_css_class("thinking");
+        assert!(bubble_dot.is_visible());
+        assert!(bubble_button.has_css_class("thinking"));
+
+        bubble_dot.set_visible(false);
+        bubble_button.remove_css_class("thinking");
+        assert!(!bubble_dot.is_visible());
+        assert!(!bubble_button.has_css_class("thinking"));
+
+        // Verify Theme Switching propagation
+        let themes = ["theme-acrylic", "theme-oled", "theme-ocean", "theme-emerald", "theme-light"];
+        for t in &themes {
+            for other in &themes {
+                drawer.remove_css_class(other);
+                bubble_button.remove_css_class(other);
+            }
+            drawer.add_css_class(t);
+            bubble_button.add_css_class(t);
+            assert!(drawer.has_css_class(t));
+            assert!(bubble_button.has_css_class(t));
+        }
     }
 }

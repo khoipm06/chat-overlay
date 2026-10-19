@@ -38,8 +38,14 @@ struct ActiveStreamTarget {
     full_text: Rc<RefCell<String>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayMode {
+    Expanded,
+    Collapsed,
+}
+
 struct AppState {
-    visible: bool,
+    mode: OverlayMode,
     runner: PiRunner,
     prompts: Vec<TrackedPrompt>,
 }
@@ -203,9 +209,42 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
     // Root overlay container
     let root_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    root_box.set_hexpand(true);
-    root_box.set_vexpand(true);
     root_box.set_halign(gtk4::Align::End);
+    root_box.set_vexpand(true);
+
+    // Floating Bubble (Messenger Chat Head) button
+    let bubble_button = gtk4::Button::builder()
+        .css_classes(["floating-bubble-btn", "theme-acrylic"])
+        .tooltip_text("Pi Assistant (Click to expand • Ctrl+Alt+L)")
+        .valign(gtk4::Align::Center)
+        .halign(gtk4::Align::End)
+        .width_request(56)
+        .height_request(56)
+        .visible(false)
+        .build();
+    bubble_button.set_cursor_from_name(Some("pointer"));
+
+    let bubble_overlay = gtk4::Overlay::new();
+    let bubble_label = gtk4::Label::builder()
+        .label("π")
+        .css_classes(["floating-bubble-icon"])
+        .halign(gtk4::Align::Center)
+        .valign(gtk4::Align::Center)
+        .build();
+    bubble_overlay.set_child(Some(&bubble_label));
+
+    let bubble_dot = gtk4::Box::builder()
+        .css_classes(["floating-bubble-dot"])
+        .halign(gtk4::Align::End)
+        .valign(gtk4::Align::Start)
+        .width_request(10)
+        .height_request(10)
+        .visible(false)
+        .build();
+    bubble_overlay.add_overlay(&bubble_dot);
+
+    bubble_button.set_child(Some(&bubble_overlay));
+    root_box.append(&bubble_button);
 
     let drawer = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
     drawer.set_widget_name("drawer-container");
@@ -308,14 +347,17 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         }
 
         let drawer_for_theme = drawer.clone();
+        let bubble_for_theme = bubble_button.clone();
         let popover_for_theme = theme_popover.clone();
         let buttons_list = theme_buttons.clone();
 
         t_btn.connect_clicked(move |_| {
             for &(other_id, _, _) in THEMES {
                 drawer_for_theme.remove_css_class(other_id);
+                bubble_for_theme.remove_css_class(other_id);
             }
             drawer_for_theme.add_css_class(theme_id);
+            bubble_for_theme.add_css_class(theme_id);
 
             for (id, btn) in buttons_list.borrow().iter() {
                 if *id == theme_id {
@@ -343,11 +385,11 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         .build();
     header_box.append(&btn_clear);
 
-    // Close Button
+    // Close Button (minimizes to compact floating bubble)
     let btn_close = gtk4::Button::builder()
         .label("✕")
         .css_classes(["btn-header"])
-        .tooltip_text("Close (Esc)")
+        .tooltip_text("Minimize to bubble (Esc)")
         .build();
     header_box.append(&btn_close);
 
@@ -420,7 +462,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     // Footer with keyboard shortcut hints
     let footer_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     footer_box.add_css_class("footer-box");
-    let shortcut_hint = gtk4::Label::new(Some("Ctrl+Alt+L: Toggle  •  Esc: Close  •  Ctrl+L: Clear"));
+    let shortcut_hint = gtk4::Label::new(Some("Ctrl+Alt+L: Toggle  •  Esc / Click outside: Minimize  •  Ctrl+L: Clear"));
     shortcut_hint.add_css_class("shortcut-label");
     shortcut_hint.set_halign(gtk4::Align::Center);
     shortcut_hint.set_hexpand(true);
@@ -431,7 +473,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     window.set_child(Some(&root_box));
 
     let state = Rc::new(RefCell::new(AppState {
-        visible: true,
+        mode: OverlayMode::Expanded,
         runner: PiRunner::new(),
         prompts: Vec::new(),
     }));
@@ -493,6 +535,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let active_stream = active_stream.clone();
         let autoscroll = autoscroll_enabled.clone();
         let entry = entry.clone();
+        let bubble_dot = bubble_dot.clone();
+        let bubble_button = bubble_button.clone();
 
         Rc::new(move || {
             while let Some(child) = messages_box.first_child() {
@@ -512,6 +556,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
             status_label.set_text("ready");
             status_label.remove_css_class("working");
+            bubble_dot.set_visible(false);
+            bubble_button.remove_css_class("thinking");
             state.borrow_mut().runner.abort();
             *active_stream.borrow_mut() = None;
             autoscroll.set(true);
@@ -520,73 +566,160 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         })
     };
 
-    // Hide overlay window (preserves conversation transcript)
-    let hide_overlay = {
+    let just_expanded = Rc::new(Cell::new(false));
+
+    // Collapse to floating circular bubble
+    let collapse_to_bubble = {
         let window = window.clone();
+        let drawer = drawer.clone();
+        let bubble_button = bubble_button.clone();
+        let root_box = root_box.clone();
         let state = state.clone();
 
         Rc::new(move || {
             let mut st = state.borrow_mut();
-            if !st.visible {
+            if st.mode == OverlayMode::Collapsed {
                 return;
             }
-            st.visible = false;
-            overlay::hide_overlay(&window);
+            st.mode = OverlayMode::Collapsed;
+
+            // Hide drawer, show compact floating bubble
+            drawer.set_visible(false);
+            bubble_button.set_visible(true);
+            root_box.set_vexpand(false);
+            root_box.set_hexpand(false);
+
+            overlay::collapse_to_bubble(&window);
+            window.queue_resize();
         })
     };
 
-    // Show drawer and focus input
-    let show_drawer = {
+    // Expand to full drawer
+    let expand_to_drawer = {
         let window = window.clone();
+        let drawer = drawer.clone();
+        let bubble_button = bubble_button.clone();
+        let root_box = root_box.clone();
         let entry = entry.clone();
         let state = state.clone();
+        let just_expanded = just_expanded.clone();
 
         Rc::new(move || {
             let mut st = state.borrow_mut();
-            if st.visible {
+            if st.mode == OverlayMode::Expanded {
                 return;
             }
-            st.visible = true;
+            st.mode = OverlayMode::Expanded;
+            just_expanded.set(true);
 
-            overlay::show_overlay(&window);
+            // Hide floating bubble, show full drawer
+            bubble_button.set_visible(false);
+            drawer.set_visible(true);
+            root_box.set_vexpand(true);
+
+            overlay::expand_overlay(&window);
+            window.queue_resize();
             entry.grab_focus();
+
+            let je = just_expanded.clone();
+            glib::timeout_add_local_once(std::time::Duration::from_millis(350), move || {
+                je.set(false);
+            });
         })
     };
 
-    // Toggle drawer
+    // Toggle between drawer and floating bubble
     let toggle = {
-        let show_drawer = show_drawer.clone();
-        let hide_overlay = hide_overlay.clone();
+        let expand_to_drawer = expand_to_drawer.clone();
+        let collapse_to_bubble = collapse_to_bubble.clone();
         let state = state.clone();
 
         Rc::new(move || {
-            let is_vis = state.borrow().visible;
-            if is_vis {
-                hide_overlay();
-            } else {
-                show_drawer();
+            let mode = state.borrow().mode;
+            match mode {
+                OverlayMode::Expanded => collapse_to_bubble(),
+                OverlayMode::Collapsed => expand_to_drawer(),
             }
         })
     };
 
-    // Connect Close button
-    let on_close_click = hide_overlay.clone();
+    // Clicking floating bubble expands the drawer
+    let on_bubble_click = expand_to_drawer.clone();
+    bubble_button.connect_clicked(move |_| {
+        on_bubble_click();
+    });
+
+    // Close button minimizes to bubble
+    let on_close_click = collapse_to_bubble.clone();
     btn_close.connect_clicked(move |_| {
         on_close_click();
     });
 
-    // Connect Clear button
+    // Clear button
     let on_clear_click = clear_conversation.clone();
     btn_clear.connect_clicked(move |_| {
         on_clear_click();
     });
 
+    // Auto-minimize on focus loss (Click Outside)
+    {
+        let collapse_on_blur = collapse_to_bubble.clone();
+        let state_blur = state.clone();
+        let just_expanded_blur = just_expanded.clone();
+        let prompt_pop_blur = prompt_popover.clone();
+        let theme_pop_blur = theme_popover.clone();
+
+        window.connect_is_active_notify(move |win| {
+            if !win.is_active() {
+                if just_expanded_blur.get() {
+                    return;
+                }
+                if prompt_pop_blur.is_visible() || theme_pop_blur.is_visible() {
+                    return;
+                }
+                if state_blur.borrow().mode == OverlayMode::Expanded {
+                    collapse_on_blur();
+                }
+            }
+        });
+
+        let collapse_on_pop_close = collapse_to_bubble.clone();
+        let state_pop_close = state.clone();
+        let win_pop_close = window.clone();
+        let je_pop_close = just_expanded.clone();
+
+        let check_focus_after_popover = Rc::new(move || {
+            let win = win_pop_close.clone();
+            let collapse = collapse_on_pop_close.clone();
+            let st = state_pop_close.clone();
+            let je = je_pop_close.clone();
+
+            glib::idle_add_local_once(move || {
+                if !win.is_active() && !je.get() && st.borrow().mode == OverlayMode::Expanded {
+                    collapse();
+                }
+            });
+        });
+
+        let p1 = check_focus_after_popover.clone();
+        prompt_popover.connect_closed(move |_| {
+            p1();
+        });
+
+        let p2 = check_focus_after_popover.clone();
+        theme_popover.connect_closed(move |_| {
+            p2();
+        });
+    }
+
     // Handle Keyboard Shortcuts on Window
     let key_controller = gtk4::EventControllerKey::new();
     key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
     let toggle_on_hotkey = toggle.clone();
-    let hide_on_esc = hide_overlay.clone();
+    let collapse_on_esc = collapse_to_bubble.clone();
     let clear_on_ctrl_l = clear_conversation.clone();
+    let prompt_pop_esc = prompt_popover.clone();
+    let theme_pop_esc = theme_popover.clone();
 
     key_controller.connect_key_pressed(move |_, keyval, _, state_modifier| {
         let is_ctrl = state_modifier.contains(gdk::ModifierType::CONTROL_MASK);
@@ -597,7 +730,15 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             toggle_on_hotkey();
             glib::Propagation::Stop
         } else if keyval == gdk::Key::Escape {
-            hide_on_esc();
+            if prompt_pop_esc.is_visible() {
+                prompt_pop_esc.popdown();
+                return glib::Propagation::Stop;
+            }
+            if theme_pop_esc.is_visible() {
+                theme_pop_esc.popdown();
+                return glib::Propagation::Stop;
+            }
+            collapse_on_esc();
             glib::Propagation::Stop
         } else if (keyval == gdk::Key::l || keyval == gdk::Key::L) && is_ctrl && !is_alt {
             // Ctrl + L to clear
@@ -615,6 +756,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let state_clone = state.clone();
     let scroll_fn = scroll_to_bottom.clone();
     let active_stream_clone = active_stream.clone();
+    let bubble_dot_stream = bubble_dot.clone();
+    let bubble_btn_stream = bubble_button.clone();
 
     glib::spawn_future_local(async move {
         while let Some((gen, event)) = stream_rx.recv().await {
@@ -652,6 +795,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                     }
                     status_clone.set_text("ready");
                     status_clone.remove_css_class("working");
+                    bubble_dot_stream.set_visible(false);
+                    bubble_btn_stream.remove_css_class("thinking");
                     scroll_fn();
                 }
             }
@@ -673,6 +818,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let stream_tx = stream_tx.clone();
         let scroll_fn = scroll_to_bottom.clone();
         let scroll_to_widget = scroll_to_widget.clone();
+        let bubble_dot = bubble_dot.clone();
+        let bubble_button = bubble_button.clone();
 
         Rc::new(move || {
             let prompt = entry.text().to_string();
@@ -827,6 +974,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
             status_label.set_text("thinking...");
             status_label.add_css_class("working");
+            bubble_dot.set_visible(true);
+            bubble_button.add_css_class("thinking");
 
             let mut st = state.borrow_mut();
             if let Err(e) = st.runner.spawn_prompt(prompt, stream_tx.clone()) {
@@ -836,6 +985,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 thinking_badge.set_text("");
                 status_label.set_text("error");
                 status_label.remove_css_class("working");
+                bubble_dot.set_visible(false);
+                bubble_button.remove_css_class("thinking");
                 scroll_fn();
             }
         })
@@ -869,5 +1020,40 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     AppContext {
         window,
         toggle,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_overlay_mode_enum_and_state() {
+        let mut state = AppState {
+            mode: OverlayMode::Expanded,
+            runner: PiRunner::new(),
+            prompts: Vec::new(),
+        };
+
+        assert_eq!(state.mode, OverlayMode::Expanded);
+
+        // Transition to Collapsed
+        state.mode = OverlayMode::Collapsed;
+        assert_eq!(state.mode, OverlayMode::Collapsed);
+
+        // Transition back to Expanded
+        state.mode = OverlayMode::Expanded;
+        assert_eq!(state.mode, OverlayMode::Expanded);
+    }
+
+    #[test]
+    fn test_theme_list_integrity() {
+        assert!(THEMES.len() >= 5);
+        let ids: Vec<&str> = THEMES.iter().map(|(id, _, _)| *id).collect();
+        assert!(ids.contains(&"theme-acrylic"));
+        assert!(ids.contains(&"theme-oled"));
+        assert!(ids.contains(&"theme-ocean"));
+        assert!(ids.contains(&"theme-emerald"));
+        assert!(ids.contains(&"theme-light"));
     }
 }
