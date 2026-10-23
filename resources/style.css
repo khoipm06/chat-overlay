@@ -77,6 +77,36 @@ window {
     border-color: rgba(255, 255, 255, 0.08);
 }
 
+#drawer-container.theme-dracula {
+    background-color: rgba(40, 42, 54, 0.96);    /* Dracula background #282a36 */
+    border: 1px solid rgba(98, 114, 164, 0.45);  /* Dracula comment */
+    color: #f8f8f2;                              /* Dracula foreground */
+}
+
+#drawer-container.theme-catppuccin-mocha {
+    background-color: rgba(30, 30, 46, 0.96);    /* Mocha Base #1e1e2e */
+    border: 1px solid rgba(88, 91, 112, 0.45);   /* Mocha Surface2 */
+    color: #cdd6f4;                              /* Mocha Text */
+}
+
+#drawer-container.theme-catppuccin-macchiato {
+    background-color: rgba(36, 39, 58, 0.96);    /* Macchiato Base #24273a */
+    border: 1px solid rgba(91, 96, 120, 0.45);   /* Macchiato Surface2 */
+    color: #cad3f5;                              /* Macchiato Text */
+}
+
+#drawer-container.theme-catppuccin-frappe {
+    background-color: rgba(48, 52, 70, 0.96);    /* Frappe Base #303446 */
+    border: 1px solid rgba(98, 104, 128, 0.45);  /* Frappe Surface2 */
+    color: #c6d0f5;                              /* Frappe Text */
+}
+
+#drawer-container.theme-catppuccin-latte {
+    background-color: rgba(239, 241, 245, 0.96); /* Latte Base #eff1f5 */
+    border: 1px solid rgba(172, 176, 190, 0.50); /* Latte Surface2 */
+    color: #4c4f69;                              /* Latte Text */
+}
+
 #drawer-container.theme-zinc-light {
     background-color: rgba(250, 250, 250, 0.96); /* zinc-50 */
     border-color: rgba(9, 9, 11, 0.10);          /* zinc-950 @10% */
@@ -89,6 +119,26 @@ window {
     margin-bottom: 8px;
     padding-bottom: 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.theme-dracula .header-box {
+    border-bottom-color: rgba(98, 114, 164, 0.35);
+}
+
+.theme-catppuccin-mocha .header-box {
+    border-bottom-color: rgba(88, 91, 112, 0.35);
+}
+
+.theme-catppuccin-macchiato .header-box {
+    border-bottom-color: rgba(91, 96, 120, 0.35);
+}
+
+.theme-catppuccin-frappe .header-box {
+    border-bottom-color: rgba(98, 104, 128, 0.35);
+}
+
+.theme-catppuccin-latte .header-box {
+    border-bottom-color: rgba(172, 176, 190, 0.40);
 }
 
 .theme-zinc-light .header-box {
@@ -222,6 +272,67 @@ window {
     background: #181917;                         /* olive dark 2 */
 }
 
+/* User bubbles (styled for WebUI modern aesthetics) */
+.theme-dracula .chat-bubble-user,
+.theme-dracula .user-bubble {
+    background: #44475a;                         /* Dracula Current Line */
+    border: 1px solid rgba(189, 147, 249, 0.35); /* Dracula Purple subtle border */
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.theme-catppuccin-mocha .chat-bubble-user,
+.theme-catppuccin-mocha .user-bubble {
+    background: #313244;                         /* Mocha Surface0 */
+    border: 1px solid rgba(137, 180, 250, 0.30); /* Mocha Blue */
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+.theme-catppuccin-macchiato .chat-bubble-user,
+.theme-catppuccin-macchiato .user-bubble {
+    background: #363a4f;                         /* Macchiato Surface0 */
+    border: 1px solid rgba(138, 173, 244, 0.30); /* Macchiato Blue */
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+.theme-catppuccin-frappe .chat-bubble-user,
+.theme-catppuccin-frappe .user-bubble {
+    background: #414559;                         /* Frappe Surface0 */
+    border: 1px solid rgba(140, 170, 238, 0.30); /* Frappe Blue */
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.20);
+}
+
+.theme-catppuccin-latte .chat-bubble-user,
+.theme-catppuccin-latte .user-bubble {
+    background: #e6e9ef;                         /* Latte Base/Mantle */
+    border: 1px solid rgba(30, 102, 245, 0.25);  /* Latte Blue */
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.theme-dracula .bubble-user-text {
+    color: #f8f8f2;
+}
+
+.theme-catppuccin-mocha .bubble-user-text {
+    color: #cdd6f4;
+}
+
+.theme-catppuccin-macchiato .bubble-user-text {
+    color: #cad3f5;
+}
+
+.theme-catppuccin-frappe .bubble-user-text {
+    color: #c6d0f5;
+}
+
+.theme-catppuccin-latte .bubble-user-text {
+    color: #4c4f69;
+}
+
 .theme-zinc-light .chat-bubble-user {
     background: #ffffff;
     border-color: rgba(9, 9, 11, 0.08);
@@ -253,6 +364,87 @@ window {
 .chat-bubble-assistant {
     background: transparent;
     padding: 2px 0;
+}
+
+/* Assistant bubbles */
+.theme-dracula .chat-bubble-assistant,
+.theme-dracula .assistant-bubble {
+    background: rgba(68, 71, 90, 0.20);
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+.theme-catppuccin-mocha .chat-bubble-assistant,
+.theme-catppuccin-mocha .assistant-bubble {
+    background: rgba(49, 50, 68, 0.25);
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+.theme-catppuccin-macchiato .chat-bubble-assistant,
+.theme-catppuccin-macchiato .assistant-bubble {
+    background: rgba(54, 58, 79, 0.25);
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+.theme-catppuccin-frappe .chat-bubble-assistant,
+.theme-catppuccin-frappe .assistant-bubble {
+    background: rgba(65, 69, 89, 0.25);
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+.theme-catppuccin-latte .chat-bubble-assistant,
+.theme-catppuccin-latte .assistant-bubble {
+    background: rgba(204, 208, 218, 0.25);
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+.theme-dracula .bubble-assistant-badge {
+    color: #bd93f9;                              /* Dracula Purple */
+}
+
+.theme-catppuccin-mocha .bubble-assistant-badge {
+    color: #cba6f7;                              /* Mocha Mauve */
+}
+
+.theme-catppuccin-macchiato .bubble-assistant-badge {
+    color: #c6a0f6;                              /* Macchiato Mauve */
+}
+
+.theme-catppuccin-frappe .bubble-assistant-badge {
+    color: #ca9ee6;                              /* Frappe Mauve */
+}
+
+.theme-catppuccin-latte .bubble-assistant-badge {
+    color: #8839ef;                              /* Latte Mauve */
+}
+
+.theme-dracula .bubble-assistant-text,
+.theme-dracula .bubble-assistant-text text {
+    color: #f8f8f2;
+}
+
+.theme-catppuccin-mocha .bubble-assistant-text,
+.theme-catppuccin-mocha .bubble-assistant-text text {
+    color: #cdd6f4;
+}
+
+.theme-catppuccin-macchiato .bubble-assistant-text,
+.theme-catppuccin-macchiato .bubble-assistant-text text {
+    color: #cad3f5;
+}
+
+.theme-catppuccin-frappe .bubble-assistant-text,
+.theme-catppuccin-frappe .bubble-assistant-text text {
+    color: #c6d0f5;
+}
+
+.theme-catppuccin-latte .bubble-assistant-text,
+.theme-catppuccin-latte .bubble-assistant-text text {
+    color: #4c4f69;
 }
 
 .bubble-assistant-header {
@@ -500,6 +692,66 @@ popover contents {
     border-color: rgba(255, 255, 255, 0.22);
 }
 
+.theme-dracula .prompt-entry {
+    background: #44475a;                         /* Dracula Current Line */
+    color: #f8f8f2;
+    border: 1px solid rgba(98, 114, 164, 0.50);
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.theme-dracula .prompt-entry:focus {
+    border-color: #bd93f9;                       /* Dracula Purple */
+}
+
+.theme-catppuccin-mocha .prompt-entry {
+    background: #313244;                         /* Mocha Surface0 */
+    color: #cdd6f4;
+    border: 1px solid rgba(88, 91, 112, 0.50);
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.20);
+}
+
+.theme-catppuccin-mocha .prompt-entry:focus {
+    border-color: #cba6f7;                       /* Mocha Mauve */
+}
+
+.theme-catppuccin-macchiato .prompt-entry {
+    background: #363a4f;                         /* Macchiato Surface0 */
+    color: #cad3f5;
+    border: 1px solid rgba(91, 96, 120, 0.50);
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.20);
+}
+
+.theme-catppuccin-macchiato .prompt-entry:focus {
+    border-color: #c6a0f6;                       /* Macchiato Mauve */
+}
+
+.theme-catppuccin-frappe .prompt-entry {
+    background: #414559;                         /* Frappe Surface0 */
+    color: #c6d0f5;
+    border: 1px solid rgba(98, 104, 128, 0.50);
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.theme-catppuccin-frappe .prompt-entry:focus {
+    border-color: #ca9ee6;                       /* Frappe Mauve */
+}
+
+.theme-catppuccin-latte .prompt-entry {
+    background: #ffffff;                         /* Latte White */
+    color: #4c4f69;                              /* Latte Text */
+    border: 1px solid rgba(172, 176, 190, 0.60);
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.theme-catppuccin-latte .prompt-entry:focus {
+    border-color: #8839ef;                       /* Latte Mauve */
+}
+
 .theme-zinc-light .prompt-entry {
     background: #ffffff;
     color: #18181b;
@@ -522,6 +774,72 @@ popover contents {
 
 .btn-send:hover {
     background: #2b292d;                         /* mauve dark 4 */
+}
+
+.theme-dracula .btn-send {
+    background: #bd93f9;                         /* Dracula Purple */
+    color: #282a36;
+    border: 1px solid rgba(189, 147, 249, 0.60);
+    border-radius: 8px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(189, 147, 249, 0.25);
+}
+
+.theme-dracula .btn-send:hover {
+    background: #ff79c6;                         /* Dracula Pink */
+    color: #282a36;
+}
+
+.theme-catppuccin-mocha .btn-send {
+    background: #cba6f7;                         /* Mocha Mauve */
+    color: #11111b;                              /* Mocha Crust */
+    border: 1px solid rgba(203, 166, 247, 0.60);
+    border-radius: 8px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(203, 166, 247, 0.25);
+}
+
+.theme-catppuccin-mocha .btn-send:hover {
+    background: #b4befe;                         /* Mocha Lavender */
+}
+
+.theme-catppuccin-macchiato .btn-send {
+    background: #c6a0f6;                         /* Macchiato Mauve */
+    color: #181926;                              /* Macchiato Crust */
+    border: 1px solid rgba(198, 160, 246, 0.60);
+    border-radius: 8px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(198, 160, 246, 0.25);
+}
+
+.theme-catppuccin-macchiato .btn-send:hover {
+    background: #b7bdf8;                         /* Macchiato Lavender */
+}
+
+.theme-catppuccin-frappe .btn-send {
+    background: #ca9ee6;                         /* Frappe Mauve */
+    color: #232634;                              /* Frappe Crust */
+    border: 1px solid rgba(202, 158, 230, 0.60);
+    border-radius: 8px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(202, 158, 230, 0.25);
+}
+
+.theme-catppuccin-frappe .btn-send:hover {
+    background: #babbf1;                         /* Frappe Lavender */
+}
+
+.theme-catppuccin-latte .btn-send {
+    background: #8839ef;                         /* Latte Mauve */
+    color: #ffffff;
+    border: 1px solid rgba(136, 57, 239, 0.60);
+    border-radius: 8px;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(136, 57, 239, 0.20);
+}
+
+.theme-catppuccin-latte .btn-send:hover {
+    background: #7287fd;                         /* Latte Lavender */
 }
 
 .theme-zinc-light .btn-send {
