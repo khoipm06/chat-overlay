@@ -26,6 +26,8 @@ pub struct AppSettings {
     pub thinking_level: String,
     #[serde(default = "default_sound_bell")]
     pub sound_bell_on_done: bool,
+    #[serde(default = "default_ephemeral")]
+    pub ephemeral: bool,
 }
 
 fn default_model() -> String {
@@ -56,6 +58,10 @@ fn default_sound_bell() -> bool {
     true
 }
 
+fn default_ephemeral() -> bool {
+    true
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -66,6 +72,7 @@ impl Default for AppSettings {
             auto_hide_on_blur: default_auto_hide(),
             thinking_level: default_thinking_level(),
             sound_bell_on_done: default_sound_bell(),
+            ephemeral: default_ephemeral(),
         }
     }
 }
@@ -125,6 +132,7 @@ mod tests {
         assert_eq!(s.height, DEFAULT_HEIGHT);
         assert!(s.auto_hide_on_blur);
         assert!(s.sound_bell_on_done);
+        assert!(s.ephemeral);
     }
 
     #[test]
