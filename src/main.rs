@@ -12,13 +12,16 @@ use std::rc::Rc;
 use tokio::sync::mpsc;
 
 const APP_ID: &str = "com.github.khoipm.pi-overlay";
+pub const MIN_DRAWER_WIDTH: i32 = 320;
+pub const MAX_DRAWER_WIDTH: i32 = 900;
+pub const DEFAULT_DRAWER_WIDTH: i32 = 480;
 
 const THEMES: &[(&str, &str, &str)] = &[
-    ("theme-acrylic", "🌌 Frosted Acrylic", "Translucent dark glass"),
-    ("theme-oled", "⬛ OLED Midnight", "Pure deep black"),
-    ("theme-ocean", "🌊 Deep Ocean", "Deep navy & cyan"),
-    ("theme-emerald", "🌲 Cyber Emerald", "Obsidian & emerald"),
-    ("theme-light", "☀️ Frosted Light", "Bright translucent glass"),
+    ("theme-dark-glass", "Dark Glass", "Translucent dark glass"),
+    ("theme-oled", "OLED Black", "Pure deep black"),
+    ("theme-slate", "Slate Graphite", "Deep slate & graphite"),
+    ("theme-forest", "Forest Charcoal", "Obsidian & subtle green"),
+    ("theme-zinc-light", "Zinc Light", "Minimal bright zinc"),
 ];
 
 struct TrackedPrompt {
@@ -36,18 +39,20 @@ struct ActiveStreamTarget {
     label: gtk4::Label,
     thinking_badge: gtk4::Label,
     full_text: Rc<RefCell<String>>,
+    thinking_text: Rc<RefCell<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayMode {
-    Expanded,
-    Collapsed,
+    Visible,
+    Hidden,
 }
 
 struct AppState {
     mode: OverlayMode,
     runner: PiRunner,
     prompts: Vec<TrackedPrompt>,
+    drawer_width: i32,
 }
 
 struct AppContext {
@@ -85,6 +90,7 @@ fn main() -> glib::ExitCode {
         .build();
 
     app.connect_startup(|_| {
+        eprintln!("[pi-overlay] app startup");
         load_css();
     });
 
@@ -92,17 +98,21 @@ fn main() -> glib::ExitCode {
     let ctx_clone = context_holder.clone();
 
     app.connect_activate(move |app| {
+        eprintln!("[pi-overlay] app activate");
         let mut ctx = ctx_clone.borrow_mut();
         if let Some(ref c) = *ctx {
             // Already running: toggle window
+            eprintln!("[pi-overlay] already running, calling toggle");
             (c.toggle)();
         } else {
             // First launch: build UI and store context
+            eprintln!("[pi-overlay] first launch, building UI");
             let new_ctx = build_ui(app);
             *ctx = Some(new_ctx);
         }
     });
 
+    eprintln!("[pi-overlay] running app.run()");
     app.run()
 }
 
@@ -202,57 +212,39 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let window = gtk4::ApplicationWindow::builder()
         .application(app)
         .title("Pi")
-        .default_width(500)
+        .default_width(DEFAULT_DRAWER_WIDTH)
         .build();
 
     overlay::init_layer_shell(&window);
 
-    // Root overlay container
+    // Root overlay container: Drag resize handle + drawer directly in root_box
     let root_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     root_box.set_halign(gtk4::Align::End);
     root_box.set_vexpand(true);
 
-    // Floating Bubble (Messenger Chat Head) button
-    let bubble_button = gtk4::Button::builder()
-        .css_classes(["floating-bubble-btn", "theme-acrylic"])
-        .tooltip_text("Pi Assistant (Click to expand • Ctrl+Alt+L)")
-        .valign(gtk4::Align::Center)
-        .halign(gtk4::Align::End)
-        .width_request(56)
-        .height_request(56)
-        .visible(false)
-        .build();
-    bubble_button.set_cursor_from_name(Some("pointer"));
+    // Interactive Drag Handle on the left edge (like Messenger Chat Head resizing)
+    let resize_handle = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_handle.add_css_class("resize-handle");
+    resize_handle.set_cursor_from_name(Some("ew-resize"));
+    resize_handle.set_width_request(10);
+    resize_handle.set_vexpand(true);
 
-    let bubble_overlay = gtk4::Overlay::new();
-    let bubble_label = gtk4::Label::builder()
-        .label("π")
-        .css_classes(["floating-bubble-icon"])
-        .halign(gtk4::Align::Center)
-        .valign(gtk4::Align::Center)
-        .build();
-    bubble_overlay.set_child(Some(&bubble_label));
+    // Visual grip bar inside handle
+    let resize_grip = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_grip.add_css_class("resize-grip");
+    resize_grip.set_valign(gtk4::Align::Center);
+    resize_grip.set_vexpand(true);
+    resize_handle.append(&resize_grip);
 
-    let bubble_dot = gtk4::Box::builder()
-        .css_classes(["floating-bubble-dot"])
-        .halign(gtk4::Align::End)
-        .valign(gtk4::Align::Start)
-        .width_request(10)
-        .height_request(10)
-        .visible(false)
-        .build();
-    bubble_overlay.add_overlay(&bubble_dot);
-
-    bubble_button.set_child(Some(&bubble_overlay));
-    root_box.append(&bubble_button);
+    root_box.append(&resize_handle);
 
     let drawer = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
     drawer.set_widget_name("drawer-container");
-    drawer.add_css_class("theme-acrylic");
-    drawer.set_width_request(500);
+    drawer.add_css_class("theme-dark-glass");
+    drawer.set_width_request(DEFAULT_DRAWER_WIDTH);
     drawer.set_vexpand(true);
 
-    // Header Area: Title + Status + Action Buttons
+    // Header Area: Title + Status + Action Buttons (No decorative emojis)
     let header_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
     header_box.add_css_class("header-box");
 
@@ -270,9 +262,9 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     header_spacer.set_hexpand(true);
     header_box.append(&header_spacer);
 
-    // ChatGPT-Style Prompt Navigator Button & Popover
+    // Prompt Navigator Button & Popover
     let btn_prompts = gtk4::MenuButton::builder()
-        .label("💬 Prompts (0)")
+        .label("Prompts (0)")
         .css_classes(["btn-header"])
         .tooltip_text("Jump to previous prompts")
         .build();
@@ -296,7 +288,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         .build();
 
     let prompt_list_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    prompt_list_box.set_width_request(260);
+    prompt_list_box.set_width_request(240);
 
     let prompt_empty_placeholder = gtk4::Label::builder()
         .label("No prompts yet in this session")
@@ -316,7 +308,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
     // Theme Switcher Button & Popover
     let btn_theme = gtk4::MenuButton::builder()
-        .label("🎨 Theme")
+        .label("Theme")
         .css_classes(["btn-header"])
         .tooltip_text("Switch visual theme")
         .build();
@@ -333,7 +325,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     theme_pop_box.append(&theme_title);
 
     let theme_list_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    theme_list_box.set_width_request(190);
+    theme_list_box.set_width_request(180);
 
     let theme_buttons: Rc<RefCell<Vec<(&'static str, gtk4::Button)>>> = Rc::new(RefCell::new(Vec::new()));
 
@@ -342,22 +334,19 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             .label(theme_name)
             .css_classes(["btn-menu-item"])
             .build();
-        if theme_id == "theme-acrylic" {
+        if theme_id == "theme-dark-glass" {
             t_btn.add_css_class("active");
         }
 
         let drawer_for_theme = drawer.clone();
-        let bubble_for_theme = bubble_button.clone();
         let popover_for_theme = theme_popover.clone();
         let buttons_list = theme_buttons.clone();
 
         t_btn.connect_clicked(move |_| {
             for &(other_id, _, _) in THEMES {
                 drawer_for_theme.remove_css_class(other_id);
-                bubble_for_theme.remove_css_class(other_id);
             }
             drawer_for_theme.add_css_class(theme_id);
-            bubble_for_theme.add_css_class(theme_id);
 
             for (id, btn) in buttons_list.borrow().iter() {
                 if *id == theme_id {
@@ -385,11 +374,11 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         .build();
     header_box.append(&btn_clear);
 
-    // Close Button (minimizes to compact floating bubble)
+    // Close Button (hides overlay completely)
     let btn_close = gtk4::Button::builder()
         .label("✕")
         .css_classes(["btn-header"])
-        .tooltip_text("Minimize to bubble (Esc)")
+        .tooltip_text("Close overlay (Esc)")
         .build();
     header_box.append(&btn_close);
 
@@ -403,34 +392,27 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         .css_classes(["chat-scroll"])
         .build();
 
-    let messages_box = gtk4::Box::new(gtk4::Orientation::Vertical, 14);
+    let messages_box = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
     messages_box.add_css_class("messages-container");
     messages_box.set_vexpand(true);
     messages_box.set_valign(gtk4::Align::Start);
 
-    // Welcome placeholder
+    // Welcome placeholder: minimal refined hints, no emojis
     let welcome_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
     welcome_box.add_css_class("welcome-box");
     welcome_box.set_halign(gtk4::Align::Center);
     welcome_box.set_valign(gtk4::Align::Center);
     welcome_box.set_vexpand(true);
 
-    let welcome_icon = gtk4::Label::builder()
-        .label("✨")
-        .css_classes(["welcome-icon"])
-        .xalign(0.5)
-        .build();
-    welcome_box.append(&welcome_icon);
-
     let welcome_title = gtk4::Label::builder()
-        .label("How can I help you today?")
+        .label("Pi Ephemeral Assistant")
         .css_classes(["welcome-title"])
         .xalign(0.5)
         .build();
     welcome_box.append(&welcome_title);
 
     let welcome_sub = gtk4::Label::builder()
-        .label("Type your query below • Ctrl+Alt+L to toggle overlay")
+        .label("Type a query below • Ctrl+Alt+L to toggle • Esc to close")
         .css_classes(["welcome-subtitle"])
         .xalign(0.5)
         .build();
@@ -441,7 +423,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     drawer.append(&scrolled);
 
     // Input Area: Entry + Send button
-    let input_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let input_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
     input_box.add_css_class("input-box");
 
     let entry = gtk4::Entry::builder()
@@ -459,10 +441,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
     drawer.append(&input_box);
 
-    // Footer with keyboard shortcut hints
+    // Footer with refined keyboard shortcut hints
     let footer_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     footer_box.add_css_class("footer-box");
-    let shortcut_hint = gtk4::Label::new(Some("Ctrl+Alt+L: Toggle  •  Esc / Click outside: Minimize  •  Ctrl+L: Clear"));
+    let shortcut_hint = gtk4::Label::new(Some("Drag edge to resize  •  Ctrl+Alt+L: Toggle  •  Esc: Close"));
     shortcut_hint.add_css_class("shortcut-label");
     shortcut_hint.set_halign(gtk4::Align::Center);
     shortcut_hint.set_hexpand(true);
@@ -473,10 +455,39 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     window.set_child(Some(&root_box));
 
     let state = Rc::new(RefCell::new(AppState {
-        mode: OverlayMode::Expanded,
+        mode: OverlayMode::Hidden,
         runner: PiRunner::new(),
         prompts: Vec::new(),
+        drawer_width: DEFAULT_DRAWER_WIDTH,
     }));
+
+    // Setup GestureDrag on resize handle (Dragging left increases width, dragging right decreases)
+    let drag_gesture = gtk4::GestureDrag::new();
+    let initial_width = Rc::new(Cell::new(DEFAULT_DRAWER_WIDTH));
+    let start_w = initial_width.clone();
+    let state_drag = state.clone();
+
+    drag_gesture.connect_drag_begin(move |_, _, _| {
+        start_w.set(state_drag.borrow().drawer_width);
+    });
+
+    let drawer_drag = drawer.clone();
+    let window_drag = window.clone();
+    let cur_w = initial_width.clone();
+    let state_update = state.clone();
+
+    drag_gesture.connect_drag_update(move |_, offset_x, _| {
+        // Dragging handle towards left (negative offset_x) widens drawer
+        let target_width = (cur_w.get() - offset_x as i32)
+            .clamp(MIN_DRAWER_WIDTH, MAX_DRAWER_WIDTH);
+
+        state_update.borrow_mut().drawer_width = target_width;
+        drawer_drag.set_width_request(target_width);
+        window_drag.set_default_size(target_width + 10, -1);
+        window_drag.queue_resize();
+    });
+
+    resize_handle.add_controller(drag_gesture);
 
     let active_stream: Rc<RefCell<Option<ActiveStreamTarget>>> = Rc::new(RefCell::new(None));
 
@@ -535,8 +546,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let active_stream = active_stream.clone();
         let autoscroll = autoscroll_enabled.clone();
         let entry = entry.clone();
-        let bubble_dot = bubble_dot.clone();
-        let bubble_button = bubble_button.clone();
 
         Rc::new(move || {
             while let Some(child) = messages_box.first_child() {
@@ -552,12 +561,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             }
             prompt_list_box.append(&prompt_empty_placeholder);
             prompt_empty_placeholder.set_visible(true);
-            btn_prompts.set_label("💬 Prompts (0)");
+            btn_prompts.set_label("Prompts (0)");
 
             status_label.set_text("ready");
             status_label.remove_css_class("working");
-            bubble_dot.set_visible(false);
-            bubble_button.remove_css_class("thinking");
             state.borrow_mut().runner.abort();
             *active_stream.borrow_mut() = None;
             autoscroll.set(true);
@@ -568,57 +575,42 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
     let just_expanded = Rc::new(Cell::new(false));
 
-    // Collapse to floating circular bubble
-    let collapse_to_bubble = {
+    // Hide overlay completely: mode = Hidden, unmap Wayland surface (100% click-through)
+    let hide_overlay_fn = {
         let window = window.clone();
-        let drawer = drawer.clone();
-        let bubble_button = bubble_button.clone();
-        let root_box = root_box.clone();
         let state = state.clone();
 
         Rc::new(move || {
-            let mut st = state.borrow_mut();
-            if st.mode == OverlayMode::Collapsed {
-                return;
+            {
+                let mut st = state.borrow_mut();
+                if st.mode == OverlayMode::Hidden {
+                    return;
+                }
+                st.mode = OverlayMode::Hidden;
             }
-            st.mode = OverlayMode::Collapsed;
-
-            // Hide drawer, show compact floating bubble
-            drawer.set_visible(false);
-            bubble_button.set_visible(true);
-            root_box.set_vexpand(false);
-            root_box.set_hexpand(false);
-
-            overlay::collapse_to_bubble(&window);
-            window.queue_resize();
+            // Call overlay::hide_overlay AFTER dropping the borrow_mut
+            overlay::hide_overlay(&window);
         })
     };
 
-    // Expand to full drawer
-    let expand_to_drawer = {
+    // Expand overlay: mode = Visible, map surface, focus input
+    let expand_overlay_fn = {
         let window = window.clone();
-        let drawer = drawer.clone();
-        let bubble_button = bubble_button.clone();
-        let root_box = root_box.clone();
         let entry = entry.clone();
         let state = state.clone();
         let just_expanded = just_expanded.clone();
 
         Rc::new(move || {
-            let mut st = state.borrow_mut();
-            if st.mode == OverlayMode::Expanded {
-                return;
+            {
+                let mut st = state.borrow_mut();
+                if st.mode == OverlayMode::Visible {
+                    return;
+                }
+                st.mode = OverlayMode::Visible;
             }
-            st.mode = OverlayMode::Expanded;
             just_expanded.set(true);
 
-            // Hide floating bubble, show full drawer
-            bubble_button.set_visible(false);
-            drawer.set_visible(true);
-            root_box.set_vexpand(true);
-
             overlay::expand_overlay(&window);
-            window.queue_resize();
             entry.grab_focus();
 
             let je = just_expanded.clone();
@@ -628,29 +620,23 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         })
     };
 
-    // Toggle between drawer and floating bubble
+    // Toggle between Visible and Hidden
     let toggle = {
-        let expand_to_drawer = expand_to_drawer.clone();
-        let collapse_to_bubble = collapse_to_bubble.clone();
+        let expand_fn = expand_overlay_fn.clone();
+        let hide_fn = hide_overlay_fn.clone();
         let state = state.clone();
 
         Rc::new(move || {
             let mode = state.borrow().mode;
             match mode {
-                OverlayMode::Expanded => collapse_to_bubble(),
-                OverlayMode::Collapsed => expand_to_drawer(),
+                OverlayMode::Visible => hide_fn(),
+                OverlayMode::Hidden => expand_fn(),
             }
         })
     };
 
-    // Clicking floating bubble expands the drawer
-    let on_bubble_click = expand_to_drawer.clone();
-    bubble_button.connect_clicked(move |_| {
-        on_bubble_click();
-    });
-
-    // Close button minimizes to bubble
-    let on_close_click = collapse_to_bubble.clone();
+    // Close button hides overlay
+    let on_close_click = hide_overlay_fn.clone();
     btn_close.connect_clicked(move |_| {
         on_close_click();
     });
@@ -661,42 +647,44 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         on_clear_click();
     });
 
-    // Auto-minimize on focus loss (Click Outside)
+    // Auto-hide on focus loss (Click Outside)
     {
-        let collapse_on_blur = collapse_to_bubble.clone();
+        let hide_on_blur = hide_overlay_fn.clone();
         let state_blur = state.clone();
         let just_expanded_blur = just_expanded.clone();
         let prompt_pop_blur = prompt_popover.clone();
         let theme_pop_blur = theme_popover.clone();
 
         window.connect_is_active_notify(move |win| {
-            if !win.is_active() {
+            let active = win.is_active();
+            if !active {
                 if just_expanded_blur.get() {
                     return;
                 }
                 if prompt_pop_blur.is_visible() || theme_pop_blur.is_visible() {
                     return;
                 }
-                if state_blur.borrow().mode == OverlayMode::Expanded {
-                    collapse_on_blur();
+                let is_visible = state_blur.borrow().mode == OverlayMode::Visible;
+                if is_visible {
+                    hide_on_blur();
                 }
             }
         });
 
-        let collapse_on_pop_close = collapse_to_bubble.clone();
+        let hide_on_pop_close = hide_overlay_fn.clone();
         let state_pop_close = state.clone();
         let win_pop_close = window.clone();
         let je_pop_close = just_expanded.clone();
 
         let check_focus_after_popover = Rc::new(move || {
             let win = win_pop_close.clone();
-            let collapse = collapse_on_pop_close.clone();
+            let hide = hide_on_pop_close.clone();
             let st = state_pop_close.clone();
             let je = je_pop_close.clone();
 
             glib::idle_add_local_once(move || {
-                if !win.is_active() && !je.get() && st.borrow().mode == OverlayMode::Expanded {
-                    collapse();
+                if !win.is_active() && !je.get() && st.borrow().mode == OverlayMode::Visible {
+                    hide();
                 }
             });
         });
@@ -716,7 +704,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let key_controller = gtk4::EventControllerKey::new();
     key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
     let toggle_on_hotkey = toggle.clone();
-    let collapse_on_esc = collapse_to_bubble.clone();
+    let hide_on_esc = hide_overlay_fn.clone();
     let clear_on_ctrl_l = clear_conversation.clone();
     let prompt_pop_esc = prompt_popover.clone();
     let theme_pop_esc = theme_popover.clone();
@@ -738,7 +726,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 theme_pop_esc.popdown();
                 return glib::Propagation::Stop;
             }
-            collapse_on_esc();
+            hide_on_esc();
             glib::Propagation::Stop
         } else if (keyval == gdk::Key::l || keyval == gdk::Key::L) && is_ctrl && !is_alt {
             // Ctrl + L to clear
@@ -756,8 +744,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let state_clone = state.clone();
     let scroll_fn = scroll_to_bottom.clone();
     let active_stream_clone = active_stream.clone();
-    let bubble_dot_stream = bubble_dot.clone();
-    let bubble_btn_stream = bubble_button.clone();
 
     glib::spawn_future_local(async move {
         while let Some((gen, event)) = stream_rx.recv().await {
@@ -767,6 +753,22 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             }
 
             match event {
+                StreamEvent::TextDelta(delta) => {
+                    if let Some(ref target) = *active_stream_clone.borrow() {
+                        target.thinking_badge.set_text("");
+                        let mut full = target.full_text.borrow_mut();
+                        full.push_str(&delta);
+                        format::apply_assistant_markup(&target.label, &full);
+                    }
+                    scroll_fn();
+                }
+                StreamEvent::ThinkingDelta(delta) => {
+                    if let Some(ref target) = *active_stream_clone.borrow() {
+                        let mut think = target.thinking_text.borrow_mut();
+                        think.push_str(&delta);
+                        target.thinking_badge.set_text("thinking...");
+                    }
+                }
                 StreamEvent::Content(line) => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
                         let mut full = target.full_text.borrow_mut();
@@ -795,8 +797,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                     }
                     status_clone.set_text("ready");
                     status_clone.remove_css_class("working");
-                    bubble_dot_stream.set_visible(false);
-                    bubble_btn_stream.remove_css_class("thinking");
                     scroll_fn();
                 }
             }
@@ -818,8 +818,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let stream_tx = stream_tx.clone();
         let scroll_fn = scroll_to_bottom.clone();
         let scroll_to_widget = scroll_to_widget.clone();
-        let bubble_dot = bubble_dot.clone();
-        let bubble_button = bubble_button.clone();
 
         Rc::new(move || {
             let prompt = entry.text().to_string();
@@ -832,12 +830,12 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
             let prompt_idx = state.borrow().prompts.len() + 1;
 
-            // 1. Create User Message Bubble (Messenger / iMessage pill)
+            // 1. Create User Message Block (Linear-style flat command block)
             let user_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-            user_row.set_halign(gtk4::Align::End);
+            user_row.set_halign(gtk4::Align::Fill);
             user_row.add_css_class("bubble-user-row");
 
-            let user_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+            let user_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
             user_bubble.add_css_class("chat-bubble-user");
 
             let user_label = gtk4::Label::builder()
@@ -860,19 +858,19 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 bubble: user_bubble.clone(),
             });
 
-            btn_prompts.set_label(&format!("💬 Prompts ({})", prompt_idx));
+            btn_prompts.set_label(&format!("Prompts ({})", prompt_idx));
             prompt_empty_placeholder.set_visible(false);
 
             let nav_btn = gtk4::Button::builder()
                 .css_classes(["btn-menu-item"])
                 .build();
-            let nav_btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+            let nav_btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
             let nav_badge = gtk4::Label::builder()
                 .label(&format!("#{}", prompt_idx))
                 .css_classes(["prompt-nav-badge"])
                 .build();
-            let snippet = if prompt.chars().count() > 28 {
-                format!("{}…", prompt.chars().take(28).collect::<String>())
+            let snippet = if prompt.chars().count() > 24 {
+                format!("{}…", prompt.chars().take(24).collect::<String>())
             } else {
                 prompt.clone()
             };
@@ -903,18 +901,18 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             });
             prompt_list_box.append(&nav_btn);
 
-            // 3. Create Assistant Message Bubble
-            let asst_row = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+            // 3. Create Assistant Message Block (Clean full-bleed layout)
+            let asst_row = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
             asst_row.set_halign(gtk4::Align::Fill);
             asst_row.add_css_class("bubble-assistant-row");
 
-            let asst_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+            let asst_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
             asst_bubble.add_css_class("chat-bubble-assistant");
 
             let asst_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
             asst_header.add_css_class("bubble-assistant-header");
 
-            let asst_badge = gtk4::Label::new(Some("⚡ Pi"));
+            let asst_badge = gtk4::Label::new(Some("Pi"));
             asst_badge.add_css_class("bubble-assistant-badge");
             asst_header.append(&asst_badge);
 
@@ -927,7 +925,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             asst_header.append(&asst_spacer);
 
             let btn_copy = gtk4::Button::builder()
-                .label("📋 Copy")
+                .label("Copy")
                 .css_classes(["btn-bubble-copy"])
                 .tooltip_text("Copy response to clipboard")
                 .build();
@@ -950,6 +948,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             messages_box.append(&asst_row);
 
             let full_text = Rc::new(RefCell::new(String::new()));
+            let thinking_text = Rc::new(RefCell::new(String::new()));
             let copy_text_ref = full_text.clone();
             let copy_btn_clone = btn_copy.clone();
             btn_copy.connect_clicked(move |_| {
@@ -957,10 +956,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 if let Some(display) = gdk::Display::default() {
                     display.clipboard().set_text(&content);
                 }
-                copy_btn_clone.set_label("✓ Copied");
+                copy_btn_clone.set_label("Copied");
                 let reset_btn = copy_btn_clone.clone();
                 glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
-                    reset_btn.set_label("📋 Copy");
+                    reset_btn.set_label("Copy");
                 });
             });
 
@@ -968,14 +967,13 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 label: asst_label.clone(),
                 thinking_badge: thinking_badge.clone(),
                 full_text: full_text.clone(),
+                thinking_text: thinking_text.clone(),
             });
 
             scroll_fn();
 
             status_label.set_text("thinking...");
             status_label.add_css_class("working");
-            bubble_dot.set_visible(true);
-            bubble_button.add_css_class("thinking");
 
             let mut st = state.borrow_mut();
             if let Err(e) = st.runner.spawn_prompt(prompt, stream_tx.clone()) {
@@ -985,8 +983,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 thinking_badge.set_text("");
                 status_label.set_text("error");
                 status_label.remove_css_class("working");
-                bubble_dot.set_visible(false);
-                bubble_button.remove_css_class("thinking");
                 scroll_fn();
             }
         })
@@ -1014,8 +1010,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     });
 
     // Show GUI window immediately on launch
-    window.present();
-    entry.grab_focus();
+    eprintln!("[pi-overlay] calling expand_overlay_fn at startup");
+    expand_overlay_fn();
 
     AppContext {
         window,
@@ -1030,30 +1026,38 @@ mod tests {
     #[test]
     fn test_overlay_mode_enum_and_state() {
         let mut state = AppState {
-            mode: OverlayMode::Expanded,
+            mode: OverlayMode::Visible,
             runner: PiRunner::new(),
             prompts: Vec::new(),
+            drawer_width: DEFAULT_DRAWER_WIDTH,
         };
 
-        assert_eq!(state.mode, OverlayMode::Expanded);
+        assert_eq!(state.mode, OverlayMode::Visible);
 
-        // Transition to Collapsed
-        state.mode = OverlayMode::Collapsed;
-        assert_eq!(state.mode, OverlayMode::Collapsed);
+        // Transition to Hidden
+        state.mode = OverlayMode::Hidden;
+        assert_eq!(state.mode, OverlayMode::Hidden);
 
-        // Transition back to Expanded
-        state.mode = OverlayMode::Expanded;
-        assert_eq!(state.mode, OverlayMode::Expanded);
+        // Transition back to Visible
+        state.mode = OverlayMode::Visible;
+        assert_eq!(state.mode, OverlayMode::Visible);
     }
 
     #[test]
     fn test_theme_list_integrity() {
-        assert!(THEMES.len() >= 5);
+        assert_eq!(THEMES.len(), 5);
         let ids: Vec<&str> = THEMES.iter().map(|(id, _, _)| *id).collect();
-        assert!(ids.contains(&"theme-acrylic"));
+        assert!(ids.contains(&"theme-dark-glass"));
         assert!(ids.contains(&"theme-oled"));
-        assert!(ids.contains(&"theme-ocean"));
-        assert!(ids.contains(&"theme-emerald"));
-        assert!(ids.contains(&"theme-light"));
+        assert!(ids.contains(&"theme-slate"));
+        assert!(ids.contains(&"theme-forest"));
+        assert!(ids.contains(&"theme-zinc-light"));
+    }
+
+    #[test]
+    fn test_drawer_width_clamps() {
+        assert!(MIN_DRAWER_WIDTH >= 300);
+        assert!(MAX_DRAWER_WIDTH >= MIN_DRAWER_WIDTH);
+        assert!(DEFAULT_DRAWER_WIDTH >= MIN_DRAWER_WIDTH && DEFAULT_DRAWER_WIDTH <= MAX_DRAWER_WIDTH);
     }
 }

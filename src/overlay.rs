@@ -9,52 +9,32 @@ pub fn init_layer_shell(window: &gtk4::ApplicationWindow) {
     // Overlay on top of existing windows without claiming screen space
     window.set_exclusive_zone(0);
 
-    // Initialize in expanded drawer mode
-    expand_overlay(window);
+    // Start fully hidden: unmapped surface, no input region, 100% click-through
+    window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
+    window.set_visible(false);
 }
 
-/// Transition layer surface to Expanded Drawer mode:
-/// Anchored to Right, Top, Bottom (full monitor height), keyboard OnDemand, width 500px
+/// Map the layer surface as a floating right-side panel (Raycast style) with
+/// keyboard focus on demand. Margins keep the panel inside the surface bounds
+/// so the 1px border and rounded corners render on all four corners instead
+/// of being clipped at the screen edge.
 pub fn expand_overlay(window: &gtk4::ApplicationWindow) {
-    window.set_visible(true);
     if window.is_layer_window() {
         window.set_anchor(Edge::Left, false);
         window.set_anchor(Edge::Right, true);
         window.set_anchor(Edge::Top, true);
         window.set_anchor(Edge::Bottom, true);
-        window.set_margin(Edge::Right, 0);
-        window.set_margin(Edge::Top, 0);
-        window.set_margin(Edge::Bottom, 0);
+        window.set_margin(Edge::Right, 12);
+        window.set_margin(Edge::Top, 12);
+        window.set_margin(Edge::Bottom, 12);
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::OnDemand);
     }
-    window.set_default_size(500, -1);
-    window.present();
-}
-
-/// Transition layer surface to Collapsed Floating Bubble mode:
-/// Anchored only to Right edge (vertically centered), keyboard None, compact ~56x56px
-pub fn collapse_to_bubble(window: &gtk4::ApplicationWindow) {
     window.set_visible(true);
-    if window.is_layer_window() {
-        window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
-        window.set_anchor(Edge::Top, false);
-        window.set_anchor(Edge::Bottom, false);
-        window.set_anchor(Edge::Left, false);
-        window.set_anchor(Edge::Right, true);
-        window.set_margin(Edge::Right, 14);
-        window.set_margin(Edge::Top, 0);
-        window.set_margin(Edge::Bottom, 0);
-    }
-    window.set_default_size(56, 56);
     window.present();
 }
 
-#[allow(dead_code)]
-pub fn show_overlay(window: &gtk4::ApplicationWindow) {
-    expand_overlay(window);
-}
-
-#[allow(dead_code)]
+/// Unmap the Wayland surface completely: not rendered, no input region,
+/// 100% click-through until expanded again.
 pub fn hide_overlay(window: &gtk4::ApplicationWindow) {
     if window.is_layer_window() {
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);

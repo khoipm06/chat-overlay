@@ -22,7 +22,7 @@ pub fn format_markdown_to_pango(markdown: &str) -> String {
                 let lang_label = if lang.is_empty() { "code" } else { lang };
                 let escaped_lang = glib::markup_escape_text(lang_label);
                 out.push_str(&format!(
-                    "<span font_family=\"monospace\" size=\"smaller\" foreground=\"#38bdf8\"><b>[{}]</b></span>\n<span font_family=\"monospace\" background=\"#1e1e24\" foreground=\"#e4e4e7\">",
+                    "<span font_family=\"monospace\" size=\"smaller\" foreground=\"#7c7a85\"><b>[{}]</b></span>\n<span font_family=\"monospace\" background=\"#1a191b\" foreground=\"#eeeef0\">",
                     escaped_lang
                 ));
             } else {
@@ -53,8 +53,9 @@ pub fn format_markdown_to_pango(markdown: &str) -> String {
 
             // Error prefix highlight
             if formatted_line.starts_with("[Error]") {
+                // Radix red-9 (identical in light and dark scales)
                 formatted_line = format!(
-                    "<span foreground=\"#f87171\"><b>[Error]</b>{}</span>",
+                    "<span foreground=\"#e5484d\"><b>[Error]</b>{}</span>",
                     &formatted_line[7..]
                 );
             }
@@ -85,9 +86,10 @@ fn format_inline_code(s: &str) -> String {
     let mut result = String::with_capacity(s.len() + 32);
     for (i, part) in parts.iter().enumerate() {
         if i % 2 == 1 {
-            result.push_str("<tt><span foreground=\"#38bdf8\">");
+            // Color/background left to CSS (.chat-bubble-assistant tt) so it adapts per theme
+            result.push_str("<tt>");
             result.push_str(part);
-            result.push_str("</span></tt>");
+            result.push_str("</tt>");
         } else {
             result.push_str(part);
         }
@@ -169,7 +171,7 @@ mod tests {
         let text = "Check `main.rs` and **important note** here.";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.contains("<tt><span foreground=\"#38bdf8\">main.rs</span></tt>"));
+        assert!(markup.contains("<tt>main.rs</tt>"));
         assert!(markup.contains("<b>important note</b>"));
     }
 
@@ -199,7 +201,7 @@ mod tests {
         let text = "[Error] Process exited with code 1";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.contains("<span foreground=\"#f87171\"><b>[Error]</b>"));
+        assert!(markup.contains("<span foreground=\"#e5484d\"><b>[Error]</b>"));
     }
 
     #[test]
@@ -223,9 +225,9 @@ mod tests {
             "style.css contains GTK CSS parsing errors!"
         );
 
-        // 2. Verify Bubble layout & natural height measurement
+        // 2. Verify clean drawer layout & natural height measurement
         let win = gtk4::Window::builder()
-            .default_width(500)
+            .default_width(480)
             .default_height(700)
             .build();
 
@@ -235,13 +237,14 @@ mod tests {
             .build();
         win.set_child(Some(&scrolled));
 
-        let messages_box = gtk4::Box::new(gtk4::Orientation::Vertical, 14);
+        let messages_box = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
         scrolled.set_child(Some(&messages_box));
 
-        // User Bubble
+        // User command block (Linear style flat block)
         let user_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        user_row.set_halign(gtk4::Align::End);
-        let user_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+        user_row.set_halign(gtk4::Align::Fill);
+        let user_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+        user_bubble.add_css_class("chat-bubble-user");
         let user_label = gtk4::Label::builder()
             .label("User test message")
             .wrap(true)
@@ -251,9 +254,10 @@ mod tests {
         user_row.append(&user_bubble);
         messages_box.append(&user_row);
 
-        // Assistant Bubble
-        let asst_row = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
-        let asst_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+        // Assistant response (clean full-bleed layout)
+        let asst_row = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+        let asst_bubble = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+        asst_bubble.add_css_class("chat-bubble-assistant");
         let asst_label = gtk4::Label::builder()
             .wrap(true)
             .wrap_mode(pango::WrapMode::WordChar)
@@ -266,99 +270,44 @@ mod tests {
         messages_box.append(&asst_row);
 
         win.present();
-        win.allocate(500, 700, -1, None);
+        win.allocate(480, 700, -1, None);
 
-        let (min_h, nat_h, _, _) = asst_label.measure(gtk4::Orientation::Vertical, 450);
+        let (min_h, nat_h, _, _) = asst_label.measure(gtk4::Orientation::Vertical, 440);
         assert!(nat_h > 0, "Assistant label must have non-zero natural height!");
         assert!(min_h > 0, "Assistant label must have non-zero minimum height!");
 
         let (_, asst_h) = asst_bubble.preferred_size();
-        assert!(asst_h.height() > 0, "Assistant bubble must have non-zero height!");
+        assert!(asst_h.height() > 0, "Assistant block must have non-zero height!");
 
-        // 3. Verify Floating Bubble (Messenger Chat Head) widget and size transitions
-        let bubble_button = gtk4::Button::builder()
-            .css_classes(["floating-bubble-btn", "theme-acrylic"])
-            .valign(gtk4::Align::Center)
-            .halign(gtk4::Align::End)
-            .width_request(56)
-            .height_request(56)
-            .visible(false)
-            .build();
-
-        let bubble_overlay = gtk4::Overlay::new();
-        let bubble_label = gtk4::Label::builder()
-            .label("π")
-            .css_classes(["floating-bubble-icon"])
-            .halign(gtk4::Align::Center)
-            .valign(gtk4::Align::Center)
-            .build();
-        bubble_overlay.set_child(Some(&bubble_label));
-
-        let bubble_dot = gtk4::Box::builder()
-            .css_classes(["floating-bubble-dot"])
-            .halign(gtk4::Align::End)
-            .valign(gtk4::Align::Start)
-            .width_request(10)
-            .height_request(10)
-            .visible(false)
-            .build();
-        bubble_overlay.add_overlay(&bubble_dot);
-        bubble_button.set_child(Some(&bubble_overlay));
-
-        // Drawer simulation
+        // 3. Verify Clean Drawer container (no floating bubble button)
         let drawer = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
-        drawer.add_css_class("theme-acrylic");
-        drawer.set_width_request(500);
+        drawer.set_widget_name("drawer-container");
+        drawer.add_css_class("theme-dark-glass");
+        drawer.set_width_request(480);
         drawer.set_vexpand(true);
 
-        // Assemble Root Box
         let root_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         root_box.set_halign(gtk4::Align::End);
-        root_box.append(&bubble_button);
         root_box.append(&drawer);
 
-        let bubble_win = gtk4::Window::builder()
-            .default_width(500)
+        let drawer_win = gtk4::Window::builder()
+            .default_width(480)
             .default_height(700)
             .child(&root_box)
             .build();
-        bubble_win.present();
+        drawer_win.present();
 
-        // Verify Expanded state measurement
-        drawer.set_visible(true);
-        bubble_button.set_visible(false);
-        let (_, expanded_req) = root_box.preferred_size();
-        assert!(expanded_req.width() >= 500, "Expanded mode must request >= 500px width");
+        let (_, drawer_req) = root_box.preferred_size();
+        assert!(drawer_req.width() >= 480, "Drawer must request >= 480px width");
 
-        // Verify Collapsed state measurement
-        drawer.set_visible(false);
-        bubble_button.set_visible(true);
-        let (_, collapsed_req) = root_box.preferred_size();
-        assert!(collapsed_req.width() <= 70, "Collapsed bubble mode must request compact width (~56px)");
-        assert!(collapsed_req.height() <= 70, "Collapsed bubble mode must request compact height (~56px)");
-
-        // Verify Thinking status indicator
-        bubble_dot.set_visible(true);
-        bubble_button.add_css_class("thinking");
-        assert!(bubble_dot.is_visible());
-        assert!(bubble_button.has_css_class("thinking"));
-
-        bubble_dot.set_visible(false);
-        bubble_button.remove_css_class("thinking");
-        assert!(!bubble_dot.is_visible());
-        assert!(!bubble_button.has_css_class("thinking"));
-
-        // Verify Theme Switching propagation
-        let themes = ["theme-acrylic", "theme-oled", "theme-ocean", "theme-emerald", "theme-light"];
+        // Verify Theme Switching propagation on clean drawer
+        let themes = ["theme-dark-glass", "theme-oled", "theme-slate", "theme-forest", "theme-zinc-light"];
         for t in &themes {
             for other in &themes {
                 drawer.remove_css_class(other);
-                bubble_button.remove_css_class(other);
             }
             drawer.add_css_class(t);
-            bubble_button.add_css_class(t);
             assert!(drawer.has_css_class(t));
-            assert!(bubble_button.has_css_class(t));
         }
     }
 }

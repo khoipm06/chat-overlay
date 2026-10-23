@@ -1,240 +1,240 @@
-/* Pi Ephemeral Wayland Overlay - Acrylic Glassmorphism & Messenger Bubble Design */
+/* Pi Ephemeral Wayland Overlay — Minimalist Dark Panel (Raycast / Linear standard)
+ *
+ * Palette: real published scales, not ad-hoc hex values.
+ *   Dark themes: Radix Colors v3 (mauve / slate / olive dark scales)
+ *   Light theme: Tailwind zinc scale
+ *   Semantics (Radix 12-step scale): 1–2 panel backgrounds, 3–5 component
+ *   backgrounds, 6–8 borders, 11–12 text (Lc 60/90 contrast on step-2 bg).
+ */
 
 window {
     background-color: transparent;
 }
 
-/* Drawer Container - Acrylic Frosted Glassmorphism */
-#drawer-container {
-    background-color: rgba(15, 17, 23, 0.78);
-    border-top-left-radius: 20px;
-    border-bottom-left-radius: 20px;
-    border-left: 1px solid rgba(255, 255, 255, 0.14);
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: -16px 0px 54px rgba(0, 0, 0, 0.65), inset 1px 0px 0px rgba(255, 255, 255, 0.08);
-    margin: 0;
-    padding: 16px 18px;
-    transition: background-color 200ms ease-out, border-color 200ms ease-out;
+/* ── Interactive Resize Handle (Like mobile chat head drawer) ────────── */
+.resize-handle {
+    background: transparent;
+    min-width: 10px;
+    margin-right: 0;
+    transition: background-color 150ms ease-out;
 }
 
-/* Themes */
-#drawer-container.theme-acrylic {
-    background-color: rgba(15, 17, 23, 0.78);
-    border-left: 1px solid rgba(255, 255, 255, 0.14);
+.resize-grip {
+    min-width: 3px;
+    min-height: 48px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+    margin-left: 3px;
+    margin-right: 4px;
+    transition: background-color 150ms ease-out, min-width 150ms ease-out;
+}
+
+.resize-handle:hover .resize-grip {
+    background-color: rgba(255, 255, 255, 0.35);
+    min-width: 4px;
+}
+
+.theme-zinc-light .resize-grip {
+    background-color: rgba(9, 9, 11, 0.12);
+}
+
+.theme-zinc-light .resize-handle:hover .resize-grip {
+    background-color: rgba(9, 9, 11, 0.45);
+}
+
+/* ── Panel ─────────────────────────────────────────────────────────────── */
+
+#drawer-container {
+    background-color: rgba(18, 17, 19, 0.94);   /* mauve-1, translucent */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 14px 16px;
+    color: #eeeef0;                              /* mauve-12 */
+    font-family: "Inter", "Geist", "Cantarell", "Noto Sans", sans-serif;
+}
+
+#drawer-container.theme-dark-glass {
+    background-color: rgba(18, 17, 19, 0.94);   /* mauve dark 1 */
+    border-color: rgba(255, 255, 255, 0.08);
 }
 
 #drawer-container.theme-oled {
-    background-color: #000000;
-    border-left: 1px solid rgba(255, 255, 255, 0.2);
-    box-shadow: -16px 0px 60px rgba(0, 0, 0, 0.95);
+    background-color: rgba(0, 0, 0, 0.97);      /* pure black, alpha kept */
+    border-color: rgba(255, 255, 255, 0.10);
 }
 
-#drawer-container.theme-ocean {
-    background-color: rgba(10, 22, 40, 0.82);
-    border-left: 1px solid rgba(56, 189, 248, 0.28);
-    box-shadow: -16px 0px 54px rgba(0, 10, 25, 0.75);
+#drawer-container.theme-slate {
+    background-color: rgba(17, 17, 19, 0.96);   /* slate dark 1 */
+    border-color: rgba(255, 255, 255, 0.09);
 }
 
-#drawer-container.theme-emerald {
-    background-color: rgba(10, 22, 18, 0.82);
-    border-left: 1px solid rgba(16, 185, 129, 0.28);
-    box-shadow: -16px 0px 54px rgba(0, 15, 10, 0.75);
+#drawer-container.theme-forest {
+    background-color: rgba(17, 18, 16, 0.96);   /* olive dark 1 */
+    border-color: rgba(255, 255, 255, 0.08);
 }
 
-#drawer-container.theme-light {
-    background-color: rgba(248, 249, 252, 0.90);
-    border-left: 1px solid rgba(0, 0, 0, 0.14);
-    box-shadow: -16px 0px 48px rgba(0, 0, 0, 0.22);
+#drawer-container.theme-zinc-light {
+    background-color: rgba(250, 250, 250, 0.96); /* zinc-50 */
+    border-color: rgba(9, 9, 11, 0.10);          /* zinc-950 @10% */
+    color: #18181b;                              /* zinc-900 */
 }
 
-/* Header Area */
+/* ── Header ────────────────────────────────────────────────────────────── */
+
 .header-box {
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.theme-light .header-box {
-    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+.theme-zinc-light .header-box {
+    border-bottom-color: rgba(9, 9, 11, 0.06);
 }
 
 .title-label {
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: #f4f4f5;
-}
-
-.theme-light .title-label {
-    color: #18181b;
+    font-size: 13.5px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
 }
 
 .status-badge {
     font-size: 11px;
-    color: #71717a;
     font-weight: 500;
-    padding: 2px 7px;
-    border-radius: 6px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: #7c7a85;                              /* mauve dark 10 */
     background: rgba(255, 255, 255, 0.05);
 }
 
 .status-badge.working {
-    color: #38bdf8;
-    background: rgba(56, 189, 248, 0.12);
+    color: #eeeef0;
+    background: rgba(255, 255, 255, 0.09);
 }
 
-.theme-light .status-badge {
-    color: #71717a;
-    background: rgba(0, 0, 0, 0.05);
+.theme-zinc-light .status-badge {
+    color: #71717a;                              /* zinc-500 */
+    background: rgba(9, 9, 11, 0.05);
 }
 
-.theme-light .status-badge.working {
-    color: #0284c7;
-    background: rgba(2, 132, 199, 0.1);
+.theme-zinc-light .status-badge.working {
+    color: #18181b;
+    background: rgba(9, 9, 11, 0.08);
 }
 
 .btn-header {
     background: transparent;
-    color: #a1a1aa;
     border: none;
-    border-radius: 6px;
-    padding: 4px 8px;
-    font-size: 12px;
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 11.5px;
     font-weight: 500;
-    transition: all 120ms ease-out;
+    color: #b5b2bc;                              /* mauve dark 11 */
 }
 
 .btn-header:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #f4f4f5;
+    background: #232225;                         /* mauve dark 3 */
+    color: #eeeef0;
 }
 
-.theme-light .btn-header {
-    color: #52525b;
+.theme-zinc-light .btn-header {
+    color: #52525b;                              /* zinc-600 */
 }
 
-.theme-light .btn-header:hover {
-    background: rgba(0, 0, 0, 0.06);
-    color: #09090b;
+.theme-zinc-light .btn-header:hover {
+    background: #f4f4f5;                         /* zinc-100 */
+    color: #18181b;
 }
 
-/* Chat Transcript & Messages Container */
+/* ── Transcript ────────────────────────────────────────────────────────── */
+
 .chat-scroll {
     background: transparent;
 }
 
 .messages-container {
-    padding: 6px 4px;
+    padding: 2px 0;
 }
 
-/* Welcome Placeholder */
+/* Empty state */
 .welcome-box {
-    padding: 60px 16px;
-}
-
-.welcome-icon {
-    font-size: 36px;
-    margin-bottom: 12px;
+    padding: 40px 12px;
 }
 
 .welcome-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: #f4f4f5;
-    margin-bottom: 6px;
-}
-
-.theme-light .welcome-title {
-    color: #18181b;
+    font-size: 13px;
+    font-weight: 500;
+    color: #b5b2bc;                              /* mauve dark 11 */
+    margin-bottom: 4px;
 }
 
 .welcome-subtitle {
-    font-size: 12.5px;
-    color: #71717a;
+    font-size: 11px;
+    color: #7c7a85;                              /* mauve dark 10 */
 }
 
-.theme-light .welcome-subtitle {
-    color: #71717a;
+.theme-zinc-light .welcome-title {
+    color: #52525b;                              /* zinc-600 */
 }
 
-/* User Bubble - Messenger / iMessage Style */
+.theme-zinc-light .welcome-subtitle {
+    color: #71717a;                              /* zinc-500 */
+}
+
+/* User prompt — flat full-width command block (Linear style) */
 .bubble-user-row {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .chat-bubble-user {
-    background: linear-gradient(135deg, #0084ff 0%, #0066cc 100%);
-    color: #ffffff;
-    border-radius: 16px 16px 4px 16px;
-    padding: 10px 15px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-    margin-left: 50px;
-    transition: box-shadow 250ms ease-in-out;
+    background: #1a191b;                         /* mauve dark 2 */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 7px 10px;
 }
 
 .theme-oled .chat-bubble-user {
-    background: #27272a;
-    border: 1px solid #3f3f46;
+    background: #111113;                         /* slate dark 1 */
 }
 
-.theme-ocean .chat-bubble-user {
-    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+.theme-slate .chat-bubble-user {
+    background: #18191b;                         /* slate dark 2 */
 }
 
-.theme-emerald .chat-bubble-user {
-    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+.theme-forest .chat-bubble-user {
+    background: #181917;                         /* olive dark 2 */
 }
 
-.theme-light .chat-bubble-user {
-    background: linear-gradient(135deg, #007aff 0%, #0062cc 100%);
-    color: #ffffff;
+.theme-zinc-light .chat-bubble-user {
+    background: #ffffff;
+    border-color: rgba(9, 9, 11, 0.08);
 }
 
 .bubble-user-text {
-    font-size: 13.5px;
+    font-size: 12.5px;
     line-height: 1.45;
-    color: #ffffff;
+    color: #eeeef0;
+}
+
+.theme-zinc-light .bubble-user-text {
+    color: #18181b;
 }
 
 .bubble-highlight {
-    box-shadow: 0 0 0 2px #38bdf8, 0 4px 16px rgba(56, 189, 248, 0.45);
+    border-color: rgba(255, 255, 255, 0.28);
 }
 
-/* Assistant Bubble */
+.theme-zinc-light .bubble-highlight {
+    border-color: rgba(9, 9, 11, 0.35);
+}
+
+/* Assistant — clean full-bleed layout, no card chrome */
 .bubble-assistant-row {
-    margin-bottom: 14px;
+    margin-bottom: 10px;
 }
 
 .chat-bubble-assistant {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 16px 16px 16px 4px;
-    padding: 12px 16px;
-    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
-    margin-right: 20px;
-    transition: background-color 200ms ease-out, border-color 200ms ease-out;
-}
-
-.theme-oled .chat-bubble-assistant {
-    background: #0f0f12;
-    border: 1px solid #27272a;
-}
-
-.theme-ocean .chat-bubble-assistant {
-    background: rgba(16, 32, 58, 0.65);
-    border: 1px solid rgba(56, 189, 248, 0.16);
-}
-
-.theme-emerald .chat-bubble-assistant {
-    background: rgba(14, 34, 26, 0.65);
-    border: 1px solid rgba(16, 185, 129, 0.16);
-}
-
-.theme-light .chat-bubble-assistant {
-    background: rgba(255, 255, 255, 0.88);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
+    background: transparent;
+    padding: 2px 0;
 }
 
 .bubble-assistant-header {
@@ -242,362 +242,236 @@ window {
 }
 
 .bubble-assistant-badge {
-    font-size: 11.5px;
+    font-size: 11px;
     font-weight: 600;
-    color: #a1a1aa;
-    letter-spacing: 0.02em;
-}
-
-.theme-light .bubble-assistant-badge {
-    color: #71717a;
+    letter-spacing: 0.03em;
+    color: #7c7a85;
 }
 
 .bubble-thinking-badge {
-    font-size: 11px;
-    color: #38bdf8;
-    font-weight: 500;
-    margin-left: 6px;
+    font-size: 10.5px;
+    font-style: italic;
+    color: #7c7a85;
 }
 
 .btn-bubble-copy {
     background: transparent;
-    color: #71717a;
     border: none;
     border-radius: 4px;
-    padding: 2px 6px;
-    font-size: 11px;
+    padding: 1px 5px;
+    font-size: 10.5px;
     font-weight: 500;
-    transition: all 120ms ease-out;
+    color: #7c7a85;
 }
 
 .btn-bubble-copy:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #f4f4f5;
+    background: #232225;
+    color: #eeeef0;
 }
 
-.theme-light .btn-bubble-copy:hover {
-    background: rgba(0, 0, 0, 0.06);
+.theme-zinc-light .btn-bubble-copy {
+    color: #71717a;
+}
+
+.theme-zinc-light .btn-bubble-copy:hover {
+    background: #f4f4f5;
     color: #18181b;
 }
 
 .bubble-divider {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    margin-bottom: 6px;
 }
 
-.theme-light .bubble-divider {
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+.theme-zinc-light .bubble-divider {
+    border-bottom-color: rgba(9, 9, 11, 0.05);
 }
 
 .bubble-assistant-text,
 .bubble-assistant-text text {
     background: transparent;
-    color: #e4e4e7;
-    font-size: 13.5px;
+    color: #d9d8de;
+    font-size: 12.5px;
     line-height: 1.5;
 }
 
-.theme-light .bubble-assistant-text,
-.theme-light .bubble-assistant-text text {
+.theme-zinc-light .bubble-assistant-text,
+.theme-zinc-light .bubble-assistant-text text {
+    color: #27272a;                              /* zinc-800 */
+}
+
+/* Inline code — Pango <tt> nodes */
+.chat-bubble-assistant tt {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 11.5px;
+    background: #232225;                         /* mauve dark 3 */
+    border-radius: 4px;
+    padding: 1px 4px;
+    color: #d9d8de;
+}
+
+.theme-zinc-light .chat-bubble-assistant tt {
+    background: #f4f4f5;
     color: #18181b;
 }
 
-.chat-bubble-assistant tt {
-    font-family: monospace;
-    font-size: 12.5px;
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 4px;
-    padding: 1px 4px;
-}
+/* ── Popovers ──────────────────────────────────────────────────────────── */
 
-.theme-light .chat-bubble-assistant tt {
-    background: rgba(0, 0, 0, 0.06);
-    color: #0284c7;
-}
-
-/* Popovers: Theme & Navigator */
 popover {
     background: transparent;
     padding: 0;
 }
 
 popover contents {
-    background: #18181b;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 12px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    padding: 8px;
+    background: #1a191b;                         /* mauve dark 2 */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+    padding: 6px;
 }
 
-.theme-light popover contents {
+.theme-zinc-light popover contents {
     background: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.12);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+    border-color: rgba(9, 9, 11, 0.10);
+    box-shadow: 0 10px 28px rgba(9, 9, 11, 0.12);
 }
 
 .popover-header-title {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    color: #a1a1aa;
-    padding: 4px 8px 6px 8px;
+    letter-spacing: 0.04em;
+    color: #7c7a85;
+    padding: 4px 6px 6px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    margin-bottom: 4px;
+    margin-bottom: 3px;
 }
 
-.theme-light .popover-header-title {
+.theme-zinc-light .popover-header-title {
     color: #71717a;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    border-bottom-color: rgba(9, 9, 11, 0.06);
 }
 
 .btn-menu-item {
     background: transparent;
     border: none;
-    border-radius: 6px;
-    color: #e4e4e7;
-    font-size: 12.5px;
-    padding: 6px 10px;
-    transition: background 120ms ease-out;
+    border-radius: 4px;
+    padding: 4px 7px;
+    font-size: 12px;
+    color: #d9d8de;
 }
 
 .btn-menu-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: #232225;
 }
 
 .btn-menu-item.active {
-    background: rgba(56, 189, 248, 0.15);
-    color: #38bdf8;
+    background: #232225;
+    color: #eeeef0;
     font-weight: 600;
 }
 
-.theme-light .btn-menu-item {
-    color: #18181b;
+.theme-zinc-light .btn-menu-item {
+    color: #27272a;
 }
 
-.theme-light .btn-menu-item:hover {
-    background: rgba(0, 0, 0, 0.05);
+.theme-zinc-light .btn-menu-item:hover {
+    background: #f4f4f5;
 }
 
-.theme-light .btn-menu-item.active {
-    background: rgba(2, 132, 199, 0.12);
-    color: #0284c7;
+.theme-zinc-light .btn-menu-item.active {
+    background: #f4f4f5;
+    color: #09090b;
 }
 
 .prompt-nav-badge {
-    font-size: 11px;
-    font-weight: 700;
-    color: #38bdf8;
-    background: rgba(56, 189, 248, 0.12);
-    padding: 2px 6px;
-    border-radius: 4px;
-    margin-right: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #7c7a85;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-right: 6px;
 }
 
-.theme-light .prompt-nav-badge {
-    color: #0284c7;
-    background: rgba(2, 132, 199, 0.1);
+.theme-zinc-light .prompt-nav-badge {
+    color: #71717a;
+    background: rgba(9, 9, 11, 0.05);
 }
 
 .prompt-nav-text {
-    font-size: 12px;
-    color: #d4d4d8;
-}
-
-.theme-light .prompt-nav-text {
-    color: #3f3f46;
-}
-
-/* Input Area */
-.input-box {
-    margin-top: 6px;
-}
-
-.prompt-entry {
-    background: rgba(20, 20, 24, 0.7);
-    color: #fafafa;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 13.5px;
-    transition: border-color 150ms ease-out, background 150ms ease-out;
-}
-
-.prompt-entry:focus {
-    border-color: rgba(56, 189, 248, 0.6);
-    background: rgba(25, 25, 30, 0.85);
-    outline: none;
-}
-
-.theme-light .prompt-entry {
-    background: rgba(255, 255, 255, 0.9);
-    color: #18181b;
-    border: 1px solid rgba(0, 0, 0, 0.14);
-}
-
-.theme-light .prompt-entry:focus {
-    border-color: #0284c7;
-    background: #ffffff;
-}
-
-.btn-send {
-    background: #2563eb;
-    color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 10px;
-    padding: 0 16px;
-    font-size: 13px;
-    font-weight: 600;
-    transition: all 120ms ease-out;
-}
-
-.btn-send:hover {
-    background: #1d4ed8;
-}
-
-.theme-oled .btn-send {
-    background: #27272a;
-    border-color: #3f3f46;
-}
-
-.theme-oled .btn-send:hover {
-    background: #3f3f46;
-}
-
-.theme-ocean .btn-send {
-    background: #0284c7;
-}
-
-.theme-ocean .btn-send:hover {
-    background: #0369a1;
-}
-
-.theme-emerald .btn-send {
-    background: #059669;
-}
-
-.theme-emerald .btn-send:hover {
-    background: #047857;
-}
-
-/* Footer & Keyboard Shortcuts */
-.footer-box {
-    margin-top: 6px;
-}
-
-.shortcut-label {
     font-size: 11px;
+    color: #b5b2bc;
+}
+
+.theme-zinc-light .prompt-nav-text {
     color: #52525b;
 }
 
-.theme-light .shortcut-label {
-    color: #a1a1aa;
+/* ── Composer ──────────────────────────────────────────────────────────── */
+
+.input-box {
+    margin-top: 8px;
 }
 
-/* =========================================================================
-   Floating Bubble (Messenger Chat Head) Styling
-   ========================================================================= */
-.floating-bubble-btn {
-    min-width: 56px;
-    min-height: 56px;
-    border-radius: 28px;
-    background-color: rgba(15, 17, 23, 0.84);
-    border: 1.5px solid rgba(255, 255, 255, 0.2);
-    box-shadow: -4px 8px 30px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-    padding: 0;
-    margin: 2px;
-    transition: all 200ms ease-out;
+.prompt-entry {
+    background: #1a191b;                         /* mauve dark 2 */
+    color: #eeeef0;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12.5px;
 }
 
-.floating-bubble-btn:hover {
-    background-color: rgba(25, 30, 44, 0.94);
-    border-color: rgba(56, 189, 248, 0.7);
-    box-shadow: -4px 10px 34px rgba(56, 189, 248, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+.prompt-entry:focus {
+    border-color: rgba(255, 255, 255, 0.22);
 }
 
-.floating-bubble-btn:active {
-    background-color: rgba(12, 14, 20, 0.96);
-    border-color: #38bdf8;
-    box-shadow: -2px 4px 14px rgba(56, 189, 248, 0.45);
+.theme-zinc-light .prompt-entry {
+    background: #ffffff;
+    color: #18181b;
+    border-color: rgba(9, 9, 11, 0.12);
 }
 
-.floating-bubble-icon {
-    font-size: 28px;
-    font-weight: 700;
-    color: #38bdf8;
-    line-height: 1;
+.theme-zinc-light .prompt-entry:focus {
+    border-color: rgba(9, 9, 11, 0.32);
 }
 
-.floating-bubble-dot {
-    background-color: #38bdf8;
-    border: 2px solid #0f1117;
-    border-radius: 50%;
+.btn-send {
+    background: #232225;                         /* mauve dark 3 */
+    color: #eeeef0;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.btn-send:hover {
+    background: #2b292d;                         /* mauve dark 4 */
+}
+
+.theme-zinc-light .btn-send {
+    background: #18181b;
+    color: #fafafa;
+    border-color: rgba(9, 9, 11, 0.12);
+}
+
+.theme-zinc-light .btn-send:hover {
+    background: #27272a;
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+.footer-box {
     margin-top: 4px;
-    margin-right: 4px;
-    min-width: 10px;
-    min-height: 10px;
 }
 
-.floating-bubble-btn.thinking {
-    border-color: #38bdf8;
-    box-shadow: 0 0 20px rgba(56, 189, 248, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+.shortcut-label {
+    font-size: 10px;
+    letter-spacing: 0.01em;
+    color: #7c7a85;
 }
 
-/* Floating Bubble Themes */
-.floating-bubble-btn.theme-acrylic {
-    background-color: rgba(15, 17, 23, 0.84);
-    border-color: rgba(255, 255, 255, 0.2);
+.theme-zinc-light .shortcut-label {
+    color: #71717a;
 }
-
-.floating-bubble-btn.theme-acrylic .floating-bubble-icon {
-    color: #38bdf8;
-}
-
-.floating-bubble-btn.theme-oled {
-    background-color: #000000;
-    border-color: #3f3f46;
-    box-shadow: -4px 8px 30px rgba(0, 0, 0, 0.95);
-}
-
-.floating-bubble-btn.theme-oled .floating-bubble-icon {
-    color: #f4f4f5;
-}
-
-.floating-bubble-btn.theme-ocean {
-    background-color: rgba(10, 22, 40, 0.88);
-    border-color: rgba(56, 189, 248, 0.35);
-    box-shadow: -4px 8px 30px rgba(0, 10, 25, 0.8);
-}
-
-.floating-bubble-btn.theme-ocean .floating-bubble-icon {
-    color: #38bdf8;
-}
-
-.floating-bubble-btn.theme-emerald {
-    background-color: rgba(10, 22, 18, 0.88);
-    border-color: rgba(16, 185, 129, 0.35);
-    box-shadow: -4px 8px 30px rgba(0, 15, 10, 0.8);
-}
-
-.floating-bubble-btn.theme-emerald .floating-bubble-icon {
-    color: #10b981;
-}
-
-.floating-bubble-btn.theme-emerald .floating-bubble-dot {
-    background-color: #10b981;
-}
-
-.floating-bubble-btn.theme-light {
-    background-color: rgba(248, 249, 252, 0.94);
-    border-color: rgba(0, 0, 0, 0.16);
-    box-shadow: -4px 8px 24px rgba(0, 0, 0, 0.18);
-}
-
-.floating-bubble-btn.theme-light .floating-bubble-icon {
-    color: #0284c7;
-}
-
-.floating-bubble-btn.theme-light:hover {
-    background-color: #ffffff;
-    border-color: #0284c7;
-    box-shadow: -4px 10px 28px rgba(2, 132, 199, 0.28);
-}
-
