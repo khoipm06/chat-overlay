@@ -421,6 +421,14 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         .build();
     settings_pop_box.append(&auto_hide_check);
 
+    // Ephemeral session Checkbox
+    let ephemeral_check = gtk4::CheckButton::builder()
+        .label("Ephemeral session (clear on hide)")
+        .active(initial_settings.ephemeral)
+        .css_classes(["settings-checkbox"])
+        .build();
+    settings_pop_box.append(&ephemeral_check);
+
     settings_popover.set_child(Some(&settings_pop_box));
     btn_settings.set_popover(Some(&settings_popover));
     header_box.append(&btn_settings);
@@ -569,6 +577,13 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         auto_hide_check.connect_toggled(move |cb| {
             let mut st = state_autohide.borrow_mut();
             st.settings.auto_hide_on_blur = cb.is_active();
+            let _ = st.settings.save();
+        });
+
+        let state_ephemeral = state.clone();
+        ephemeral_check.connect_toggled(move |cb| {
+            let mut st = state_ephemeral.borrow_mut();
+            st.settings.ephemeral = cb.is_active();
             let _ = st.settings.save();
         });
     }
@@ -735,14 +750,19 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let hide_overlay_fn = {
         let window = window.clone();
         let state = state.clone();
+        let clear_conversation = clear_conversation.clone();
 
         Rc::new(move || {
-            {
+            let is_ephemeral = {
                 let mut st = state.borrow_mut();
                 if st.mode == OverlayMode::Hidden {
                     return;
                 }
                 st.mode = OverlayMode::Hidden;
+                st.settings.ephemeral
+            };
+            if is_ephemeral {
+                clear_conversation();
             }
             overlay::hide_overlay(&window);
         })
