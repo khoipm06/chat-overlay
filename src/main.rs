@@ -16,13 +16,19 @@ use tokio::sync::mpsc;
 
 const APP_ID: &str = "com.github.khoipm.pi-overlay";
 
-const THEMES: &[(&str, &str, &str)] = &[
+pub const AVAILABLE_THEMES: &[(&str, &str, &str)] = &[
     ("theme-dark-glass", "Dark Glass", "Translucent dark glass"),
+    ("theme-dracula", "Dracula", "Official Dracula vampire dark theme"),
+    ("theme-catppuccin-mocha", "Catppuccin Mocha", "Soothing dark pastel (Mocha)"),
+    ("theme-catppuccin-macchiato", "Catppuccin Macchiato", "Medium dark pastel (Macchiato)"),
+    ("theme-catppuccin-frappe", "Catppuccin Frappé", "Muted dark pastel (Frappé)"),
+    ("theme-catppuccin-latte", "Catppuccin Latte", "Light pastel flavor (Latte)"),
     ("theme-oled", "OLED Black", "Pure deep black"),
     ("theme-slate", "Slate Graphite", "Deep slate & graphite"),
     ("theme-forest", "Forest Charcoal", "Obsidian & subtle green"),
     ("theme-zinc-light", "Zinc Light", "Minimal bright zinc"),
 ];
+const THEMES: &[(&str, &str, &str)] = AVAILABLE_THEMES;
 
 const POPULAR_MODELS: &[(&str, &str)] = &[
     ("default", "Default (System preset)"),
@@ -1249,9 +1255,14 @@ mod tests {
 
     #[test]
     fn test_theme_list_integrity() {
-        assert_eq!(THEMES.len(), 5);
-        let ids: Vec<&str> = THEMES.iter().map(|(id, _, _)| *id).collect();
+        assert_eq!(AVAILABLE_THEMES.len(), 10);
+        let ids: Vec<&str> = AVAILABLE_THEMES.iter().map(|(id, _, _)| *id).collect();
         assert!(ids.contains(&"theme-dark-glass"));
+        assert!(ids.contains(&"theme-dracula"));
+        assert!(ids.contains(&"theme-catppuccin-mocha"));
+        assert!(ids.contains(&"theme-catppuccin-macchiato"));
+        assert!(ids.contains(&"theme-catppuccin-frappe"));
+        assert!(ids.contains(&"theme-catppuccin-latte"));
         assert!(ids.contains(&"theme-oled"));
         assert!(ids.contains(&"theme-slate"));
         assert!(ids.contains(&"theme-forest"));
