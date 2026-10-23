@@ -18,11 +18,31 @@ const APP_ID: &str = "com.github.khoipm.pi-overlay";
 
 pub const AVAILABLE_THEMES: &[(&str, &str, &str)] = &[
     ("theme-dark-glass", "Dark Glass", "Translucent dark glass"),
-    ("theme-dracula", "Dracula", "Official Dracula vampire dark theme"),
-    ("theme-catppuccin-mocha", "Catppuccin Mocha", "Soothing dark pastel (Mocha)"),
-    ("theme-catppuccin-macchiato", "Catppuccin Macchiato", "Medium dark pastel (Macchiato)"),
-    ("theme-catppuccin-frappe", "Catppuccin Frappé", "Muted dark pastel (Frappé)"),
-    ("theme-catppuccin-latte", "Catppuccin Latte", "Light pastel flavor (Latte)"),
+    (
+        "theme-dracula",
+        "Dracula",
+        "Official Dracula vampire dark theme",
+    ),
+    (
+        "theme-catppuccin-mocha",
+        "Catppuccin Mocha",
+        "Soothing dark pastel (Mocha)",
+    ),
+    (
+        "theme-catppuccin-macchiato",
+        "Catppuccin Macchiato",
+        "Medium dark pastel (Macchiato)",
+    ),
+    (
+        "theme-catppuccin-frappe",
+        "Catppuccin Frappé",
+        "Muted dark pastel (Frappé)",
+    ),
+    (
+        "theme-catppuccin-latte",
+        "Catppuccin Latte",
+        "Light pastel flavor (Latte)",
+    ),
     ("theme-oled", "OLED Black", "Pure deep black"),
     ("theme-slate", "Slate Graphite", "Deep slate & graphite"),
     ("theme-forest", "Forest Charcoal", "Obsidian & subtle green"),
