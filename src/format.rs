@@ -1,163 +1,11 @@
-use gtk4::glib;
-use gtk4::pango;
-
-/// Convert a markdown-formatted string into valid Pango markup.
-/// Safely escapes XML entities (&, <, >) and translates common markdown syntax:
-/// - Code blocks: ```lang ... ``` with distinct header tag and indented code box
-/// - Inline code: `code` -> <tt>code</tt>
-/// - Bold text: **bold** -> <b>bold</b>
-/// - Italic text: *italic* -> <i>italic</i>
-/// - Headers: # Title, ## Section, ### Subsection
-/// - Bullet items: - item, * item -> • item
-/// - Numbered items: 1. item, 2. item -> formatted list
-/// - Blockquotes: > quote -> italicized indented text
-/// - Error highlights: [Error] ... in red
-pub fn format_markdown_to_pango(markdown: &str) -> String {
-    let mut out = String::with_capacity(markdown.len() + 128);
-    let mut in_code_block = false;
-
-    for line in markdown.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("```") {
-            if !in_code_block {
-                in_code_block = true;
-                let lang = trimmed.trim_start_matches('`').trim();
-                let lang_label = if lang.is_empty() { "code" } else { lang };
-                let escaped_lang = glib::markup_escape_text(lang_label);
-                out.push_str(&format!(
-                    "<span font_family=\"monospace\" size=\"smaller\" foreground=\"#7c7a85\"><b>[{}]</b></span>\n<span font_family=\"monospace\" background=\"#1a191b\" foreground=\"#eeeef0\">",
-                    escaped_lang
-                ));
-            } else {
-                in_code_block = false;
-                out.push_str("</span>\n");
-            }
-            continue;
-        }
-
-        let escaped = glib::markup_escape_text(line);
-        if in_code_block {
-            out.push_str("  ");
-            out.push_str(&escaped);
-            out.push('\n');
-        } else {
-            let mut formatted_line = escaped.to_string();
-
-            // Headers
-            if let Some(h) = formatted_line.strip_prefix("# ") {
-                formatted_line = format!("<span size=\"large\" weight=\"bold\">{}</span>", h);
-            } else if let Some(h) = formatted_line.strip_prefix("## ") {
-                formatted_line = format!("<span weight=\"bold\">{}</span>", h);
-            } else if let Some(h) = formatted_line.strip_prefix("### ") {
-                formatted_line = format!("<span weight=\"bold\" style=\"italic\">{}</span>", h);
-            } else if let Some(quote) = formatted_line.strip_prefix("&gt; ") {
-                // Blockquotes
-                formatted_line = format!(
-                    "<span style=\"italic\" foreground=\"#b5b2bc\">  │ {}</span>",
-                    quote
-                );
-            } else if let Some(bullet) = formatted_line
-                .strip_prefix("- ")
-                .or_else(|| formatted_line.strip_prefix("* "))
-            {
-                formatted_line = format!("• {}", bullet);
-            }
-
-            // Error prefix highlight (Radix red-9)
-            if formatted_line.starts_with("[Error]") {
-                formatted_line = format!(
-                    "<span foreground=\"#e5484d\"><b>[Error]</b>{}</span>",
-                    &formatted_line[7..]
-                );
-            }
-
-            // Inline code: `code`
-            formatted_line = format_inline_code(&formatted_line);
-            // Bold: **bold**
-            formatted_line = format_bold(&formatted_line);
-            // Italic: *italic*
-            formatted_line = format_italic(&formatted_line);
-
-            out.push_str(&formatted_line);
-            out.push('\n');
-        }
-    }
-
-    if in_code_block {
-        out.push_str("</span>");
-    }
-
-    out.trim_end().to_string()
-}
-
-fn format_inline_code(s: &str) -> String {
-    let parts: Vec<&str> = s.split('`').collect();
-    if parts.len().is_multiple_of(2) {
-        return s.to_string();
-    }
-    let mut result = String::with_capacity(s.len() + 32);
-    for (i, part) in parts.iter().enumerate() {
-        if i % 2 == 1 {
-            result.push_str("<tt>");
-            result.push_str(part);
-            result.push_str("</tt>");
-        } else {
-            result.push_str(part);
-        }
-    }
-    result
-}
-
-fn format_bold(s: &str) -> String {
-    let parts: Vec<&str> = s.split("**").collect();
-    if parts.len().is_multiple_of(2) {
-        return s.to_string();
-    }
-    let mut result = String::with_capacity(s.len() + 16);
-    for (i, part) in parts.iter().enumerate() {
-        if i % 2 == 1 {
-            result.push_str("<b>");
-            result.push_str(part);
-            result.push_str("</b>");
-        } else {
-            result.push_str(part);
-        }
-    }
-    result
-}
-
-fn format_italic(s: &str) -> String {
-    let parts: Vec<&str> = s.split('*').collect();
-    if parts.len().is_multiple_of(2) {
-        return s.to_string();
-    }
-    let mut result = String::with_capacity(s.len() + 16);
-    for (i, part) in parts.iter().enumerate() {
-        if i % 2 == 1 {
-            result.push_str("<i>");
-            result.push_str(part);
-            result.push_str("</i>");
-        } else {
-            result.push_str(part);
-        }
-    }
-    result
-}
-
-/// Applies formatted text to the assistant label. Validates against Pango parser
-/// and falls back gracefully to plain text if malformed.
-pub fn apply_assistant_markup(label: &gtk4::Label, raw: &str) {
-    let pango = format_markdown_to_pango(raw);
-    if pango::parse_markup(&pango, '\0').is_ok() {
-        label.set_markup(&pango);
-    } else {
-        label.set_text(raw);
-    }
-}
+pub use crate::render::apply_assistant_markup;
+#[allow(unused_imports)]
+pub use crate::render::format_markdown_to_pango;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gtk4::pango;
 
     #[test]
     fn test_plain_text() {
@@ -168,54 +16,79 @@ mod tests {
     }
 
     #[test]
-    fn test_xml_escaping() {
-        let text = "Symbols: <tag> & \"quotes\" and 'apostrophe' with > arrow";
+    fn test_inline_typography_and_math() {
+        let text = "Text formatting: **bold**, *italic*, ***bold-italic***, ~~strikethrough~~, `inline_code()`, and [hyperlink](https://example.com). Subscript: H~2~O, Superscript: E = mc^2^, Kbd: <kbd>Ctrl</kbd>. Math: $e^{i\\pi} + 1 = 0$.";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.contains("&lt;tag&gt;"));
-        assert!(markup.contains("&amp;"));
+        assert!(markup.contains("<b>bold</b>"));
+        assert!(markup.contains("<i>italic</i>"));
+        assert!(markup.contains("<s>strikethrough</s>"));
+        assert!(markup.contains("<tt>inline_code()</tt>"));
+        assert!(markup.contains("<sub>2</sub>"));
+        assert!(markup.contains("<sup>2</sup>"));
+        assert!(
+            markup.contains("<span foreground=\"#38bdf8\" underline=\"single\">hyperlink</span>")
+        );
     }
 
     #[test]
-    fn test_code_block() {
-        let text = "Code example:\n```rust\nfn main() {\n    println!(\"Hi\");\n}\n```\nDone.";
+    fn test_table_rendering() {
+        let text = "| ID | Name | Port |\n| :--- | :--- | ---: |\n| srv-1 | Auth | 8080 |\n| srv-2 | DB | 5432 |";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.contains("[rust]"));
-        assert!(markup.contains("font_family=\"monospace\""));
+        assert!(markup.contains('┌'));
+        assert!(markup.contains('┤'));
+        assert!(markup.contains('└'));
+        assert!(markup.contains("Auth"));
     }
 
     #[test]
-    fn test_unclosed_code_block_during_streaming() {
-        let text = "Streaming code:\n```python\nprint(123)\n";
+    fn test_blockquotes_and_alerts() {
+        let text = "> Standard quote\n> > Nested quote\n> [!NOTE]\n> Notice message\n> [!WARNING]\n> Warning alert";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.ends_with("</span>"));
+        assert!(markup.contains("│ Standard quote"));
+        assert!(markup.contains("│ │ Nested quote"));
+        assert!(markup.contains("ℹ Note"));
+        assert!(markup.contains("⚠ Warning"));
     }
 
     #[test]
-    fn test_inline_code_and_bold() {
-        let text = "Check `main.rs` and **important note** here.";
+    fn test_lists_and_task_states() {
+        let text = "- Root tier\n  - Secondary tier\n1. First step\n2. Second step\n- [x] Completed task\n- [ ] Pending task";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.contains("<tt>main.rs</tt>"));
-        assert!(markup.contains("<b>important note</b>"));
+        assert!(markup.contains("• Root tier"));
+        assert!(markup.contains("1."));
+        assert!(markup.contains("☑"));
+        assert!(markup.contains("Completed task"));
+        assert!(markup.contains("☐"));
+        assert!(markup.contains("Pending task"));
     }
 
     #[test]
-    fn test_blockquote_and_italic() {
-        let text = "> Quoted text here with *emphasis*";
+    fn test_code_blocks_and_syntax() {
+        let text = "```python\ndef hello(name: str) -> None:\n    print(f'Hello {name}')\n```";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.contains("│ Quoted text here"));
-        assert!(markup.contains("<i>emphasis</i>"));
+        assert!(markup.contains("[python]"));
+        assert!(markup.contains("def"));
+        assert!(markup.contains("print"));
     }
 
     #[test]
-    fn test_error_highlight() {
-        let text = "[Error] Process exited with code 1";
+    fn test_diagrams_and_details() {
+        let text = "<details>\n<summary>Click to view</summary>\nContent here\n</details>\n```mermaid\nflowchart LR\nA --> B\n```";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.contains("<span foreground=\"#e5484d\"><b>[Error]</b>"));
+        assert!(markup.contains("▸ Click to view"));
+        assert!(markup.contains("[mermaid]"));
+    }
+
+    #[test]
+    fn test_unclosed_streaming_safety() {
+        let text = "Streaming `unclosed inline\n```rust\nfn main() {";
+        let markup = format_markdown_to_pango(text);
+        assert!(pango::parse_markup(&markup, '\0').is_ok());
     }
 }
