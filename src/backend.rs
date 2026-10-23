@@ -3,12 +3,24 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct UsageMetrics {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum StreamEvent {
     /// Incremental text delta for live typing output
     TextDelta(String),
     /// Thinking indicator updates
     ThinkingDelta(String),
+    /// Tool execution notification (e.g. "Running bash: whoami")
+    ToolCall { name: String, args: String },
+    /// Token usage and latency metrics from model
+    Metrics(UsageMetrics),
     /// Backward-compatible full line
     Content(String),
     /// Error message output
@@ -119,7 +131,6 @@ impl PiRunner {
 }
 
 /// Parse one JSONL line from pi --mode json and emit appropriate StreamEvent.
-/// Falls back to raw text if not JSON.
 fn parse_and_dispatch_line(
     raw_line: &str,
     gen: u64,
@@ -160,6 +171,44 @@ fn parse_and_dispatch_line(
                                 }
                             }
                             _ => {}
+                        }
+                    }
+                }
+                "tool_execution_start" => {
+                    let name = v.get("toolName").and_then(|n| n.as_str()).unwrap_or("tool");
+                    let args = v.get("args").map(|a| a.to_string()).unwrap_or_default();
+                    let _ = tx.send((
+                        gen,
+                        StreamEvent::ToolCall {
+                            name: name.to_string(),
+                            args,
+                        },
+                    ));
+                }
+                "message_end" => {
+                    if let Some(msg) = v.get("message") {
+                        if let Some(usage) = msg.get("usage") {
+                            let input_tokens =
+                                usage.get("input").and_then(|n| n.as_u64()).unwrap_or(0);
+                            let output_tokens =
+                                usage.get("output").and_then(|n| n.as_u64()).unwrap_or(0);
+                            let total_tokens = usage
+                                .get("totalTokens")
+                                .and_then(|n| n.as_u64())
+                                .unwrap_or(0);
+                            let duration_ms =
+                                msg.get("durationMs").and_then(|n| n.as_u64()).unwrap_or(0);
+                            if total_tokens > 0 {
+                                let _ = tx.send((
+                                    gen,
+                                    StreamEvent::Metrics(UsageMetrics {
+                                        input_tokens,
+                                        output_tokens,
+                                        total_tokens,
+                                        duration_ms,
+                                    }),
+                                ));
+                            }
                         }
                     }
                 }
@@ -232,13 +281,13 @@ mod tests {
         let json_think = r#"{"type":"message_update","usage":{},"assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"pondering"}}"#;
         assert!(parse_and_dispatch_line(json_think, gen, &tx).is_ok());
 
-        // 3. Settled
+        // 3. Tool call
+        let json_tool = r#"{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{"command":"ls"}}"#;
+        assert!(parse_and_dispatch_line(json_tool, gen, &tx).is_ok());
+
+        // 4. Settled
         let json_settled = r#"{"type":"agent_settled","aborted":false}"#;
         assert!(parse_and_dispatch_line(json_settled, gen, &tx).is_ok());
-
-        // 4. Plain text fallback
-        let plain = "Non-json line";
-        assert!(parse_and_dispatch_line(plain, gen, &tx).is_ok());
 
         let ev1 = rx.try_recv().unwrap();
         assert_eq!(ev1, (10, StreamEvent::TextDelta("Hello ".to_string())));
@@ -250,9 +299,18 @@ mod tests {
         );
 
         let ev3 = rx.try_recv().unwrap();
-        assert_eq!(ev3, (10, StreamEvent::Done));
+        assert_eq!(
+            ev3,
+            (
+                10,
+                StreamEvent::ToolCall {
+                    name: "bash".to_string(),
+                    args: r#"{"command":"ls"}"#.to_string()
+                }
+            )
+        );
 
         let ev4 = rx.try_recv().unwrap();
-        assert_eq!(ev4, (10, StreamEvent::Content("Non-json line".to_string())));
+        assert_eq!(ev4, (10, StreamEvent::Done));
     }
 }

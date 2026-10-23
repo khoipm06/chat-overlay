@@ -49,7 +49,9 @@ struct TrackedPrompt {
 
 struct ActiveStreamTarget {
     label: gtk4::Label,
-    thinking_badge: gtk4::Label,
+    thought_expander: gtk4::Expander,
+    thought_label: gtk4::Label,
+    metrics_badge: gtk4::Label,
     full_text: Rc<RefCell<String>>,
     thinking_text: Rc<RefCell<String>>,
 }
@@ -912,7 +914,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             match event {
                 StreamEvent::TextDelta(delta) => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
-                        target.thinking_badge.set_text("");
                         let mut full = target.full_text.borrow_mut();
                         full.push_str(&delta);
                         format::apply_assistant_markup(&target.label, &full);
@@ -921,9 +922,29 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 }
                 StreamEvent::ThinkingDelta(delta) => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
+                        target.thought_expander.set_visible(true);
                         let mut think = target.thinking_text.borrow_mut();
                         think.push_str(&delta);
-                        target.thinking_badge.set_text("thinking...");
+                        target.thought_label.set_text(&think);
+                    }
+                    scroll_fn();
+                }
+                StreamEvent::ToolCall { name, args } => {
+                    if let Some(ref target) = *active_stream_clone.borrow() {
+                        target.thought_expander.set_visible(true);
+                        let mut think = target.thinking_text.borrow_mut();
+                        think.push_str(&format!("\n[tool: {}] {}\n", name, args));
+                        target.thought_label.set_text(&think);
+                    }
+                    scroll_fn();
+                }
+                StreamEvent::Metrics(m) => {
+                    if let Some(ref target) = *active_stream_clone.borrow() {
+                        target.metrics_badge.set_visible(true);
+                        let sec = (m.duration_ms as f64) / 1000.0;
+                        target
+                            .metrics_badge
+                            .set_text(&format!("{} tok • {:.1}s", m.total_tokens, sec));
                     }
                 }
                 StreamEvent::Content(line) => {
@@ -950,7 +971,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 }
                 StreamEvent::Done => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
-                        target.thinking_badge.set_text("");
+                        // Collapse thought expander automatically once done (clean Open-WebUI standard)
+                        target.thought_expander.set_expanded(false);
                     }
                     status_clone.set_text("ready");
                     status_clone.remove_css_class("working");
@@ -1073,9 +1095,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             asst_badge.add_css_class("bubble-assistant-badge");
             asst_header.append(&asst_badge);
 
-            let thinking_badge = gtk4::Label::new(Some("thinking..."));
-            thinking_badge.add_css_class("bubble-thinking-badge");
-            asst_header.append(&thinking_badge);
+            let metrics_badge = gtk4::Label::new(None);
+            metrics_badge.add_css_class("bubble-metrics-badge");
+            metrics_badge.set_visible(false);
+            asst_header.append(&metrics_badge);
 
             let asst_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
             asst_spacer.set_hexpand(true);
@@ -1088,6 +1111,24 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 .build();
             asst_header.append(&btn_copy);
             asst_bubble.append(&asst_header);
+
+            // Open-WebUI Style Collapsible Thought Box
+            let thought_expander = gtk4::Expander::builder()
+                .label("Thought Process")
+                .css_classes(["thought-expander"])
+                .expanded(true)
+                .visible(false)
+                .build();
+
+            let thought_label = gtk4::Label::builder()
+                .selectable(true)
+                .wrap(true)
+                .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                .xalign(0.0)
+                .css_classes(["thought-text"])
+                .build();
+            thought_expander.set_child(Some(&thought_label));
+            asst_bubble.append(&thought_expander);
 
             let divider = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
             divider.add_css_class("bubble-divider");
@@ -1122,7 +1163,9 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
             *active_stream.borrow_mut() = Some(ActiveStreamTarget {
                 label: asst_label.clone(),
-                thinking_badge: thinking_badge.clone(),
+                thought_expander: thought_expander.clone(),
+                thought_label: thought_label.clone(),
+                metrics_badge: metrics_badge.clone(),
                 full_text: full_text.clone(),
                 thinking_text: thinking_text.clone(),
             });
@@ -1142,7 +1185,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 let err_str = format!("[Error] Failed to spawn pi: {}", e);
                 full_text.borrow_mut().push_str(&err_str);
                 format::apply_assistant_markup(&asst_label, &err_str);
-                thinking_badge.set_text("");
+                thought_expander.set_expanded(false);
                 status_label.set_text("error");
                 status_label.remove_css_class("working");
                 scroll_fn();
