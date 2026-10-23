@@ -21,6 +21,23 @@ sudo pacman -S gtk4 gtk4-layer-shell
 sudo apt install libgtk-4-dev libgtk4-layer-shell-dev
 ```
 
+## Quick Installation
+Run the one-step install script:
+```bash
+./install.sh
+```
+
+To automatically start `pi-overlay` on desktop login:
+```bash
+./install.sh --autostart
+```
+
+## Uninstallation
+To remove `pi-overlay`, its icon, desktop entry, and autostart config:
+```bash
+./uninstall.sh
+```
+
 ## Manual Installation
 ```bash
 cargo build --release
