@@ -49,6 +49,8 @@ impl PiRunner {
     pub fn spawn_prompt(
         &mut self,
         prompt: String,
+        model: Option<String>,
+        thinking_level: Option<String>,
         tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Abort previous session before launching new prompt
@@ -64,8 +66,21 @@ impl PiRunner {
             .arg("--mode")
             .arg("json")
             .arg("--session-dir")
-            .arg(session_dir)
-            .arg("--")
+            .arg(session_dir);
+
+        if let Some(m) = model {
+            if m != "default" && !m.trim().is_empty() {
+                cmd.arg("--model").arg(m);
+            }
+        }
+
+        if let Some(th) = thinking_level {
+            if !th.trim().is_empty() {
+                cmd.arg("--thinking").arg(th);
+            }
+        }
+
+        cmd.arg("--")
             .arg(prompt)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -123,15 +138,23 @@ fn parse_and_dispatch_line(
                         let sub_type = sub_event.get("type").and_then(|t| t.as_str()).unwrap_or("");
                         match sub_type {
                             "text_delta" => {
-                                if let Some(delta) = sub_event.get("delta").and_then(|d| d.as_str()) {
-                                    if tx.send((gen, StreamEvent::TextDelta(delta.to_string()))).is_err() {
+                                if let Some(delta) = sub_event.get("delta").and_then(|d| d.as_str())
+                                {
+                                    if tx
+                                        .send((gen, StreamEvent::TextDelta(delta.to_string())))
+                                        .is_err()
+                                    {
                                         return Err(());
                                     }
                                 }
                             }
                             "thinking_delta" => {
-                                if let Some(delta) = sub_event.get("delta").and_then(|d| d.as_str()) {
-                                    if tx.send((gen, StreamEvent::ThinkingDelta(delta.to_string()))).is_err() {
+                                if let Some(delta) = sub_event.get("delta").and_then(|d| d.as_str())
+                                {
+                                    if tx
+                                        .send((gen, StreamEvent::ThinkingDelta(delta.to_string())))
+                                        .is_err()
+                                    {
                                         return Err(());
                                     }
                                 }
@@ -150,7 +173,10 @@ fn parse_and_dispatch_line(
     }
 
     // Fallback: If not standard json event, emit as plain line
-    if tx.send((gen, StreamEvent::Content(raw_line.to_string()))).is_err() {
+    if tx
+        .send((gen, StreamEvent::Content(raw_line.to_string())))
+        .is_err()
+    {
         return Err(());
     }
     Ok(())
@@ -187,7 +213,10 @@ mod tests {
         assert_ne!(content, error);
         assert_eq!(done, StreamEvent::Done);
         assert_eq!(text_delta, StreamEvent::TextDelta("delta chunk".into()));
-        assert_eq!(thinking_delta, StreamEvent::ThinkingDelta("thinking...".into()));
+        assert_eq!(
+            thinking_delta,
+            StreamEvent::ThinkingDelta("thinking...".into())
+        );
     }
 
     #[test]
@@ -215,7 +244,10 @@ mod tests {
         assert_eq!(ev1, (10, StreamEvent::TextDelta("Hello ".to_string())));
 
         let ev2 = rx.try_recv().unwrap();
-        assert_eq!(ev2, (10, StreamEvent::ThinkingDelta("pondering".to_string())));
+        assert_eq!(
+            ev2,
+            (10, StreamEvent::ThinkingDelta("pondering".to_string()))
+        );
 
         let ev3 = rx.try_recv().unwrap();
         assert_eq!(ev3, (10, StreamEvent::Done));

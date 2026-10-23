@@ -2,19 +2,18 @@ mod backend;
 mod format;
 mod ipc;
 mod overlay;
+mod settings;
 
 use backend::{PiRunner, StreamEvent};
 use gtk4::gdk;
-use gtk4::glib;
+use gtk4::glib::{self, LogWriterOutput};
 use gtk4::prelude::*;
+use settings::AppSettings;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use tokio::sync::mpsc;
 
 const APP_ID: &str = "com.github.khoipm.pi-overlay";
-pub const MIN_DRAWER_WIDTH: i32 = 320;
-pub const MAX_DRAWER_WIDTH: i32 = 900;
-pub const DEFAULT_DRAWER_WIDTH: i32 = 480;
 
 const THEMES: &[(&str, &str, &str)] = &[
     ("theme-dark-glass", "Dark Glass", "Translucent dark glass"),
@@ -22,6 +21,19 @@ const THEMES: &[(&str, &str, &str)] = &[
     ("theme-slate", "Slate Graphite", "Deep slate & graphite"),
     ("theme-forest", "Forest Charcoal", "Obsidian & subtle green"),
     ("theme-zinc-light", "Zinc Light", "Minimal bright zinc"),
+];
+
+const POPULAR_MODELS: &[(&str, &str)] = &[
+    ("default", "Default (System preset)"),
+    ("claude-3-7-sonnet", "Claude 3.7 Sonnet"),
+    ("claude-3-5-sonnet", "Claude 3.5 Sonnet"),
+    ("claude-3-5-haiku", "Claude 3.5 Haiku"),
+    ("gpt-4o", "GPT-4o"),
+    ("gpt-4o-mini", "GPT-4o Mini"),
+    ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+    ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+    ("deepseek/deepseek-chat", "DeepSeek Chat (V3)"),
+    ("deepseek/deepseek-reasoner", "DeepSeek Reasoner (R1)"),
 ];
 
 struct TrackedPrompt {
@@ -52,7 +64,9 @@ struct AppState {
     mode: OverlayMode,
     runner: PiRunner,
     prompts: Vec<TrackedPrompt>,
-    drawer_width: i32,
+    settings: AppSettings,
+    top_margin: i32,
+    bottom_margin: i32,
 }
 
 struct AppContext {
@@ -75,6 +89,21 @@ fn main() -> glib::ExitCode {
         return glib::ExitCode::FAILURE;
     }
 
+    // Suppress benign GtkGizmo slider sizing warnings from upstream GTK4
+    glib::log_set_writer_func(|level, fields| {
+        for field in fields {
+            if let Some(val) = field.value_str() {
+                if val.contains("GtkGizmo")
+                    || (val.contains("slider")
+                        && (val.contains("min width") || val.contains("min height")))
+                {
+                    return LogWriterOutput::Handled;
+                }
+            }
+        }
+        glib::log_writer_default(level, fields)
+    });
+
     // Auto-register KDE global shortcut Ctrl+Alt+L if on KDE Plasma
     ensure_kde_global_shortcut();
 
@@ -85,12 +114,9 @@ fn main() -> glib::ExitCode {
         .expect("Failed to initialize tokio multi-thread runtime");
     let _guard = rt.enter();
 
-    let app = gtk4::Application::builder()
-        .application_id(APP_ID)
-        .build();
+    let app = gtk4::Application::builder().application_id(APP_ID).build();
 
     app.connect_startup(|_| {
-        eprintln!("[pi-overlay] app startup");
         load_css();
     });
 
@@ -98,21 +124,15 @@ fn main() -> glib::ExitCode {
     let ctx_clone = context_holder.clone();
 
     app.connect_activate(move |app| {
-        eprintln!("[pi-overlay] app activate");
         let mut ctx = ctx_clone.borrow_mut();
         if let Some(ref c) = *ctx {
-            // Already running: toggle window
-            eprintln!("[pi-overlay] already running, calling toggle");
             (c.toggle)();
         } else {
-            // First launch: build UI and store context
-            eprintln!("[pi-overlay] first launch, building UI");
             let new_ctx = build_ui(app);
             *ctx = Some(new_ctx);
         }
     });
 
-    eprintln!("[pi-overlay] running app.run()");
     app.run()
 }
 
@@ -136,10 +156,8 @@ fn ensure_kde_global_shortcut() {
         );
         let _ = std::fs::write(&desktop_file, content);
 
-        // Update KDE Sycoca cache so desktop file is indexed
         let _ = std::process::Command::new("kbuildsycoca6").status();
 
-        // Write configuration into kglobalshortcutsrc for persistence across reboots
         let _ = std::process::Command::new("kwriteconfig6")
             .args([
                 "--file",
@@ -154,7 +172,6 @@ fn ensure_kde_global_shortcut() {
             ])
             .status();
 
-        // Register action with live kglobalacceld session
         let _ = std::process::Command::new("busctl")
             .args([
                 "--user",
@@ -172,7 +189,6 @@ fn ensure_kde_global_shortcut() {
             ])
             .status();
 
-        // Bind foreign shortcut Ctrl+Alt+L (Qt key code: 201326668) in live kglobalacceld
         let _ = std::process::Command::new("busctl")
             .args([
                 "--user",
@@ -209,10 +225,12 @@ fn load_css() {
 }
 
 fn build_ui(app: &gtk4::Application) -> AppContext {
+    let initial_settings = AppSettings::load();
+
     let window = gtk4::ApplicationWindow::builder()
         .application(app)
         .title("Pi")
-        .default_width(DEFAULT_DRAWER_WIDTH)
+        .default_width(initial_settings.width)
         .build();
 
     overlay::init_layer_shell(&window);
@@ -222,29 +240,41 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     root_box.set_halign(gtk4::Align::End);
     root_box.set_vexpand(true);
 
-    // Interactive Drag Handle on the left edge (like Messenger Chat Head resizing)
-    let resize_handle = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    resize_handle.add_css_class("resize-handle");
-    resize_handle.set_cursor_from_name(Some("ew-resize"));
-    resize_handle.set_width_request(10);
-    resize_handle.set_vexpand(true);
+    // Multi-directional Resize Frame Container
+    // Left edge resize handle
+    let resize_handle_w = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_handle_w.add_css_class("resize-handle");
+    resize_handle_w.set_cursor_from_name(Some("ew-resize"));
+    resize_handle_w.set_width_request(12);
+    resize_handle_w.set_vexpand(true);
 
-    // Visual grip bar inside handle
+    // Visual grip bar
     let resize_grip = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     resize_grip.add_css_class("resize-grip");
     resize_grip.set_valign(gtk4::Align::Center);
     resize_grip.set_vexpand(true);
-    resize_handle.append(&resize_grip);
+    resize_handle_w.append(&resize_grip);
 
-    root_box.append(&resize_handle);
+    root_box.append(&resize_handle_w);
+
+    // Center Vertical Box holding top handle, drawer, bottom handle
+    let center_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    center_box.set_vexpand(true);
+
+    // Top edge resize handle
+    let resize_handle_n = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    resize_handle_n.add_css_class("resize-handle-horiz");
+    resize_handle_n.set_cursor_from_name(Some("ns-resize"));
+    resize_handle_n.set_height_request(8);
+    center_box.append(&resize_handle_n);
 
     let drawer = gtk4::Box::new(gtk4::Orientation::Vertical, 10);
     drawer.set_widget_name("drawer-container");
-    drawer.add_css_class("theme-dark-glass");
-    drawer.set_width_request(DEFAULT_DRAWER_WIDTH);
+    drawer.add_css_class(&initial_settings.theme);
+    drawer.set_width_request(initial_settings.width);
     drawer.set_vexpand(true);
 
-    // Header Area: Title + Status + Action Buttons (No decorative emojis)
+    // Header Area: Title + Model Badge + Status + Action Buttons
     let header_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
     header_box.add_css_class("header-box");
 
@@ -252,6 +282,11 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     title_label.add_css_class("title-label");
     title_label.set_halign(gtk4::Align::Start);
     header_box.append(&title_label);
+
+    let model_badge = gtk4::Label::new(Some(&initial_settings.model));
+    model_badge.add_css_class("model-badge");
+    model_badge.set_halign(gtk4::Align::Start);
+    header_box.append(&model_badge);
 
     let status_label = gtk4::Label::new(Some("ready"));
     status_label.add_css_class("status-badge");
@@ -306,65 +341,80 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     btn_prompts.set_popover(Some(&prompt_popover));
     header_box.append(&btn_prompts);
 
-    // Theme Switcher Button & Popover
-    let btn_theme = gtk4::MenuButton::builder()
-        .label("Theme")
+    // Settings Menu Button & Popover (Model, Theme, Auto-hide, Reset)
+    let btn_settings = gtk4::MenuButton::builder()
+        .label("Settings")
         .css_classes(["btn-header"])
-        .tooltip_text("Switch visual theme")
+        .tooltip_text("Configure model, theme and behavior")
         .build();
 
-    let theme_popover = gtk4::Popover::new();
-    theme_popover.add_css_class("theme-popover");
+    let settings_popover = gtk4::Popover::new();
+    settings_popover.add_css_class("settings-popover");
 
-    let theme_pop_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-    let theme_title = gtk4::Label::builder()
-        .label("Choose Theme")
+    let settings_pop_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+    settings_pop_box.set_width_request(220);
+
+    let settings_title = gtk4::Label::builder()
+        .label("Settings")
         .css_classes(["popover-header-title"])
         .xalign(0.0)
         .build();
-    theme_pop_box.append(&theme_title);
+    settings_pop_box.append(&settings_title);
 
-    let theme_list_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    theme_list_box.set_width_request(180);
+    // Model Selector Section
+    let model_section_label = gtk4::Label::builder()
+        .label("Model")
+        .css_classes(["settings-section-label"])
+        .xalign(0.0)
+        .build();
+    settings_pop_box.append(&model_section_label);
 
-    let theme_buttons: Rc<RefCell<Vec<(&'static str, gtk4::Button)>>> = Rc::new(RefCell::new(Vec::new()));
+    let model_dropdown = gtk4::DropDown::from_strings(
+        &POPULAR_MODELS
+            .iter()
+            .map(|(_, name)| *name)
+            .collect::<Vec<&str>>(),
+    );
+    // Find current index
+    let current_model_idx = POPULAR_MODELS
+        .iter()
+        .position(|(id, _)| *id == initial_settings.model)
+        .unwrap_or(0);
+    model_dropdown.set_selected(current_model_idx as u32);
+    settings_pop_box.append(&model_dropdown);
 
-    for &(theme_id, theme_name, _) in THEMES {
-        let t_btn = gtk4::Button::builder()
-            .label(theme_name)
-            .css_classes(["btn-menu-item"])
-            .build();
-        if theme_id == "theme-dark-glass" {
-            t_btn.add_css_class("active");
-        }
+    // Theme Selector Section
+    let theme_section_label = gtk4::Label::builder()
+        .label("Theme")
+        .css_classes(["settings-section-label"])
+        .xalign(0.0)
+        .build();
+    settings_pop_box.append(&theme_section_label);
 
-        let drawer_for_theme = drawer.clone();
-        let popover_for_theme = theme_popover.clone();
-        let buttons_list = theme_buttons.clone();
+    let theme_dropdown = gtk4::DropDown::from_strings(
+        &THEMES
+            .iter()
+            .map(|(_, name, _)| *name)
+            .collect::<Vec<&str>>(),
+    );
+    let current_theme_idx = THEMES
+        .iter()
+        .position(|(id, _, _)| *id == initial_settings.theme)
+        .unwrap_or(0);
+    theme_dropdown.set_selected(current_theme_idx as u32);
+    settings_pop_box.append(&theme_dropdown);
 
-        t_btn.connect_clicked(move |_| {
-            for &(other_id, _, _) in THEMES {
-                drawer_for_theme.remove_css_class(other_id);
-            }
-            drawer_for_theme.add_css_class(theme_id);
+    // Auto-hide Checkbox
+    let auto_hide_check = gtk4::CheckButton::builder()
+        .label("Auto-hide on focus loss")
+        .active(initial_settings.auto_hide_on_blur)
+        .css_classes(["settings-checkbox"])
+        .build();
+    settings_pop_box.append(&auto_hide_check);
 
-            for (id, btn) in buttons_list.borrow().iter() {
-                if *id == theme_id {
-                    btn.add_css_class("active");
-                } else {
-                    btn.remove_css_class("active");
-                }
-            }
-            popover_for_theme.popdown();
-        });
-
-        theme_buttons.borrow_mut().push((theme_id, t_btn.clone()));
-        theme_list_box.append(&t_btn);
-    }
-    theme_pop_box.append(&theme_list_box);
-    theme_popover.set_child(Some(&theme_pop_box));
-    btn_theme.set_popover(Some(&theme_popover));
-    header_box.append(&btn_theme);
+    settings_popover.set_child(Some(&settings_pop_box));
+    btn_settings.set_popover(Some(&settings_popover));
+    header_box.append(&btn_settings);
 
     // Clear Button
     let btn_clear = gtk4::Button::builder()
@@ -397,7 +447,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     messages_box.set_vexpand(true);
     messages_box.set_valign(gtk4::Align::Start);
 
-    // Welcome placeholder: minimal refined hints, no emojis
+    // Welcome placeholder: minimal refined hints
     let welcome_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
     welcome_box.add_css_class("welcome-box");
     welcome_box.set_halign(gtk4::Align::Center);
@@ -444,50 +494,147 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     // Footer with refined keyboard shortcut hints
     let footer_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     footer_box.add_css_class("footer-box");
-    let shortcut_hint = gtk4::Label::new(Some("Drag edge to resize  •  Ctrl+Alt+L: Toggle  •  Esc: Close"));
+    let shortcut_hint = gtk4::Label::new(Some(
+        "Drag borders to resize  •  Ctrl+Alt+L: Toggle  •  Esc: Close",
+    ));
     shortcut_hint.add_css_class("shortcut-label");
     shortcut_hint.set_halign(gtk4::Align::Center);
     shortcut_hint.set_hexpand(true);
     footer_box.append(&shortcut_hint);
     drawer.append(&footer_box);
 
-    root_box.append(&drawer);
+    center_box.append(&drawer);
+
+    // Bottom edge resize handle
+    let resize_handle_s = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    resize_handle_s.add_css_class("resize-handle-horiz");
+    resize_handle_s.set_cursor_from_name(Some("ns-resize"));
+    resize_handle_s.set_height_request(8);
+    center_box.append(&resize_handle_s);
+
+    root_box.append(&center_box);
     window.set_child(Some(&root_box));
 
     let state = Rc::new(RefCell::new(AppState {
         mode: OverlayMode::Hidden,
         runner: PiRunner::new(),
         prompts: Vec::new(),
-        drawer_width: DEFAULT_DRAWER_WIDTH,
+        settings: initial_settings,
+        top_margin: 12,
+        bottom_margin: 12,
     }));
 
-    // Setup GestureDrag on resize handle (Dragging left increases width, dragging right decreases)
-    let drag_gesture = gtk4::GestureDrag::new();
-    let initial_width = Rc::new(Cell::new(DEFAULT_DRAWER_WIDTH));
-    let start_w = initial_width.clone();
-    let state_drag = state.clone();
+    // Connect Dropdown callbacks to persist settings
+    {
+        let state_model = state.clone();
+        let model_badge_clone = model_badge.clone();
+        model_dropdown.connect_selected_notify(move |dd| {
+            let idx = dd.selected() as usize;
+            if idx < POPULAR_MODELS.len() {
+                let model_id = POPULAR_MODELS[idx].0.to_string();
+                model_badge_clone.set_text(&model_id);
+                let mut st = state_model.borrow_mut();
+                st.settings.model = model_id;
+                let _ = st.settings.save();
+            }
+        });
 
-    drag_gesture.connect_drag_begin(move |_, _, _| {
-        start_w.set(state_drag.borrow().drawer_width);
-    });
+        let state_theme = state.clone();
+        let drawer_theme = drawer.clone();
+        theme_dropdown.connect_selected_notify(move |dd| {
+            let idx = dd.selected() as usize;
+            if idx < THEMES.len() {
+                let theme_id = THEMES[idx].0;
+                for (other, _, _) in THEMES {
+                    drawer_theme.remove_css_class(other);
+                }
+                drawer_theme.add_css_class(theme_id);
 
-    let drawer_drag = drawer.clone();
-    let window_drag = window.clone();
-    let cur_w = initial_width.clone();
-    let state_update = state.clone();
+                let mut st = state_theme.borrow_mut();
+                st.settings.theme = theme_id.to_string();
+                let _ = st.settings.save();
+            }
+        });
 
-    drag_gesture.connect_drag_update(move |_, offset_x, _| {
-        // Dragging handle towards left (negative offset_x) widens drawer
-        let target_width = (cur_w.get() - offset_x as i32)
-            .clamp(MIN_DRAWER_WIDTH, MAX_DRAWER_WIDTH);
+        let state_autohide = state.clone();
+        auto_hide_check.connect_toggled(move |cb| {
+            let mut st = state_autohide.borrow_mut();
+            st.settings.auto_hide_on_blur = cb.is_active();
+            let _ = st.settings.save();
+        });
+    }
 
-        state_update.borrow_mut().drawer_width = target_width;
-        drawer_drag.set_width_request(target_width);
-        window_drag.set_default_size(target_width + 10, -1);
-        window_drag.queue_resize();
-    });
+    // Setup Horizontal Drag Gesture (West Handle)
+    {
+        let drag_gesture_w = gtk4::GestureDrag::new();
+        let initial_width = Rc::new(Cell::new(settings::DEFAULT_WIDTH));
+        let start_w = initial_width.clone();
+        let state_drag = state.clone();
+        drag_gesture_w.connect_drag_begin(move |_, _, _| {
+            start_w.set(state_drag.borrow().settings.width);
+        });
 
-    resize_handle.add_controller(drag_gesture);
+        let drawer_drag = drawer.clone();
+        let window_drag = window.clone();
+        let cur_w = initial_width.clone();
+        let state_update = state.clone();
+        drag_gesture_w.connect_drag_update(move |_, offset_x, _| {
+            let target_width =
+                (cur_w.get() - offset_x as i32).clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
+
+            let mut st = state_update.borrow_mut();
+            st.settings.width = target_width;
+            let _ = st.settings.save();
+            drawer_drag.set_width_request(target_width);
+            window_drag.set_default_size(target_width + 12, -1);
+            window_drag.queue_resize();
+        });
+        resize_handle_w.add_controller(drag_gesture_w);
+    }
+
+    // Setup Top Vertical Drag Gesture (North Handle)
+    {
+        let drag_gesture_n = gtk4::GestureDrag::new();
+        let initial_margin_top = Rc::new(Cell::new(12));
+        let start_top = initial_margin_top.clone();
+        let state_top = state.clone();
+        drag_gesture_n.connect_drag_begin(move |_, _, _| {
+            start_top.set(state_top.borrow().top_margin);
+        });
+
+        let window_top = window.clone();
+        let cur_top = initial_margin_top.clone();
+        let state_update_top = state.clone();
+        drag_gesture_n.connect_drag_update(move |_, _, offset_y| {
+            let new_top = (cur_top.get() + offset_y as i32).clamp(8, 600);
+            let mut st = state_update_top.borrow_mut();
+            st.top_margin = new_top;
+            overlay::update_vertical_margins(&window_top, new_top, st.bottom_margin);
+        });
+        resize_handle_n.add_controller(drag_gesture_n);
+    }
+
+    // Setup Bottom Vertical Drag Gesture (South Handle)
+    {
+        let drag_gesture_s = gtk4::GestureDrag::new();
+        let initial_margin_bottom = Rc::new(Cell::new(12));
+        let start_bottom = initial_margin_bottom.clone();
+        let state_bottom = state.clone();
+        drag_gesture_s.connect_drag_begin(move |_, _, _| {
+            start_bottom.set(state_bottom.borrow().bottom_margin);
+        });
+
+        let window_bottom = window.clone();
+        let cur_bottom = initial_margin_bottom.clone();
+        let state_update_bottom = state.clone();
+        drag_gesture_s.connect_drag_update(move |_, _, offset_y| {
+            let new_bottom = (cur_bottom.get() - offset_y as i32).clamp(8, 600);
+            let mut st = state_update_bottom.borrow_mut();
+            st.bottom_margin = new_bottom;
+            overlay::update_vertical_margins(&window_bottom, st.top_margin, new_bottom);
+        });
+        resize_handle_s.add_controller(drag_gesture_s);
+    }
 
     let active_stream: Rc<RefCell<Option<ActiveStreamTarget>>> = Rc::new(RefCell::new(None));
 
@@ -588,7 +735,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 }
                 st.mode = OverlayMode::Hidden;
             }
-            // Call overlay::hide_overlay AFTER dropping the borrow_mut
             overlay::hide_overlay(&window);
         })
     };
@@ -601,16 +747,17 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let just_expanded = just_expanded.clone();
 
         Rc::new(move || {
-            {
+            let (top, bottom) = {
                 let mut st = state.borrow_mut();
                 if st.mode == OverlayMode::Visible {
                     return;
                 }
                 st.mode = OverlayMode::Visible;
-            }
+                (st.top_margin, st.bottom_margin)
+            };
             just_expanded.set(true);
 
-            overlay::expand_overlay(&window);
+            overlay::expand_overlay(&window, top, bottom);
             entry.grab_focus();
 
             let je = just_expanded.clone();
@@ -653,7 +800,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let state_blur = state.clone();
         let just_expanded_blur = just_expanded.clone();
         let prompt_pop_blur = prompt_popover.clone();
-        let theme_pop_blur = theme_popover.clone();
+        let settings_pop_blur = settings_popover.clone();
 
         window.connect_is_active_notify(move |win| {
             let active = win.is_active();
@@ -661,11 +808,17 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 if just_expanded_blur.get() {
                     return;
                 }
-                if prompt_pop_blur.is_visible() || theme_pop_blur.is_visible() {
+                if prompt_pop_blur.is_visible() || settings_pop_blur.is_visible() {
                     return;
                 }
-                let is_visible = state_blur.borrow().mode == OverlayMode::Visible;
-                if is_visible {
+                let (is_visible, auto_hide) = {
+                    let st = state_blur.borrow();
+                    (
+                        st.mode == OverlayMode::Visible,
+                        st.settings.auto_hide_on_blur,
+                    )
+                };
+                if is_visible && auto_hide {
                     hide_on_blur();
                 }
             }
@@ -683,7 +836,11 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             let je = je_pop_close.clone();
 
             glib::idle_add_local_once(move || {
-                if !win.is_active() && !je.get() && st.borrow().mode == OverlayMode::Visible {
+                let (is_visible, auto_hide) = {
+                    let s = st.borrow();
+                    (s.mode == OverlayMode::Visible, s.settings.auto_hide_on_blur)
+                };
+                if !win.is_active() && !je.get() && is_visible && auto_hide {
                     hide();
                 }
             });
@@ -695,7 +852,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         });
 
         let p2 = check_focus_after_popover.clone();
-        theme_popover.connect_closed(move |_| {
+        settings_popover.connect_closed(move |_| {
             p2();
         });
     }
@@ -707,7 +864,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let hide_on_esc = hide_overlay_fn.clone();
     let clear_on_ctrl_l = clear_conversation.clone();
     let prompt_pop_esc = prompt_popover.clone();
-    let theme_pop_esc = theme_popover.clone();
+    let settings_pop_esc = settings_popover.clone();
 
     key_controller.connect_key_pressed(move |_, keyval, _, state_modifier| {
         let is_ctrl = state_modifier.contains(gdk::ModifierType::CONTROL_MASK);
@@ -722,8 +879,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 prompt_pop_esc.popdown();
                 return glib::Propagation::Stop;
             }
-            if theme_pop_esc.is_visible() {
-                theme_pop_esc.popdown();
+            if settings_pop_esc.is_visible() {
+                settings_pop_esc.popdown();
                 return glib::Propagation::Stop;
             }
             hide_on_esc();
@@ -866,7 +1023,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 .build();
             let nav_btn_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
             let nav_badge = gtk4::Label::builder()
-                .label(&format!("#{}", prompt_idx))
+                .label(format!("#{}", prompt_idx))
                 .css_classes(["prompt-nav-badge"])
                 .build();
             let snippet = if prompt.chars().count() > 24 {
@@ -976,7 +1133,12 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             status_label.add_css_class("working");
 
             let mut st = state.borrow_mut();
-            if let Err(e) = st.runner.spawn_prompt(prompt, stream_tx.clone()) {
+            let model_opt = Some(st.settings.model.clone());
+            let thinking_opt = Some(st.settings.thinking_level.clone());
+            if let Err(e) =
+                st.runner
+                    .spawn_prompt(prompt, model_opt, thinking_opt, stream_tx.clone())
+            {
                 let err_str = format!("[Error] Failed to spawn pi: {}", e);
                 full_text.borrow_mut().push_str(&err_str);
                 format::apply_assistant_markup(&asst_label, &err_str);
@@ -1010,13 +1172,9 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     });
 
     // Show GUI window immediately on launch
-    eprintln!("[pi-overlay] calling expand_overlay_fn at startup");
     expand_overlay_fn();
 
-    AppContext {
-        window,
-        toggle,
-    }
+    AppContext { window, toggle }
 }
 
 #[cfg(test)]
@@ -1029,7 +1187,9 @@ mod tests {
             mode: OverlayMode::Visible,
             runner: PiRunner::new(),
             prompts: Vec::new(),
-            drawer_width: DEFAULT_DRAWER_WIDTH,
+            settings: AppSettings::default(),
+            top_margin: 12,
+            bottom_margin: 12,
         };
 
         assert_eq!(state.mode, OverlayMode::Visible);
@@ -1055,9 +1215,11 @@ mod tests {
     }
 
     #[test]
-    fn test_drawer_width_clamps() {
-        assert!(MIN_DRAWER_WIDTH >= 300);
-        assert!(MAX_DRAWER_WIDTH >= MIN_DRAWER_WIDTH);
-        assert!(DEFAULT_DRAWER_WIDTH >= MIN_DRAWER_WIDTH && DEFAULT_DRAWER_WIDTH <= MAX_DRAWER_WIDTH);
+    fn test_popular_models_list() {
+        assert!(POPULAR_MODELS.len() >= 5);
+        let ids: Vec<&str> = POPULAR_MODELS.iter().map(|(id, _)| *id).collect();
+        assert!(ids.contains(&"default"));
+        assert!(ids.contains(&"claude-3-7-sonnet"));
+        assert!(ids.contains(&"gpt-4o"));
     }
 }

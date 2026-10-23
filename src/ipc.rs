@@ -46,7 +46,10 @@ pub fn start_ipc_listener(tx: mpsc::UnboundedSender<()>) {
                 }
             }
             Err(e) => {
-                eprintln!("[pi-overlay] Failed to bind IPC socket at {:?}: {}", socket_path, e);
+                eprintln!(
+                    "[pi-overlay] Failed to bind IPC socket at {:?}: {}",
+                    socket_path, e
+                );
             }
         }
     });

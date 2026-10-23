@@ -1,22 +1,17 @@
 /* Pi Ephemeral Wayland Overlay — Minimalist Dark Panel (Raycast / Linear standard)
  *
- * Palette: real published scales, not ad-hoc hex values.
- *   Dark themes: Radix Colors v3 (mauve / slate / olive dark scales)
- *   Light theme: Tailwind zinc scale
- *   Semantics (Radix 12-step scale): 1–2 panel backgrounds, 3–5 component
- *   backgrounds, 6–8 borders, 11–12 text (Lc 60/90 contrast on step-2 bg).
+ * Palette: real published scales (Radix Colors v3 & Tailwind Zinc).
  */
 
 window {
     background-color: transparent;
 }
 
-/* ── Interactive Resize Handle (Like mobile chat head drawer) ────────── */
+/* ── Interactive Resize Handles (Multi-directional) ──────────────────── */
 .resize-handle {
     background: transparent;
-    min-width: 10px;
+    min-width: 12px;
     margin-right: 0;
-    transition: background-color 150ms ease-out;
 }
 
 .resize-grip {
@@ -24,7 +19,7 @@ window {
     min-height: 48px;
     background-color: rgba(255, 255, 255, 0.08);
     border-radius: 2px;
-    margin-left: 3px;
+    margin-left: 4px;
     margin-right: 4px;
     transition: background-color 150ms ease-out, min-width 150ms ease-out;
 }
@@ -32,6 +27,15 @@ window {
 .resize-handle:hover .resize-grip {
     background-color: rgba(255, 255, 255, 0.35);
     min-width: 4px;
+}
+
+.resize-handle-horiz {
+    background: transparent;
+    min-height: 8px;
+}
+
+.resize-handle-horiz:hover {
+    background-color: rgba(255, 255, 255, 0.12);
 }
 
 .theme-zinc-light .resize-grip {
@@ -97,13 +101,27 @@ window {
     letter-spacing: -0.01em;
 }
 
+.model-badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: #b5b2bc;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.theme-zinc-light .model-badge {
+    color: #52525b;
+    background: rgba(9, 9, 11, 0.05);
+}
+
 .status-badge {
     font-size: 11px;
     font-weight: 500;
     padding: 1px 6px;
     border-radius: 4px;
     color: #7c7a85;                              /* mauve dark 10 */
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .status-badge.working {
@@ -113,7 +131,7 @@ window {
 
 .theme-zinc-light .status-badge {
     color: #71717a;                              /* zinc-500 */
-    background: rgba(9, 9, 11, 0.05);
+    background: rgba(9, 9, 11, 0.04);
 }
 
 .theme-zinc-light .status-badge.working {
@@ -327,7 +345,7 @@ popover contents {
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
-    padding: 6px;
+    padding: 8px;
 }
 
 .theme-zinc-light popover contents {
@@ -341,9 +359,22 @@ popover contents {
     font-weight: 600;
     letter-spacing: 0.04em;
     color: #7c7a85;
-    padding: 4px 6px 6px;
+    padding: 2px 4px 6px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    margin-bottom: 3px;
+    margin-bottom: 4px;
+}
+
+.settings-section-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #7c7a85;
+    margin-top: 4px;
+}
+
+.settings-checkbox {
+    font-size: 11.5px;
+    color: #b5b2bc;
+    margin-top: 4px;
 }
 
 .theme-zinc-light .popover-header-title {
