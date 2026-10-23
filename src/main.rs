@@ -2,6 +2,7 @@ mod backend;
 mod format;
 mod ipc;
 mod overlay;
+mod render;
 mod settings;
 
 use backend::{PiRunner, StreamEvent};
