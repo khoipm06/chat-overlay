@@ -1702,4 +1702,62 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_mathematical_logic_quantifiers_and_symbols() {
+        let logic_cases = [
+            // Predicate logic formulas with quantifiers
+            "$$\n\\forall x \\in \\mathbb{R}, \\; \\exists y \\in \\mathbb{R} : x + y = 0\n$$",
+            // De Morgan's laws and set operations
+            "$$\n\\neg (P \\land Q) \\iff (\\neg P \\lor \\neg Q) \\quad \\text{and} \\quad A \\cap (B \\cup C) = (A \\cap B) \\cup (A \\cap C)\n$$",
+            // Subset, superset, empty set, element of
+            "Inline logic: $x \\in A \\subseteq B$, $A \\setminus B \\neq \\emptyset$, and $f : X \\to Y$.",
+            // Turnstile, consequence, equivalence
+            "$$\n\\Gamma \\vdash \\phi \\implies \\Gamma \\models \\phi\n$$",
+            // Modus ponens and inference rules
+            "$$\n\\frac{P \\quad P \\to Q}{Q}\n$$",
+        ];
+
+        for c in logic_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Logic quantifier case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_nested_brackets_and_link_parsing_robustness() {
+        let bracket_cases = [
+            // Link with multiple bracket pairs in label
+            "[Text [with] nested [brackets] inside](https://example.com)",
+            // Empty link label or empty destination
+            "[](https://example.com) and [Label]() and []()",
+            // Links separated only by commas or slashes
+            "[Link 1](https://a.com), [Link 2](https://b.com)/[Link 3](https://c.com)",
+            // Consecutive opening brackets
+            "[[[[Multiple open brackets without close",
+            // Consecutive closing brackets
+            "Multiple close brackets]]]] without open",
+            // Markdown link with spaces in URL
+            "[Space Link](https://example.com/path with spaces)",
+        ];
+
+        for c in bracket_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Bracket link case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
