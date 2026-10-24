@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 16:45:00 +0700
-- **Commit thẩm định**: `81a1746` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **103/103 PASSED** (0 failed, 0 ignored, 0.23s).
+- **Thời điểm kiểm chứng**: 2026-10-24 16:50:00 +0700
+- **Commit thẩm định**: `7befd39` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **105/105 PASSED** (0 failed, 0 ignored, 0.31s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 103 tests bao phủ điện từ học cổ điển (thế điện từ Maxwell, chuẩn Lorenz & Coulomb, vectơ Poynting $\mathbf{S} = \frac{1}{\mu_0}(\mathbf{E} \times \mathbf{B})$) cùng điện toán song song hiệu năng cao HPC (OpenMP `#pragma omp parallel for`, MPI `MPI_Init`, Chapel distributed arrays).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 105 tests bao phủ lý thuyết điều khiển tự động (biến đổi Laplace $\mathcal{L}$, hàm truyền kín $T(s) = \frac{G(s)}{1 + G(s)H(s)}$, không gian trạng thái $\dot{\mathbf{x}} = \mathbf{A}\mathbf{x} + \mathbf{B}\mathbf{u}$, tiêu chuẩn ổn định Nyquist $N = Z - P$) cùng họ ngôn ngữ lập trình hàm Lisp / Scheme (R7RS, Racket, Common Lisp macros).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -173,7 +173,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Data Serialization CSV, TSV, INI & Crontab (`test_fuzz_codeblock_with_data_serialization_formats`): Kiểm thử dữ liệu bảng CSV/TSV có dấu phẩy/ngoặc kép trong trường, tệp cấu hình INI / Desktop Entry `[Desktop Entry]`, và cú pháp lập lịch crontab `*/10 * * * *`.
   - Electromagnetism, Maxwell Potentials & Gauge Transformations (`test_fuzz_latex_electromagnetism_and_maxwell_potential_gauge`): Kiểm thử hệ phương trình vi phân Maxwell đầy đủ (Gauss, Faraday, Ampère-Maxwell), tensor trường điện từ $F_{\mu\nu} = \partial_\mu A_\nu - \partial_\nu A_\mu$, điều kiện chuẩn Lorenz $\partial_\mu A^\mu = 0$ và Coulomb $\nabla \cdot \mathbf{A} = 0$, vector Poynting $\mathbf{S} = \frac{1}{\mu_0}(\mathbf{E} \times \mathbf{B})$ và mật độ năng lượng trường điện từ $u$.
   - Parallel & HPC Scientific Computing MPI, OpenMP, Fortran (`test_fuzz_codeblock_with_scientific_parallel_mpi_and_openmp`): Kiểm thử chỉ thị đa luồng OpenMP `#pragma omp parallel for reduction(+:sum)`, truyền thông điệp phân tán MPI (`MPI_Init`, `MPI_Comm_rank`), và mảng Fortran 90 song song `do concurrent`.
-- **Kết quả**: `PASSED` (103/103 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Control Systems Theory, Laplace & Riccati (`test_fuzz_latex_control_systems_laplace_and_bode`): Kiểm thử hàm truyền đạt miền s $G(s) = Y(s)/U(s)$, mô hình không gian trạng thái $\dot{\mathbf{x}} = \mathbf{A}\mathbf{x} + \mathbf{B}\mathbf{u}$, bộ điều khiển tối ưu LQR & phương trình ma trận Riccati đại số (CARE), cùng tiêu chuẩn ổn định Nyquist $N = Z - P$.
+  - Functional Lisp, Scheme & Racket DSLs (`test_fuzz_codeblock_with_functional_lisp_scheme_and_racket`): Kiểm thử toán tử tổ hợp Y (Y-combinator) trong Scheme, hàm đệ quy đuôi (tail recursion), hệ thống đối tượng Common Lisp CLOS (`defclass`, `defmethod`), và toán tử trích xuất định dạng `~A~%`.
+- **Kết quả**: `PASSED` (105/105 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
