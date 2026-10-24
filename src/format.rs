@@ -2740,4 +2740,57 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_algebraic_topology_and_homology() {
+        let topo_cases = [
+            // Chain complex and boundary operator d^2 = 0
+            "$$\n\\dots \\xrightarrow{\\partial_{n+2}} C_{n+1} \\xrightarrow{\\partial_{n+1}} C_n \\xrightarrow{\\partial_n} C_{n-1} \\xrightarrow{\\partial_{n-1}} \\dots, \\quad \\partial_n \\circ \\partial_{n+1} = 0\n$$",
+            // Homology group definition H_n = ker(d_n) / im(d_{n+1})
+            "$$\nH_n(X) = \\frac{\\ker(\\partial_n)}{\\operatorname{im}(\\partial_{n+1})}, \\quad B_n \\subseteq Z_n \\subseteq C_n\n$$",
+            // Mayer-Vietoris sequence
+            "$$\n\\dots \\to H_n(A \\cap B) \\xrightarrow{\\Phi} H_n(A) \\oplus H_n(B) \\xrightarrow{\\Psi} H_n(X) \\xrightarrow{\\partial_*} H_{n-1}(A \\cap B) \\to \\dots\n$$",
+            // Cohomology cup product and graded ring
+            "$$\n\\smile \\colon H^p(X; R) \\times H^q(X; R) \\longrightarrow H^{p+q}(X; R), \\quad \\alpha \\smile \\beta = (-1)^{pq} (\\beta \\smile \\alpha)\n$$",
+            // Poincaré duality for closed oriented manifolds
+            "$$\nH^k(M; \\mathbb{Z}) \\cong H_{n-k}(M; \\mathbb{Z})\n$$",
+        ];
+
+        for c in topo_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Topology homology LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_formal_verification_coq_lean_and_tla() {
+        let formal_cases = [
+            // Lean 4 interactive theorem prover
+            ("lean", "import Mathlib.Data.Nat.Basic\n\ntheorem add_comm (n m : Nat) : n + m = m + n :=\nby\n  induction n with\n  | zero => rw [Nat.zero_add, Nat.add_zero]\n  | succ n ih => rw [Nat.succ_add, Nat.add_succ, ih]"),
+            // Coq proof assistant
+            ("coq", "Require Import Arith.\n\nTheorem plus_comm : forall n m : nat, n + m = m + n.\nProof.\n  intros n m. elim n.\n  - simpl. rewrite <- plus_n_O. reflexivity.\n  - intros n0 IHn0. simpl. rewrite <- plus_n_Sm. rewrite IHn0. reflexivity.\nQed."),
+            // TLA+ formal specification
+            ("tla", "---------------- MODULE TwoPhaseCommit ----------------\nEXTENDS Integers, Sequences\nVARIABLES rmState, tmState\n\nInit == /\\ rmState = [r \\in RM |-> \"working\"]\n        /\\ tmState = \"init\"\n\nCommit == /\\ tmState = \"init\"\n          /\\ \\A r \\in RM : rmState[r] = \"prepared\"\n          /\\ tmState' = \"committed\"\n========================================================="),
+        ];
+
+        for (lang, code) in formal_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Formal verification codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
