@@ -909,3 +909,190 @@ popover contents {
     font-size: 10.5px;
     color: #a6adc8;
 }
+
+/* ── Tokyo Night ──────────────────────────────────────────────────────── */
+.theme-tokyo-night {
+    background: rgba(26, 27, 38, 0.94);
+    border-color: #292e42;
+}
+.theme-tokyo-night .header-box {
+    border-bottom: 1px solid rgba(41, 46, 66, 0.6);
+}
+.theme-tokyo-night .app-title,
+.theme-tokyo-night .assistant-label {
+    color: #c0caf5;
+}
+.theme-tokyo-night .user-bubble {
+    background: #7aa2f7;
+    color: #15161e;
+}
+.theme-tokyo-night .assistant-bubble {
+    background: rgba(36, 40, 59, 0.65);
+    border: 1px solid rgba(65, 72, 104, 0.4);
+    color: #c0caf5;
+}
+.theme-tokyo-night .prompt-entry {
+    background: #16161e;
+    color: #c0caf5;
+    border-color: #292e42;
+}
+.theme-tokyo-night .btn-send {
+    background: #bb9af7;
+    color: #15161e;
+}
+
+/* ── Nord Arctic ──────────────────────────────────────────────────────── */
+.theme-nord {
+    background: rgba(46, 52, 64, 0.95);
+    border-color: #434c5e;
+}
+.theme-nord .header-box {
+    border-bottom: 1px solid rgba(67, 76, 94, 0.6);
+}
+.theme-nord .app-title,
+.theme-nord .assistant-label {
+    color: #eceff4;
+}
+.theme-nord .user-bubble {
+    background: #88c0d0;
+    color: #2e3440;
+}
+.theme-nord .assistant-bubble {
+    background: rgba(59, 66, 82, 0.7);
+    border: 1px solid rgba(76, 86, 106, 0.4);
+    color: #eceff4;
+}
+.theme-nord .prompt-entry {
+    background: #2e3440;
+    color: #eceff4;
+    border-color: #434c5e;
+}
+.theme-nord .btn-send {
+    background: #81a1c1;
+    color: #2e3440;
+}
+
+/* ── Gruvbox Dark ─────────────────────────────────────────────────────── */
+.theme-gruvbox-dark {
+    background: rgba(40, 40, 40, 0.95);
+    border-color: #504945;
+}
+.theme-gruvbox-dark .header-box {
+    border-bottom: 1px solid rgba(80, 73, 69, 0.6);
+}
+.theme-gruvbox-dark .app-title,
+.theme-gruvbox-dark .assistant-label {
+    color: #ebdbb2;
+}
+.theme-gruvbox-dark .user-bubble {
+    background: #d79921;
+    color: #282828;
+}
+.theme-gruvbox-dark .assistant-bubble {
+    background: rgba(60, 56, 54, 0.7);
+    border: 1px solid rgba(102, 92, 84, 0.4);
+    color: #ebdbb2;
+}
+.theme-gruvbox-dark .prompt-entry {
+    background: #1d2021;
+    color: #ebdbb2;
+    border-color: #504945;
+}
+.theme-gruvbox-dark .btn-send {
+    background: #fe8019;
+    color: #282828;
+}
+
+/* ── One Dark Pro ─────────────────────────────────────────────────────── */
+.theme-one-dark {
+    background: rgba(40, 44, 52, 0.95);
+    border-color: #4b5263;
+}
+.theme-one-dark .header-box {
+    border-bottom: 1px solid rgba(75, 82, 99, 0.6);
+}
+.theme-one-dark .app-title,
+.theme-one-dark .assistant-label {
+    color: #abb2bf;
+}
+.theme-one-dark .user-bubble {
+    background: #61afef;
+    color: #21252b;
+}
+.theme-one-dark .assistant-bubble {
+    background: rgba(49, 54, 63, 0.7);
+    border: 1px solid rgba(75, 82, 99, 0.4);
+    color: #abb2bf;
+}
+.theme-one-dark .prompt-entry {
+    background: #21252b;
+    color: #abb2bf;
+    border-color: #4b5263;
+}
+.theme-one-dark .btn-send {
+    background: #c678dd;
+    color: #21252b;
+}
+
+/* ── Solarized Dark ───────────────────────────────────────────────────── */
+.theme-solarized-dark {
+    background: rgba(0, 43, 54, 0.95);
+    border-color: #073642;
+}
+.theme-solarized-dark .header-box {
+    border-bottom: 1px solid rgba(7, 54, 66, 0.8);
+}
+.theme-solarized-dark .app-title,
+.theme-solarized-dark .assistant-label {
+    color: #839496;
+}
+.theme-solarized-dark .user-bubble {
+    background: #268bd2;
+    color: #002b36;
+}
+.theme-solarized-dark .assistant-bubble {
+    background: rgba(7, 54, 66, 0.7);
+    border: 1px solid rgba(88, 110, 117, 0.4);
+    color: #93a1a1;
+}
+.theme-solarized-dark .prompt-entry {
+    background: #00212b;
+    color: #93a1a1;
+    border-color: #073642;
+}
+.theme-solarized-dark .btn-send {
+    background: #b58900;
+    color: #002b36;
+}
+
+/* ── Solarized Light ──────────────────────────────────────────────────── */
+.theme-solarized-light {
+    background: rgba(253, 246, 227, 0.96);
+    border-color: #eee8d5;
+}
+.theme-solarized-light .header-box {
+    border-bottom: 1px solid rgba(238, 232, 213, 0.8);
+}
+.theme-solarized-light .app-title,
+.theme-solarized-light .assistant-label {
+    color: #657b83;
+}
+.theme-solarized-light .user-bubble {
+    background: #268bd2;
+    color: #fdf6e3;
+}
+.theme-solarized-light .assistant-bubble {
+    background: #eee8d5;
+    border: 1px solid #d33682;
+    border-color: rgba(147, 161, 161, 0.4);
+    color: #586e75;
+}
+.theme-solarized-light .prompt-entry {
+    background: #fdf6e3;
+    color: #586e75;
+    border-color: #eee8d5;
+}
+.theme-solarized-light .btn-send {
+    background: #2aa198;
+    color: #fdf6e3;
+}

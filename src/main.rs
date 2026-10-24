@@ -47,6 +47,36 @@ pub const AVAILABLE_THEMES: &[(&str, &str, &str)] = &[
     ("theme-slate", "Slate Graphite", "Deep slate & graphite"),
     ("theme-forest", "Forest Charcoal", "Obsidian & subtle green"),
     ("theme-zinc-light", "Zinc Light", "Minimal bright zinc"),
+    (
+        "theme-tokyo-night",
+        "Tokyo Night",
+        "Deep blue-black neon night",
+    ),
+    (
+        "theme-nord",
+        "Nord Arctic",
+        "Arctic cool north-bluish palette",
+    ),
+    (
+        "theme-gruvbox-dark",
+        "Gruvbox Dark",
+        "Retro groove warm earthy dark",
+    ),
+    (
+        "theme-one-dark",
+        "One Dark Pro",
+        "Atom / VSCode iconic deep dark",
+    ),
+    (
+        "theme-solarized-dark",
+        "Solarized Dark",
+        "Precision engineered teal & amber",
+    ),
+    (
+        "theme-solarized-light",
+        "Solarized Light",
+        "Warm paper cream solarized light",
+    ),
 ];
 const THEMES: &[(&str, &str, &str)] = AVAILABLE_THEMES;
 
@@ -1012,6 +1042,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                             .selectable(true)
                             .wrap(true)
                             .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                            .width_chars(10)
+                            .max_width_chars(0)
                             .xalign(0.0)
                             .css_classes(["tool-args-text"])
                             .build();
@@ -1105,6 +1137,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 .label(&prompt)
                 .wrap(true)
                 .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                .width_chars(10)
+                .max_width_chars(0)
                 .selectable(true)
                 .xalign(0.0)
                 .css_classes(["bubble-user-text"])
@@ -1208,6 +1242,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 .selectable(true)
                 .wrap(true)
                 .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                .width_chars(10)
+                .max_width_chars(0)
                 .xalign(0.0)
                 .css_classes(["thought-text"])
                 .build();
@@ -1235,6 +1271,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 .selectable(true)
                 .wrap(true)
                 .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                .width_chars(10)
+                .max_width_chars(0)
                 .xalign(0.0)
                 .css_classes(["bubble-assistant-text"])
                 .build();
@@ -1347,7 +1385,7 @@ mod tests {
 
     #[test]
     fn test_theme_list_integrity() {
-        assert_eq!(AVAILABLE_THEMES.len(), 10);
+        assert_eq!(AVAILABLE_THEMES.len(), 16);
         let ids: Vec<&str> = AVAILABLE_THEMES.iter().map(|(id, _, _)| *id).collect();
         assert!(ids.contains(&"theme-dark-glass"));
         assert!(ids.contains(&"theme-dracula"));
@@ -1359,6 +1397,12 @@ mod tests {
         assert!(ids.contains(&"theme-slate"));
         assert!(ids.contains(&"theme-forest"));
         assert!(ids.contains(&"theme-zinc-light"));
+        assert!(ids.contains(&"theme-tokyo-night"));
+        assert!(ids.contains(&"theme-nord"));
+        assert!(ids.contains(&"theme-gruvbox-dark"));
+        assert!(ids.contains(&"theme-one-dark"));
+        assert!(ids.contains(&"theme-solarized-dark"));
+        assert!(ids.contains(&"theme-solarized-light"));
     }
 
     #[test]
