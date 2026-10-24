@@ -121,7 +121,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Rapid Multi-turn Dialogue Transitions (`test_fuzz_rapid_multiturn_dialogue_state_transitions`): Mô phỏng hội thoại tích lũy 50 lượt user/assistant liên tục xen kẽ khối code, công thức lũy thừa $2^n$ và đường kẻ phân cách horizontal rule `---`.
   - Mermaid & ASCII Diagram Blocks (`test_fuzz_mermaid_and_ascii_diagram_blocks`): Kiểm thử sơ đồ lưu trình flowchart, git graph, entity relationship ER diagram, sơ đồ hộp ASCII box-drawing, và sơ đồ Mermaid chưa đóng.
   - Unified Git Diff Syntax Highlighting (`test_fuzz_diff_unified_patch_syntax_highlighting`): Kiểm thử tô màu unified diff với hunk header `@@ -1,5 +1,6 @@`, diff chứa thẻ HTML và markdown lồng, diff chỉ có thêm dòng (`+`) hoặc chỉ có xóa dòng (`-`).
-- **Kết quả**: `PASSED` (51/51 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Tensor Calculus & Polyglot Blocks (`test_fuzz_tensor_calculus_and_polyglot_code`): Kiểm thử ký hiệu Dirac Bra-Ket trong cơ học lượng tử, phép tính vi phân hiệp biến Einstein, định dạng lồng 3 cấp `~~*bold italic strike*~~`, bảng 10 cột và code block đa ngôn ngữ.
+  - Repeated Delimiter Pathologies (`test_fuzz_repeated_delimiter_pathologies`): Kiểm thử các chuỗi ký tự phân cách bệnh lý dài liên tục 64 ký tự (`*`, `=`, `-`, `~`, `` ` ``, `$`) và trích dẫn lồng sâu 33 cấp (`> > > ... > Level 33`).
+- **Kết quả**: `PASSED` (53/53 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
