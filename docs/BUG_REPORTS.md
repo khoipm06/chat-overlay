@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 16:20:00 +0700
-- **Commit thẩm định**: `f996b1b` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **93/93 PASSED** (0 failed, 0 ignored, 0.23s).
+- **Thời điểm kiểm chứng**: 2026-10-24 16:25:00 +0700
+- **Commit thẩm định**: `3ec6b18` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **95/95 PASSED** (0 failed, 0 ignored, 0.23s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 93 tests bao phủ giải tích ngẫu nhiên (bổ đề Itô, phương trình vi phân ngẫu nhiên SDE Black-Scholes, công thức Feynman-Kac) cùng ngôn ngữ lập trình hệ thống hiện đại (Zig 0.11 `std.debug.print`, Nim syntax).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 95 tests bao phủ quy hoạch tuyến tính & tối ưu hóa lồi KKT (Karush-Kuhn-Tucker, Lagrangian dual, Proximal operator) cùng các DSL giao diện người dùng khai báo hiện đại (Flutter/Dart widget tree, SwiftUI view builder, Svelte 5 component state).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -163,7 +163,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Markup & Stylesheet Languages CSS, SCSS, HTML5, SVG (`test_fuzz_codeblock_with_markup_and_stylesheet_languages`): Kiểm thử khối CSS hiện đại biến tùy chỉnh `:root`, SCSS mixins `@mixin`, HTML5 canvas `<canvas id="gl-surface">` và định nghĩa đồ họa vector SVG `<svg><circle><path>`.
   - Stochastic Calculus & Financial Mathematics (`test_fuzz_latex_stochastic_calculus_and_black_scholes`): Kiểm thử phương trình đạo hàm riêng Black-Scholes định giá quyền chọn, Bổ đề Itô (Itô's Lemma), chuyển động Brown hình học SDE $dS_t = \mu S_t dt + \sigma S_t dW_t$, phương trình Kolmogorov/Fokker-Planck và công thức Feynman-Kac.
   - Modern Systems Languages Zig & Nim (`test_fuzz_codeblock_with_systems_programming_zig_and_nim`): Kiểm thử khối mã nguồn Zig (GeneralPurposeAllocator, `defer`, `@import`, `@memset`) và Nim (object type, pragma `{.inline.}`, format string `fmt""`, `when isMainModule`).
-- **Kết quả**: `PASSED` (93/93 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Linear Programming & Convex Optimization (`test_fuzz_latex_linear_programming_and_convex_optimization`): Kiểm thử quy hoạch tuyến tính nguyên thủy - đối ngẫu (Primal-Dual LP), điều kiện tối ưu Karush-Kuhn-Tucker (KKT), quy hoạch nửa xác định (Semidefinite Programming SDP $\mathbf{X} \succeq 0$), toán tử xấp xỉ cận (Proximal operator) và bao Moreau.
+  - UI DSLs & Reactive Frameworks Flutter & Svelte (`test_fuzz_codeblock_with_functional_reactive_and_ui_dsls`): Kiểm thử cây widget Flutter / Dart (`StatelessWidget`, `BoxDecoration`, `Color(0xFF18191B)`), và cú pháp phản ứng Svelte (`writable`, reactive assignment `$: doubled = $count * 2`).
+- **Kết quả**: `PASSED` (95/95 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
