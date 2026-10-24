@@ -912,4 +912,86 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_codeblock_language_aliases_and_edge_identifiers() {
+        let lang_cases = [
+            ("rs", "pub fn main() {}"),
+            ("rust", "fn test() -> bool { true }"),
+            ("py", "def run(): pass"),
+            ("python", "import sys\nprint(sys.version)"),
+            ("js", "console.log('js');"),
+            ("ts", "const x: number = 42;"),
+            ("javascript", "let a = [1, 2, 3];"),
+            ("typescript", "interface User { id: string; }"),
+            ("sh", "echo 'sh'"),
+            ("bash", "export PATH=$PATH:/usr/local/bin"),
+            ("zsh", "autoload -Uz compinit && compinit"),
+            ("shell", "pwd && whoami"),
+            ("json", "{\"key\": \"val\"}"),
+            ("c", "int main(void) { return 0; }"),
+            ("cpp", "std::cout << \"cpp\" << std::endl;"),
+            ("c++", "#include <iostream>"),
+            ("c#", "Console.WriteLine(\"c#\");"),
+            ("sql", "SELECT * FROM users WHERE active = 1;"),
+            ("yaml", "name: pi-overlay\nversion: 1.0"),
+            ("toml", "[package]\nname = \"pi-overlay\""),
+            ("dockerfile", "FROM rust:1.80-alpine\nWORKDIR /app"),
+            ("plaintext", "Plain text inside codeblock"),
+            ("text", "Text fallback"),
+            ("", "No language tag specified"),
+            ("   ", "Whitespace only language tag"),
+            ("UPPERCASE", "TEST UPPERCASE LANGUAGE ID"),
+            ("lang-with-dashes", "Custom ID"),
+            ("lang_with_underscores", "Custom ID 2"),
+        ];
+
+        for (lang, code) in lang_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Codeblock alias case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_blockquotes_nested_and_interleaved_markdown() {
+        let quote_cases = [
+            // Standard single quote with bold/italic
+            "> This is a quote with **bold** and *italic* and `code`.",
+            // 2-level nested quote
+            "> Level 1\n> > Level 2\n> > > Level 3",
+            // Quote interleaved with empty quote lines
+            ">\n> Line after empty quote\n>",
+            // GitHub alert variants
+            "> [!NOTE]\n> Note content",
+            "> [!TIP]\n> Tip content",
+            "> [!IMPORTANT]\n> Important content",
+            "> [!WARNING]\n> Warning content",
+            "> [!CAUTION]\n> Caution content",
+            // Alert with complex markdown following
+            "> [!NOTE]\n> Alert with `command --flag` and $math$ and [Link](https://test.com)",
+            // Broken quote prefix
+            ">Without space after angle bracket",
+            ">>Double angle without spaces",
+        ];
+
+        for c in quote_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Quote case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
