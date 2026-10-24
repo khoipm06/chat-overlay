@@ -1805,4 +1805,60 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_json_syntax_highlighter_deep_structures_and_escapes() {
+        let json_cases = [
+            // Deeply nested JSON objects and arrays
+            "```json\n{\n  \"a\": {\n    \"b\": {\n      \"c\": {\n        \"d\": [1, 2, 3, true, false, null]\n      }\n    }\n  }\n}\n```",
+            // JSON with escaped quotes, backslashes, and unicode escapes
+            "```json\n{\n  \"key\\\"with\\\"quotes\": \"value\\\\with\\\\backslashes\",\n  \"unicode\": \"\\u0041\\u0042\\u0043 (ABC)\",\n  \"html_like\": \"<div id=\\\"main\\\">Hello & Goodbye</div>\"\n}\n```",
+            // Empty and scalar JSON structures
+            "```json\n{}\n```",
+            "```json\n[]\n```",
+            "```json\n[true, false, null, 0, -1, 3.14159, 1e-10]\n```",
+            // JSON key without space after colon or compact minified line
+            "```json\n{\"id\":1,\"active\":true,\"name\":null,\"tags\":[\"rust\",\"gtk4\"]}\n```",
+        ];
+
+        for c in json_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "JSON highlighter case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_unicode_mathematical_operators_and_fractions() {
+        let op_cases = [
+            // Unicode math operators outside LaTeX
+            "Arithmetic: 5 × 4 ÷ 2 = 10, and 10 ± 2 ≠ 7.",
+            // Vulgar fractions (½, ⅓, ¼, ¾, ⅛, ⅜, ⅝, ⅞)
+            "Measurements: ½ cup flour, 1¾ teaspoons salt, ⅜ ounce sugar.",
+            // Comparison symbols (≤, ≥, ≪, ≫, ≈, ≡, ≅)
+            "Approximations: π ≈ 3.14159, and x ≪ y implies x / y ≈ 0.",
+            // Calculus symbols outside math mode (∂, ∇, ∫, ∬, ∭, ∮)
+            "Operators: ∇f is gradient, ∂f/∂x is partial, and ∮ E·dl = -dΦ/dt.",
+            // Set symbols outside math mode (∈, ∉, ∋, ∌, ⊂, ⊃, ⊆, ⊇)
+            "Set logic: x ∈ S and S ⊆ U, where S ∩ T = ∅.",
+        ];
+
+        for c in op_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Unicode math operator case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
