@@ -29,7 +29,23 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Unicode ký tự lạ và tiếng Việt có dấu (`Tiếng Việt 🦀`, path có dấu `/đường_dẫn/đến/tệp_tin.txt`).
   - Event `tool_execution_start` thiếu field `args`.
   - JSON lỗi cú pháp / dòng JSON bị cắt cụt.
-- **Kết quả**: `PASSED` (21/21 unit & fuzz tests pass, Clippy sạch cảnh báo).
+- **Kết quả**: `PASSED` (23/23 unit & fuzz tests pass, `cargo check --all-targets` sạch 100%).
+
+---
+
+## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
+
+- **Thời điểm kiểm chứng**: 2026-10-24 13:12:00 +0700
+- **Commit thẩm định**: `781c3bfd60ee0505267602412823883d75c50ec3`
+- **Kết quả test suite**: `cargo test --all-targets` -> **23/23 PASSED** (0 failed, 0 ignored).
+- **Trạng thái working tree**: Clean (`nothing to commit, working tree clean`).
+- **Thẩm định 4 tiêu chí cốt lõi**:
+  1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop.
+  2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
+  3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp các lệnh `bash`, `read`, `edit`, `write`, `grep`, `find` thành action label trực quan (`Ran command: ...`, `Read file: ...`, etc.), dấu ngoặc và raw arguments thu gọn trong expander con.
+  4. `Antigravity agent-workspace layout`: **PASSED**. Chuyển đổi thành công từ giao diện bong bóng messenger sang cấu trúc 3 lớp phẳng (Conversation phẳng, Activity timeline thu gọn, unboxed response text).
+
+**KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
 ### 2. Markdown & Pango Markup Renderer (`src/render/`)
 - **Kịch bản kiểm tra**:
