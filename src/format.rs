@@ -2065,4 +2065,59 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_differential_geometry_and_topology() {
+        let geom_cases = [
+            // Metric tensor and Riemannian curvature tensor
+            "$$\nR^\\rho{}_{\\sigma\\mu\\nu} = \\partial_\\mu \\Gamma^\\rho_{\\nu\\sigma} - \\partial_\\nu \\Gamma^\\rho_{\\mu\\sigma} + \\Gamma^\\rho_{\\mu\\lambda} \\Gamma^\\lambda_{\\nu\\sigma} - \\Gamma^\\rho_{\\nu\\lambda} \\Gamma^\\lambda_{\\mu\\sigma}\n$$",
+            // Ricci scalar and Einstein field equations with cosmological constant
+            "$$\nG_{\\mu\\nu} + \\Lambda g_{\\mu\\nu} = \\frac{8\\pi G}{c^4} T_{\\mu\\nu}, \\quad R = g^{\\mu\\nu} R_{\\mu\\nu}\n$$",
+            // Exterior derivative, Hodge star operator, and differential forms
+            "$$\nd(\\alpha \\wedge \\beta) = d\\alpha \\wedge \\beta + (-1)^p \\alpha \\wedge d\\beta, \\quad {*}({*\\alpha}) = (-1)^{k(n-k)} s \\alpha\n$$",
+            // Euler characteristic and Gauss-Bonnet theorem
+            "$$\n\\chi(M) = 2 - 2g = \\frac{1}{2\\pi} \\int_M K \\, dA\n$$",
+            // Homotopy groups and fundamental group
+            "$$\n\\pi_1(S^1) \\cong \\mathbb{Z}, \\quad \\pi_n(S^n) \\cong \\mathbb{Z} \\quad (n \\ge 1)\n$$",
+        ];
+
+        for c in geom_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Differential geometry LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_functional_languages_and_type_signatures() {
+        let fp_cases = [
+            // Haskell currying, monads and typeclasses
+            ("haskell", "-- Haskell Monad and Functor\nclass Functor f => Monad f where\n    (>>=)  :: f a -> (a -> f b) -> f b\n    return :: a -> f a\n\nquicksort :: Ord a => [a] -> [a]\nquicksort []     = []\nquicksort (x:xs) = quicksort [y | y <- xs, y <= x] ++ [x] ++ quicksort [y | y <- xs, y > x]"),
+            // OCaml pattern matching and modules
+            ("ocaml", "(* OCaml pattern matching *)\ntype 'a tree = Leaf | Node of 'a * 'a tree * 'a tree\n\nlet rec depth = function\n  | Leaf -> 0\n  | Node (_, l, r) -> 1 + max (depth l) (depth r)"),
+            // Elixir pattern matching and pipes
+            ("elixir", "# Elixir pipeline\ndef process_data(input) do\n  input\n  |> String.trim()\n  |> String.split(\",\")\n  |> Enum.map(&String.to_integer/1)\n  |> Enum.sum()\nend"),
+            // Lisp / Clojure macros and S-expressions
+            ("clojure", ";; Clojure macro\n(defmacro unless [pred a b]\n  `(if (not ~pred) ~a ~b))\n\n(defn factorial [n]\n  (reduce *' (range 1 (inc n))))"),
+        ];
+
+        for (lang, code) in fp_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "FP codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }

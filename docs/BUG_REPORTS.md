@@ -149,7 +149,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Configuration Codeblocks Dockerfile & YAML (`test_fuzz_codeblock_with_dockerfile_and_yaml_configurations`): Kiểm thử multi-stage Dockerfile (`FROM AS builder`), manifest triển khai Kubernetes Deployment và cấu hình CI workflow GitHub Actions.
   - Number Theory & Cryptographic Protocols (`test_fuzz_latex_number_theory_modular_arithmetic_and_cryptography`): Kiểm thử thuật toán sinh khóa RSA và hàm phi Euler $\phi(n)$, phương trình đường cong Elliptic $y^2 \equiv x^3 + ax + b \pmod{p}$, trao đổi khóa Diffie-Hellman $g^{ab}$, định lý số dư Trung Hoa (CRT) và ký hiệu thặng dư bình phương Legendre/Jacobi $\left(\frac{a}{p}\right)$.
   - Low-Level Assembly & WebAssembly WAT (`test_fuzz_codeblock_with_assembly_and_bytecode`): Kiểm thử khối mã máy x86_64 cú pháp Intel/AT&T (`mov rax, 1; syscall`), mã AArch64 ARM64 (`svc #0`), và định dạng văn bản WebAssembly S-expression WAT (`(module (func $add ...))`).
-- **Kết quả**: `PASSED` (79/79 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Differential Geometry & General Relativity (`test_fuzz_latex_differential_geometry_and_topology`): Kiểm thử tensor độ cong Riemann $R^\rho{}_{\sigma\mu\nu}$, phương trình trường Einstein với hằng số vũ trụ $\Lambda$, đạo hàm ngoại vi và toán tử đối ngẫu Hodge $*$, định lý Gauss-Bonnet và nhóm đồng luân $\pi_n(S^n)$.
+  - Functional Programming Languages (`test_fuzz_codeblock_with_functional_languages_and_type_signatures`): Kiểm thử khối code Haskell (currying, typeclass Monad `>>=`), OCaml (pattern matching `type 'a tree`), Elixir pipeline operator `|>`, và Clojure macro S-expression.
+- **Kết quả**: `PASSED` (81/81 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
