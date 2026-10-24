@@ -37,14 +37,14 @@ pub fn format_markdown_to_pango(markdown: &str) -> String {
                 };
                 let escaped_lang = glib::markup_escape_text(&current_lang);
                 out.push_str(&format!(
-                    "<span font_family=\"monospace\" size=\"smaller\" foreground=\"#7c7a85\"><b>[{}]</b></span>\n<span font_family=\"monospace\" background=\"#18181b\" foreground=\"#eeeef0\">",
+                    "╭── <span font_family=\"monospace\" size=\"small\" foreground=\"#a1a1aa\" weight=\"bold\">{}</span> ──────────────────────────── <span size=\"small\" foreground=\"#71717a\">[copy]</span>\n<span font_family=\"monospace\" background=\"#18181b\" foreground=\"#eeeef0\">",
                     escaped_lang
                 ));
             } else {
                 in_code_block = false;
                 let highlighted = syntax::highlight_code_to_pango(&current_lang, &code_accumulator);
                 out.push_str(&highlighted);
-                out.push_str("</span>\n");
+                out.push_str("</span>╰──────────────────────────────────────────────────\n");
                 code_accumulator.clear();
             }
             continue;

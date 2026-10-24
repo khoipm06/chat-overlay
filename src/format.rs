@@ -71,7 +71,7 @@ mod tests {
         let text = "```python\ndef hello(name: str) -> None:\n    print(f'Hello {name}')\n```";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.contains("[python]"));
+        assert!(markup.contains("python"));
         assert!(markup.contains("def"));
         assert!(markup.contains("print"));
     }
@@ -82,7 +82,7 @@ mod tests {
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
         assert!(markup.contains("▸ Click to view"));
-        assert!(markup.contains("[mermaid]"));
+        assert!(markup.contains("mermaid"));
     }
 
     #[test]
