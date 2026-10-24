@@ -170,7 +170,7 @@ fn main() -> glib::ExitCode {
     });
 
     // Auto-register KDE global shortcut Ctrl+Alt+L if on KDE Plasma
-    ensure_kde_global_shortcut();
+    ensure_desktop_integration();
 
     // Initialize Tokio runtime for background IPC and subprocesses
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -201,7 +201,7 @@ fn main() -> glib::ExitCode {
     app.run()
 }
 
-fn ensure_kde_global_shortcut() {
+fn ensure_desktop_integration() {
     let desktop_dir = match std::env::var("XDG_DATA_HOME") {
         Ok(d) => std::path::PathBuf::from(d).join("applications"),
         Err(_) => match std::env::var("HOME") {
