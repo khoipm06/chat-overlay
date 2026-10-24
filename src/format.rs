@@ -1322,4 +1322,62 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_tensor_calculus_and_polyglot_code() {
+        let cases = [
+            // Tensor calculus and Dirac bra-ket quantum notation
+            "$$\n|\\psi\\rangle = \\sum_{i} c_i |i\\rangle \\quad \\text{and} \\quad \\langle\\phi|\\psi\\rangle = \\int \\phi^*(x) \\psi(x) dx\n$$",
+            // Einstein summation convention and covariant derivatives
+            "$$\n\\nabla_\\mu V^\\nu = \\partial_\\mu V^\\nu + \\Gamma^\\nu_{\\mu\\lambda} V^\\lambda\n$$",
+            // Deeply nested triple formatting inside strike
+            "~~*this is **bold italic strike** and `code` inside*~~",
+            // Broken XML/HTML entities
+            "Entity test: &incomplete &amp; &#1234; &#xABCD; &lt;valid&gt;",
+            // 10-column table
+            "| c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10 |\n|---|---|---|---|---|---|---|---|---|---|\n| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |",
+            // Mixed languages polyglot snippet
+            "```polyglot\n# Python\ndef f(): pass\n// Rust\nfn g() {}\n/* C */\nint h(void);\n```",
+        ];
+
+        for c in cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Tensor/polyglot case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_repeated_delimiter_pathologies() {
+        // Pathological runs of delimiters that stress recursion / regex lookaheads
+        let pathologies = [
+            "__underline__ and ___underline-italic___",
+            "****************************************************************",
+            "================================================================",
+            "----------------------------------------------------------------",
+            "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+            "````````````````````````````````````````````````````````````````",
+            "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$",
+            "> > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > Level 33 quote",
+            "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - Dashed list",
+        ];
+
+        for p in pathologies {
+            let markup = format_markdown_to_pango(p);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Pathological delimiter case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                p,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
