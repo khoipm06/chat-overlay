@@ -1285,3 +1285,19 @@ checkbutton:checked check {
     margin-left: 6px;
     padding-left: 4px;
 }
+
+/* ── Corner Resize Handles (8-Way Directional) ─────────────────────────── */
+.resize-corner {
+    background: transparent;
+    min-width: 12px;
+    min-height: 12px;
+}
+
+.resize-corner:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+}
+
+.theme-zinc-light .resize-corner:hover {
+    background-color: rgba(9, 9, 11, 0.20);
+}
