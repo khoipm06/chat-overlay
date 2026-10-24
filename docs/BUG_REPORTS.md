@@ -107,7 +107,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Raw HTML Tag Injection (`test_fuzz_html_raw_tags_and_attribute_injection`): Fuzz test các thẻ HTML nguy hiểm (`<script>`, `<iframe>`, `<img>` có handler `onerror`, `<font>`, `<input>`, tag đóng lệch `<b><i></b></i>`); toàn bộ được escape thành chuỗi XML hợp lệ.
   - URL Auto-linking & Special Schemes (`test_fuzz_url_auto_linking_and_special_schemes`): Kiểm thử liên kết với các giao thức ftp, git ssh, mailto, url encoded tiếng Việt, link có formatting lồng bên trong nhãn, cú pháp chèn ảnh `![alt](url)`.
   - Task List Hierarchy & Unicode Bullets (`test_fuzz_task_list_deep_hierarchy_and_unicode_bullets`): Kiểm thử phân cấp danh sách công việc 4 cấp độ, bullet hỗn hợp (`-` và `*`), thụt lề bằng tab `\t`, danh sách đánh số bước lớn (`999.`).
-- **Kết quả**: `PASSED` (37/37 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Code Block Language Aliases & Edge Identifiers (`test_fuzz_codeblock_language_aliases_and_edge_identifiers`): Kiểm thử 28 biến thể định danh ngôn ngữ: viết tắt (`rs`, `py`, `js`, `ts`, `sh`), ngôn ngữ hệ thống (`c`, `cpp`, `c++`, `c#`, `dockerfile`, `yaml`, `toml`), tag trống/khoảng trắng, tag viết hoa và định danh có dấu gạch ngang/nối.
+  - Blockquotes Nested & Interleaved Markdown (`test_fuzz_blockquotes_nested_and_interleaved_markdown`): Kiểm thử trích dẫn lồng 3 cấp, trích dẫn xen kẽ dòng trống (`> \n >`), toàn bộ 5 biến thể GitHub Alert (`NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`) kết hợp inline code/math/links, và các tiền tố trích dẫn thiếu dấu cách (`>Without space`, `>>Double`).
+- **Kết quả**: `PASSED` (39/39 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
