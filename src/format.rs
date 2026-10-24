@@ -3153,4 +3153,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_combinatorial_game_theory_and_surreal_numbers() {
+        let game_cases = [
+            // Surreal numbers construction rule
+            "$$\nx = \\{ X_L \\mid X_R \\}, \\quad \\forall x_L \\in X_L, \\; \\forall x_R \\in X_R : x_L < x_R\n$$",
+            // Sprague-Grundy theorem and nim-sum
+            "$$\n\\mathcal{G}(G) = \\operatorname{mex} \\{ \\mathcal{G}(G') : G \\to G' \\}, \\quad \\mathcal{G}(G_1 + G_2) = \\mathcal{G}(G_1) \\oplus \\mathcal{G}(G_2)\n$$",
+            // Conway game values (star, up, down, tiny, miny)
+            "$$\n* = \\{ 0 \\mid 0 \\}, \\quad \\uparrow = \\{ 0 \\mid * \\}, \\quad \\downarrow = \\{ * \\mid 0 \\}\n$$",
+            // Nash equilibrium in mixed strategies
+            "$$\nu_i(\\sigma_i^*, \\sigma_{-i}^*) \\ge u_i(\\sigma_i, \\sigma_{-i}^*) \\quad \\forall \\sigma_i \\in \\Delta(S_i)\n$$",
+            // Shapley value in cooperative game theory
+            "$$\n\\phi_i(v) = \\sum_{S \\subseteq N \\setminus \\{i\\}} \\frac{|S|! (|N| - |S| - 1)!}{|N|!} (v(S \\cup \\{i\\}) - v(S))\n$$",
+        ];
+
+        for c in game_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Game theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_data_query_analytics_kusto_and_spark() {
+        let kql_cases = [
+            // Azure Data Explorer / Kusto Query Language (KQL)
+            ("kusto", "// KQL log analytics query\nPiOverlayEvents\n| where Timestamp >= ago(7d)\n| where Level in (\"Error\", \"Warning\")\n| summarize Count = count() by Generation, Component\n| top 10 by Count desc\n| render barchart"),
+            // Apache Spark SQL and PySpark DataFrame API
+            ("python", "# PySpark structured streaming\nfrom pyspark.sql.functions import col, from_json, window\n\ndf = spark.readStream.format(\"kafka\").option(\"subscribe\", \"pi-events\").load()\nevents = df.select(from_json(col(\"value\").cast(\"string\"), schema).alias(\"data\"))\ncounts = events.groupBy(window(col(\"data.timestamp\"), \"10 minutes\")).count()"),
+        ];
+
+        for (lang, code) in kql_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Data analytics codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
