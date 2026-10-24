@@ -3563,4 +3563,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_analytic_number_theory_prime_number_theorem_and_l_functions() {
+        let l_func_cases = [
+            // Prime number theorem and logarithmic integral
+            "$$\n\\pi(x) \\sim \\operatorname{Li}(x) = \\int_2^x \\frac{dt}{\\ln t}, \\quad \\lim_{x \\to \\infty} \\frac{\\pi(x)}{x / \\ln x} = 1\n$$",
+            // Dirichlet L-function Euler product definition
+            "$$\nL(s, \\chi) = \\sum_{n=1}^\\infty \\frac{\\chi(n)}{n^s} = \\prod_{p \\text{ prime}} \\left(1 - \\chi(p) p^{-s}\\right)^{-1}\n$$",
+            // Explicit formula of Riemann-von Mangoldt
+            "$$\n\\psi(x) = \\sum_{n \\le x} \\Lambda(n) = x - \\sum_{\\rho} \\frac{x^\\rho}{\\rho} - \\ln(2\\pi) - \\frac{1}{2} \\ln(1 - x^{-2})\n$$",
+            // Generalized Riemann Hypothesis (GRH) critical line
+            "$$\nL(s, \\chi) = 0 \\implies \\operatorname{Re}(s) = \\frac{1}{2} \\quad (0 < \\operatorname{Re}(s) < 1)\n$$",
+            // Functional equation for primitive Dirichlet characters
+            "$$\n\\Lambda(s, \\chi) = \\left( \\frac{\\pi}{q} \\right)^{-\\frac{s + a}{2}} \\Gamma\\left( \\frac{s + a}{2} \\right) L(s, \\chi) = \\frac{\\tau(\\chi)}{i^a \\sqrt{q}} \\Lambda(1-s, \\bar{\\chi})\n$$",
+        ];
+
+        for c in l_func_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Analytic number theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_data_science_polars_and_arrow() {
+        let ds_cases = [
+            // Rust Polars lazy dataframe query
+            ("rust", "use polars::prelude::*;\n\nfn process_metrics() -> PolarsResult<DataFrame> {\n    LazyFrame::scan_parquet(\"telemetry/*.parquet\", Default::default())?\n        .filter(col(\"duration_ms\").gt(lit(500)))\n        .group_by([col(\"model\"), col(\"generation\")])\n        .agg([col(\"total_tokens\").mean().alias(\"avg_tokens\")])\n        .sort([\"avg_tokens\"], SortMultipleOptions::default())\n        .collect()\n}"),
+            // Apache Arrow IPC streaming reader in C++
+            ("cpp", "#include <arrow/api.h>\n#include <arrow/io/api.h>\n#include <arrow/ipc/api.h>\n\narrow::Status ReadStream(const std::shared_ptr<arrow::io::InputStream>& stream) {\n  ARROW_ASSIGN_OR_RAISE(auto reader, arrow::ipc::RecordBatchStreamReader::Open(stream));\n  std::shared_ptr<arrow::RecordBatch> batch;\n  while (reader->ReadNext(&batch).ok() && batch) {\n    std::cout << \"Read batch with \" << batch->num_rows() << \" rows\\n\";\n  }\n  return arrow::Status::OK();\n}"),
+        ];
+
+        for (lang, code) in ds_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Data science codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
