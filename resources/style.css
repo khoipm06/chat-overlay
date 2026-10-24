@@ -1,3 +1,39 @@
+/* ── Strict System Theme Isolation & Reset ─────────────────────────── */
+* {
+    -gtk-secondary-caret-color: transparent;
+    outline: none;
+    box-shadow: none;
+}
+
+button {
+    background-image: none;
+    text-shadow: none;
+    -gtk-icon-shadow: none;
+    outline-color: transparent;
+}
+
+entry, entry > text {
+    background-image: none;
+    box-shadow: none;
+}
+
+popover, popover contents {
+    background-image: none;
+}
+
+checkbutton check {
+    min-width: 14px;
+    min-height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+checkbutton:checked check {
+    background: #89b4fa;
+    border-color: #89b4fa;
+}
+
 /* Pi Ephemeral Wayland Overlay — Minimalist Dark Panel (Raycast / Linear standard)
  *
  * Palette: real published scales (Radix Colors v3 & Tailwind Zinc).
