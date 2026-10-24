@@ -75,6 +75,48 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 .unwrap_or(args_json);
             format!("Searched: \"{}\" ›", truncate_summary(query, 32))
         }
+        "web_search" => {
+            let query = parsed
+                .as_ref()
+                .and_then(|v| {
+                    v.get("query").or_else(|| v.get("queries")).and_then(|q| {
+                        if let Some(s) = q.as_str() {
+                            Some(s.to_string())
+                        } else {
+                            q.as_array().map(|arr| arr.first().and_then(|v| v.as_str()).unwrap_or("").to_string())
+                        }
+                    })
+                })
+                .unwrap_or_else(|| truncate_summary(args_json, 32));
+            format!("Searched web: \"{}\" ›", truncate_summary(&query, 32))
+        }
+        "fetch_content" => {
+            let target = parsed
+                .as_ref()
+                .and_then(|v| v.get("url").or_else(|| v.get("urls")).and_then(|u| {
+                    if let Some(s) = u.as_str() {
+                        Some(s.to_string())
+                    } else {
+                        u.as_array().map(|arr| arr.first().and_then(|v| v.as_str()).unwrap_or("").to_string())
+                    }
+                }))
+                .unwrap_or_else(|| truncate_summary(args_json, 32));
+            format!("Fetched: {} ›", truncate_summary(&target, 36))
+        }
+        "get_search_content" | "source_check" => {
+            let target = parsed
+                .as_ref()
+                .and_then(|v| v.get("query").or_else(|| v.get("url")).or_else(|| v.get("claim")).and_then(|s| s.as_str()))
+                .unwrap_or(args_json);
+            format!("Checked source: {} ›", truncate_summary(target, 32))
+        }
+        "subagent" => {
+            let task = parsed
+                .as_ref()
+                .and_then(|v| v.get("task").or_else(|| v.get("agent")).and_then(|s| s.as_str()))
+                .unwrap_or(args_json);
+            format!("Delegated: {} ›", truncate_summary(task, 32))
+        }
         _ => {
             // General tools (e.g. web_search, fetch_content, subagent, etc.)
             let summary = if let Some(ref obj) = parsed {
@@ -279,8 +321,80 @@ mod tests {
         let g = format_tool_call_label("grep", r#"{"pattern":"refreshToken"}"#);
         assert_eq!(g, "Searched: \"refreshToken\" ›");
 
+        // web_search
+        let ws = format_tool_call_label("web_search", r#"{"query":"Rust GUI gtk4"}"#);
+        assert_eq!(ws, "Searched web: \"Rust GUI gtk4\" ›");
+
+        // fetch_content
+        let fc = format_tool_call_label("fetch_content", r#"{"url":"https://crates.io/api/v1/crates"}"#);
+        assert_eq!(fc, "Fetched: https://crates.io/api/v1/crates ›");
+
+        // subagent
+        let sa = format_tool_call_label("subagent", r#"{"task":"run security audit"}"#);
+        assert_eq!(sa, "Delegated: run security audit ›");
+
         // fallback generic
-        let f = format_tool_call_label("web_search", r#"{"query":"Rust GUI gtk4"}"#);
-        assert_eq!(f, "Tool web_search: Rust GUI gtk4 ›");
+        let f = format_tool_call_label("custom_tool", r#"{"param":"value"}"#);
+        assert_eq!(f, "Tool custom_tool: value ›");
+    }
+
+    #[test]
+    fn test_fuzz_inline_formatting_edge_cases() {
+        let cases = [
+            // Unclosed inline elements
+            "Unclosed bold **bold text without end",
+            "Unclosed italic *italic text without end",
+            "Unclosed strikethrough ~~strike text without end",
+            "Unclosed inline code `code without end",
+            "Unclosed math $x + y = z without end",
+            "Unclosed subscript H~2 without end",
+            "Unclosed superscript x^2 without end",
+            "Empty inline code `` and empty bold **** and empty italic **",
+            "Empty math $$",
+            "Nested symbols: `foo *bar* baz`",
+            "Symbols inside link text: [**Bold Link**](https://example.com)",
+            "Multiple codes on one line: `c1` and `c2` and `c3`",
+            "Multiple math on one line: $m1$ and $m2$",
+            "Special chars in code: `<a> && <b>`",
+            "Special chars in math: `$a < b && c > d$`",
+            "Escaped html entities: &amp; &lt; &gt; &quot; &#39;",
+            // Multi-line codeblock with unclosed fence
+            "```rust\nfn main() {\n    let x = 1;\n",
+            // Multi-line codeblock with syntax highlighting and special chars
+            "```json\n{\n  \"message\": \"<hello> & goodbye\",\n  \"count\": 42\n}\n```",
+            // Code block without language identifier
+            "```\nPlain code block with <tags> & &amp;\n```",
+            // Heading with complex inline elements
+            "# Heading with `code`, **bold**, *italic*, and [link](https://test.com)",
+            // Task list with inline elements
+            "- [x] Task **completed** with `code` and <tags>",
+            "- [ ] Task *pending* with $math$",
+            // Blockquote with nested markdown
+            "> Quote with `inline_code()` and **bold text**\n> > Nested quote with ~~strike~~",
+            // Complex math block / dollar sign edge cases
+            "Price is $10.99 and another price is $20.50.",
+            "Math with escaped chars: $\\frac{a}{b} < \\sqrt{c} & d > 0$",
+            // Nested code blocks or unmatched ticks
+            "Here are four ticks ````code```` and five `````test`````",
+            // Triple backtick on one line
+            "```inline code inside triple```",
+            // Mixed tags and markdown
+            "<span foreground=\"#ff0000\">Raw HTML tag</span>",
+            "<div><span>Nested HTML</span></div>",
+            // Malformed XML entities
+            "Entity like &notanentity; or incomplete &amp or &",
+        ];
+
+        for c in cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Pango parse failed on input:\n{}\nGenerated markup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
     }
 }
