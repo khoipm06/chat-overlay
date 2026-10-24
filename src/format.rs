@@ -852,4 +852,64 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_url_auto_linking_and_special_schemes() {
+        let url_cases = [
+            // Standard HTTP / HTTPS
+            "Check [Rust Official](https://www.rust-lang.org) for details.",
+            // FTP / SSH / Custom URI schemes
+            "Connect to [FTP Server](ftp://files.example.com:21/archive.tar.gz).",
+            "Clone repository: [Git SSH](git@github.com:khoipm/pi-overlay.git).",
+            "Send feedback via [Email](mailto:developer@example.com?subject=Feedback).",
+            // URLs with encoded spaces, accents, and unicode query parameters
+            "[Search](https://www.google.com/search?q=l%E1%BA%ADp+tr%C3%ACnh+Rust&hl=vi)",
+            // Markdown link with nested formatting inside link title
+            "Click [**Bold Link** with `code`](https://example.com) to continue.",
+            // Link without destination paren or unclosed bracket
+            "Unclosed [Bracket text without url and [nested bracket]",
+            // Image markdown syntax: ![alt](url)
+            "![Diagram Preview](https://example.com/architecture.png)",
+        ];
+
+        for c in url_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "URL markdown case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_task_list_deep_hierarchy_and_unicode_bullets() {
+        let list_cases = [
+            // Deeply indented task list
+            "- [x] Level 1\n  - [ ] Level 2\n    - [x] Level 3\n      - [ ] Level 4",
+            // Mixed bullets (- and *)
+            "* [x] Star checked\n* [ ] Star unchecked\n  - Sub item 1\n  * Sub item 2",
+            // Task with rich inline styling
+            "- [x] Task with **bold**, *italic*, `code()`, and $x=1$",
+            // Numbered list with decimal and letters
+            "1. Step one\n2. Step two\n10. Step ten\n999. Step large index",
+            // Bullet with leading tabs and spaces
+            "\t- Tab indented item\n\t\t- Double tab indented item",
+        ];
+
+        for c in list_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Task list case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }

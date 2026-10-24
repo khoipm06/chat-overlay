@@ -105,7 +105,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Streaming Chunk Boundaries (`test_fuzz_streaming_chunk_boundaries`): Mô phỏng stream vi phân theo kích thước 1, 3, 7, 15, 32 ký tự cắt ngang qua header, inline code, công thức toán và bảng biểu; phát hiện và loại bỏ triệt để panic slicing tại ranh giới ký tự pipe `|`.
   - UTF-8 Multibyte Boundary Splitting (`test_fuzz_utf8_multibyte_boundary_splitting`): Kiểm thử cắt byte stream ngang qua các ký tự UTF-8 3-byte và 4-byte (tiếng Việt có dấu, Hán tự CJK, tổ hợp emoji đa thành phần); bảo đảm không làm vỡ Pango parser.
   - Raw HTML Tag Injection (`test_fuzz_html_raw_tags_and_attribute_injection`): Fuzz test các thẻ HTML nguy hiểm (`<script>`, `<iframe>`, `<img>` có handler `onerror`, `<font>`, `<input>`, tag đóng lệch `<b><i></b></i>`); toàn bộ được escape thành chuỗi XML hợp lệ.
-- **Kết quả**: `PASSED` (35/35 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - URL Auto-linking & Special Schemes (`test_fuzz_url_auto_linking_and_special_schemes`): Kiểm thử liên kết với các giao thức ftp, git ssh, mailto, url encoded tiếng Việt, link có formatting lồng bên trong nhãn, cú pháp chèn ảnh `![alt](url)`.
+  - Task List Hierarchy & Unicode Bullets (`test_fuzz_task_list_deep_hierarchy_and_unicode_bullets`): Kiểm thử phân cấp danh sách công việc 4 cấp độ, bullet hỗn hợp (`-` và `*`), thụt lề bằng tab `\t`, danh sách đánh số bước lớn (`999.`).
+- **Kết quả**: `PASSED` (37/37 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
