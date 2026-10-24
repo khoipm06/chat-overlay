@@ -3050,4 +3050,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_string_theory_and_conformal_field_theory() {
+        let string_cases = [
+            // Polyakov action in conformal gauge
+            "$$\nS_{\\mathrm{P}} = -\\frac{1}{4\\pi\\alpha'} \\int d^2\\sigma \\sqrt{-h} h^{\\alpha\\beta} \\partial_\\alpha X^\\mu \\partial_\\beta X_\\mu\n$$",
+            // Virasoro algebra commutation relations and central charge c
+            "$$\n[L_m, L_n] = (m - n) L_{m+n} + \\frac{c}{12} m(m^2 - 1) \\delta_{m+n, 0}\n$$",
+            // Energy-momentum tensor OPE in 2D CFT
+            "$$\nT(z) T(w) \\sim \\frac{c/2}{(z - w)^4} + \\frac{2 T(w)}{(z - w)^2} + \\frac{\\partial T(w)}{z - w}\n$$",
+            // Modular invariance on torus worldsheet
+            "$$\n\\tau \\mapsto \\frac{a\\tau + b}{c\\tau + d}, \\quad \\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix} \\in \\operatorname{SL}(2, \\mathbb{Z})\n$$",
+            // Superstring critical dimension D = 10 anomaly cancellation
+            "$$\nD = 26 \\quad (\\text{bosonic}), \\quad D = 10 \\quad (\\text{superstring})\n$$",
+        ];
+
+        for c in string_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "String theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_quantum_programming_qsharp_and_qasm() {
+        let q_cases = [
+            // OpenQASM 3.0 quantum circuit description
+            ("qasm", "OPENQASM 3.0;\ninclude \"stdgates.inc\";\n\nqubit[2] q;\nbit[2] c;\n\nh q[0];\ncx q[0], q[1];\nc = measure q;\n"),
+            // Q# Quantum development kit operation
+            ("qsharp", "namespace Microsoft.Quantum.Samples {\n    open Microsoft.Quantum.Intrinsic;\n    open Microsoft.Quantum.Canon;\n\n    operation Teleport(msg : Qubit, there : Qubit) : Unit {\n        use here = Qubit();\n        H(here);\n        CNOT(here, there);\n        CNOT(msg, here);\n        H(msg);\n        if (M(msg) == One)  { Z(there); }\n        if (M(here) == One) { X(there); }\n        Reset(here);\n    }\n}"),
+        ];
+
+        for (lang, code) in q_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Quantum programming codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
