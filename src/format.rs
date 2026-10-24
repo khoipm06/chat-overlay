@@ -3357,4 +3357,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_string_field_theory_and_noncommutative_geometry() {
+        let sft_cases = [
+            // Witten's open string field theory action with cubic star product
+            "$$\nS = \\int \\left( \\frac{1}{2} \\Psi * Q_{\\mathrm{B}} \\Psi + \\frac{1}{3} g_o \\Psi * \\Psi * \\Psi \\right)\n$$",
+            // Moyal-Weyl bracket and noncommutative coordinates
+            "$$\n[x^\\mu, x^\\nu] = i \\theta^{\\mu\\nu}, \\quad (f \\star g)(x) = \\exp\\left( \\frac{i}{2} \\theta^{\\mu\\nu} \\partial_\\mu^x \\partial_\\nu^y \\right) f(x) g(y) \\Big|_{y=x}\n$$",
+            // Noncommutative gauge theory field strength
+            "$$\n\\hat{F}_{\\mu\\nu} = \\partial_\\mu \\hat{A}_\\nu - \\partial_\\nu \\hat{A}_\\mu - i [\\hat{A}_\\mu, \\hat{A}_\\nu]_\\star\n$$",
+            // Spectral triple in Connes' noncommutative geometry
+            "$$\n(\\mathcal{A}, \\mathcal{H}, \\mathcal{D}), \\quad [\\mathcal{D}, a] \\in \\mathcal{B}(\\mathcal{H}) \\quad \\forall a \\in \\mathcal{A}\n$$",
+            // Connes distance formula on state space
+            "$$\nd(\\omega, \\omega') = \\sup \\{ |\\omega(a) - \\omega'(a)| : a \\in \\mathcal{A}, \\; \\|[\\mathcal{D}, a]\\| \\le 1 \\}\n$$",
+        ];
+
+        for c in sft_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "String field theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_functional_distributed_elixir_broadway_and_phoenix() {
+        let elixir_cases = [
+            // Elixir Broadway data pipeline processor
+            ("elixir", "defmodule PiOverlay.Pipeline do\n  use Broadway\n\n  def start_link(_opts) do\n    Broadway.start_link(__MODULE__,\n      name: __MODULE__,\n      producer: [\n        module: {BroadwayKafka.Producer, [hosts: [\"localhost:9092\"], topic: \"pi-events\"]}\n      ],\n      processors: [\n        default: [concurrency: 8]\n      ]\n    )\n  end\n\n  @impl true\n  def handle_message(_, message, _) do\n    message\n    |> Message.update_data(&Jason.decode!/1)\n  end\nend"),
+            // Phoenix LiveView component lifecycle
+            ("elixir", "defmodule PiOverlayWeb.Live.Workspace do\n  use PiOverlayWeb, :live_view\n\n  @impl true\n  def mount(_params, _session, socket) do\n    {:ok, assign(socket, active_agent: \"worker\", status: :ready)}\n  end\n\n  @impl true\n  def handle_event(\"submit_prompt\", %{\"prompt\" => p}, socket) do\n    {:noreply, push_event(socket, \"stream_start\", %{text: p})}\n  end\nend"),
+        ];
+
+        for (lang, code) in elixir_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Elixir distributed codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
