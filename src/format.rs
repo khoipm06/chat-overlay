@@ -2432,4 +2432,54 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_linear_programming_and_convex_optimization() {
+        let opt_cases = [
+            // Primal-dual linear program formulation
+            "$$\n\\min_{\\mathbf{x}} \\mathbf{c}^T \\mathbf{x} \\quad \\text{subject to} \\quad \\mathbf{A}\\mathbf{x} \\ge \\mathbf{b}, \\; \\mathbf{x} \\ge \\mathbf{0}\n$$",
+            // Karush-Kuhn-Tucker (KKT) optimality conditions
+            "$$\n\\nabla f_0(\\mathbf{x}^*) + \\sum_{i=1}^m \\lambda_i^* \\nabla f_i(\\mathbf{x}^*) + \\sum_{i=1}^p \\nu_i^* \\nabla h_i(\\mathbf{x}^*) = \\mathbf{0}\n$$",
+            "$$\n\\lambda_i^* f_i(\\mathbf{x}^*) = 0 \\quad \\forall i = 1, \\dots, m, \\quad \\lambda_i^* \\ge 0\n$$",
+            // Semidefinite programming (SDP)
+            "$$\n\\min_{\\mathbf{X} \\in \\mathbb{S}^n} \\operatorname{Tr}(\\mathbf{C} \\mathbf{X}) \\quad \\text{s.t.} \\quad \\operatorname{Tr}(\\mathbf{A}_i \\mathbf{X}) = b_i, \\; \\mathbf{X} \\succeq 0\n$$",
+            // Proximal gradient operator and Moreau envelope
+            "$$\n\\operatorname{prox}_{\\gamma g}(\\mathbf{v}) = \\arg\\min_{\\mathbf{x}} \\left( g(\\mathbf{x}) + \\frac{1}{2\\gamma} \\|\\mathbf{x} - \\mathbf{v}\\|^2 \\right)\n$$",
+        ];
+
+        for c in opt_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Optimization LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_functional_reactive_and_ui_dsls() {
+        let ui_cases = [
+            // Flutter / Dart widget tree
+            ("dart", "import 'package:flutter/material.dart';\n\nclass OverlayView extends StatelessWidget {\n  const OverlayView({super.key});\n\n  @override\n  Widget build(BuildContext context) {\n    return Container(\n      decoration: BoxDecoration(\n        color: const Color(0xFF18191B),\n        borderRadius: BorderRadius.circular(8.0),\n      ),\n      child: const Text('Pi Overlay', style: TextStyle(color: Colors.white)),\n    );\n  }\n}"),
+            // Svelte reactive declarations and store bindings
+            ("svelte", "<script lang=\"ts\">\n  import { writable } from 'svelte/store';\n  export let title: string = 'Pi Overlay';\n  const count = writable(0);\n  $: doubled = $count * 2;\n</script>\n\n<main class=\"surface\">\n  <h1>{title}</h1>\n  <button on:click={() => count.update(n => n + 1)}>\n    Clicks: {$count} (Doubled: {doubled})\n  </button>\n</main>"),
+        ];
+
+        for (lang, code) in ui_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "UI DSL codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
