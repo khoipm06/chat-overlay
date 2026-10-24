@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 16:25:00 +0700
-- **Commit thẩm định**: `3ec6b18` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **95/95 PASSED** (0 failed, 0 ignored, 0.23s).
+- **Thời điểm kiểm chứng**: 2026-10-24 16:30:00 +0700
+- **Commit thẩm định**: `cfb054b` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **97/97 PASSED** (0 failed, 0 ignored, 0.23s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 95 tests bao phủ quy hoạch tuyến tính & tối ưu hóa lồi KKT (Karush-Kuhn-Tucker, Lagrangian dual, Proximal operator) cùng các DSL giao diện người dùng khai báo hiện đại (Flutter/Dart widget tree, SwiftUI view builder, Svelte 5 component state).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 97 tests bao phủ phương trình vũ trụ học Friedmann, độ cong Schwarzschild $ds^2$, entropy lỗ đen Bekenstein-Hawking $S_{\mathrm{BH}}$, cùng các ngôn ngữ truy vấn & quan sát vi mô hiện đại (Prometheus PromQL, Grafana Loki LogQL, Neo4j Cypher).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -165,7 +165,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Modern Systems Languages Zig & Nim (`test_fuzz_codeblock_with_systems_programming_zig_and_nim`): Kiểm thử khối mã nguồn Zig (GeneralPurposeAllocator, `defer`, `@import`, `@memset`) và Nim (object type, pragma `{.inline.}`, format string `fmt""`, `when isMainModule`).
   - Linear Programming & Convex Optimization (`test_fuzz_latex_linear_programming_and_convex_optimization`): Kiểm thử quy hoạch tuyến tính nguyên thủy - đối ngẫu (Primal-Dual LP), điều kiện tối ưu Karush-Kuhn-Tucker (KKT), quy hoạch nửa xác định (Semidefinite Programming SDP $\mathbf{X} \succeq 0$), toán tử xấp xỉ cận (Proximal operator) và bao Moreau.
   - UI DSLs & Reactive Frameworks Flutter & Svelte (`test_fuzz_codeblock_with_functional_reactive_and_ui_dsls`): Kiểm thử cây widget Flutter / Dart (`StatelessWidget`, `BoxDecoration`, `Color(0xFF18191B)`), và cú pháp phản ứng Svelte (`writable`, reactive assignment `$: doubled = $count * 2`).
-- **Kết quả**: `PASSED` (95/95 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Astrophysics, General Relativity & Cosmology (`test_fuzz_latex_astrophysics_general_relativity_and_cosmology`): Kiểm thử phần tử đường Schwarzschild metric $ds^2$, phương trình giãn nở vũ trụ Friedmann FLRW $(\dot{a}/a)^2$, giới hạn khối lượng Chandrasekhar $M_{\mathrm{Ch}} \approx 1.44 M_\odot$, nhiệt độ bức xạ Hawking $T_{\mathrm{H}}$ và entropy lỗ đen Bekenstein-Hawking $S_{\mathrm{BH}} = k_B A / (4\ell_P^2)$.
+  - Observability & Log Query DSLs (`test_fuzz_codeblock_with_query_and_search_dsls`): Kiểm thử Elasticsearch JSON Query DSL (bool, must, range, filter), truy vấn chỉ số thời gian thực Prometheus PromQL (`sum(rate(...)) by (pod) > 0.8`), và truy vấn nhật ký phân tán Grafana Loki LogQL.
+- **Kết quả**: `PASSED` (97/97 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
