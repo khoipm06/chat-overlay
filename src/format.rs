@@ -1650,4 +1650,56 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_fuzz_codeblock_with_crlf_and_mixed_newlines() {
+        let newline_cases = [
+            // CRLF Windows style line endings in code
+            "```rust\r\nfn hello() {\r\n    println!(\"Hello CRLF\");\r\n}\r\n```",
+            // CR only old Mac style line endings
+            "```python\rdef run():\r    pass\r```",
+            // Mixed LF and CRLF in same code block
+            "```bash\necho \"LF line\"\r\necho \"CRLF line\"\necho \"another LF\"\n```",
+            // Code block with multiple trailing blank lines
+            "```json\n{\n  \"ok\": true\n}\n\n\n\n```",
+        ];
+
+        for c in newline_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "CRLF codeblock case failed on:\n{:?}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_nested_callout_alerts_with_code_and_lists() {
+        let nested_callouts = [
+            // Callout note with internal list and code snippet
+            "> [!NOTE]\n> Notice summary:\n> - Step 1: `cargo build`\n> - Step 2: `cargo test`\n> All tests must pass.",
+            // Warning with bold and math equation
+            "> [!WARNING]\n> High latency detected: $\\Delta t > 500\\text{ms}$.\n> Take action immediately.",
+            // Important with link and checklist
+            "> [!IMPORTANT]\n> Required reading: [Spec](https://specs.example.com)\n> - [x] Approved\n> - [ ] Pending signature",
+            // Caution with multiple consecutive quote lines
+            "> [!CAUTION]\n> Danger zone ahead.\n>\n> Do not edit generated files manually.",
+        ];
+
+        for c in nested_callouts {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Nested callout case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
