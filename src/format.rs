@@ -117,6 +117,55 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 .unwrap_or(args_json);
             format!("Delegated: {} ›", truncate_summary(task, 32))
         }
+        "todo" => {
+            let action = parsed
+                .as_ref()
+                .and_then(|v| v.get("action").and_then(|s| s.as_str()))
+                .unwrap_or("manage");
+            let subject = parsed
+                .as_ref()
+                .and_then(|v| v.get("subject").or_else(|| v.get("description")).and_then(|s| s.as_str()))
+                .unwrap_or("");
+            if subject.is_empty() {
+                format!("Todo: {} ›", action)
+            } else {
+                format!("Todo {}: {} ›", action, truncate_summary(subject, 28))
+            }
+        }
+        "fusion_reason" | "fusion_investigate" | "fusion_research" | "fusion_validate" => {
+            let prompt = parsed
+                .as_ref()
+                .and_then(|v| v.get("objective").or_else(|| v.get("prompt")).or_else(|| v.get("claim")).and_then(|s| s.as_str()))
+                .unwrap_or(args_json);
+            let action_name = match name {
+                "fusion_reason" => "Reasoned",
+                "fusion_investigate" => "Investigated",
+                "fusion_research" => "Researched",
+                _ => "Validated",
+            };
+            format!("{}: {} ›", action_name, truncate_summary(prompt, 32))
+        }
+        "ctx_execute" | "ctx_execute_file" => {
+            let target = parsed
+                .as_ref()
+                .and_then(|v| v.get("path").or_else(|| v.get("language")).and_then(|s| s.as_str()))
+                .unwrap_or(args_json);
+            format!("Sandbox exec: {} ›", truncate_summary(target, 32))
+        }
+        "ctx_search" | "ctx_index" | "ctx_fetch_and_index" => {
+            let q = parsed
+                .as_ref()
+                .and_then(|v| v.get("query").or_else(|| v.get("source")).or_else(|| v.get("url")).and_then(|s| s.as_str()))
+                .unwrap_or(args_json);
+            format!("Context op: {} ›", truncate_summary(q, 32))
+        }
+        "bg_run" | "bg_status" | "bg_logs" | "bg_result" | "bg_kill" => {
+            let target = parsed
+                .as_ref()
+                .and_then(|v| v.get("name").or_else(|| v.get("taskId")).or_else(|| v.get("command")).and_then(|s| s.as_str()))
+                .unwrap_or(args_json);
+            format!("Background task: {} ›", truncate_summary(target, 30))
+        }
         _ => {
             // General tools (e.g. web_search, fetch_content, subagent, etc.)
             let summary = if let Some(ref obj) = parsed {
@@ -333,6 +382,22 @@ mod tests {
         let sa = format_tool_call_label("subagent", r#"{"task":"run security audit"}"#);
         assert_eq!(sa, "Delegated: run security audit ›");
 
+        // todo
+        let td = format_tool_call_label("todo", r#"{"action":"create","subject":"Implement test suite"}"#);
+        assert_eq!(td, "Todo create: Implement test suite ›");
+
+        // fusion
+        let fr = format_tool_call_label("fusion_reason", r#"{"prompt":"Analyze architectural trade-offs"}"#);
+        assert_eq!(fr, "Reasoned: Analyze architectural trade-offs ›");
+
+        // ctx_execute
+        let ce = format_tool_call_label("ctx_execute", r#"{"language":"typescript"}"#);
+        assert_eq!(ce, "Sandbox exec: typescript ›");
+
+        // bg_run
+        let bg = format_tool_call_label("bg_run", r#"{"name":"Build Cargo Binary"}"#);
+        assert_eq!(bg, "Background task: Build Cargo Binary ›");
+
         // fallback generic
         let f = format_tool_call_label("custom_tool", r#"{"param":"value"}"#);
         assert_eq!(f, "Tool custom_tool: value ›");
@@ -395,6 +460,67 @@ mod tests {
                 markup,
                 res.err()
             );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_syntax_highlighting_all_languages() {
+        let code_samples = [
+            ("rust", "fn test<T: Display>(val: Option<Vec<T>>) -> Result<(), String> {\n    let s = \"hello \\\"world\\\"\";\n    if true && false || 10 > 5 {\n        println!(\"OK: {}\", s);\n    }\n    Ok(())\n}"),
+            ("python", "def func(a: int = 10, b: str = 'test') -> bool:\n    \"\"\"Docstring with <tags> & symbols\"\"\"\n    # Comment with <tag>\n    return True if a > 0 else False"),
+            ("typescript", "export async function handleRequest(req: Request): Promise<Response> {\n  const data: Array<string> = ['<tag>', \"&amp;\"];\n  // comment\n  return new Response(JSON.stringify({ ok: true, count: 12.5 }));\n}"),
+            ("bash", "#!/bin/bash\nset -euo pipefail\nif [ \"$1\" != \"\" ] && [ -f \"$FILE\" ]; then\n  echo \"<output>: $1\" | grep -v 'pattern'\nfi"),
+            ("json", "{\n  \"nested\": {\n    \"array\": [true, false, null, 123.45, \"string with <tags> & &amp;\"]\n  },\n  \"valid\": true\n}"),
+            ("sql", "SELECT id, name, count(*) FROM users WHERE age > 18 AND status = 'active' GROUP BY id;"),
+            ("unknown_lang", "<xml><node attr=\"val\">Test & Demo</node></xml>"),
+        ];
+
+        for (lang, code) in code_samples {
+            let highlighted = crate::render::syntax::highlight_code_to_pango(lang, code);
+            let wrapped = format!("<span font_family=\"monospace\">{}</span>", highlighted);
+            let res = pango::parse_markup(&wrapped, '\0');
+            assert!(
+                res.is_ok(),
+                "Pango parse failed on highlighted code for lang: {}\nOutput:\n{}\nError: {:?}",
+                lang,
+                wrapped,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_combinatorial_markdown_stress() {
+        // Generate complex combinations of markdown elements
+        let tokens = [
+            "**bold**",
+            "*italic*",
+            "***bold-italic***",
+            "~~strike~~",
+            "`code <tag> &`",
+            "$x < y && z > 0$",
+            "H~2~O",
+            "x^2^",
+            "[Link](https://example.com)",
+            "<kbd>Ctrl</kbd>",
+            "& < > \" '",
+            "🦀 Tiếng Việt có dấu 🚀",
+        ];
+
+        // Test multi-token lines
+        for i in 0..tokens.len() {
+            for j in 0..tokens.len() {
+                let combined_line = format!("Start {} middle {} end", tokens[i], tokens[j]);
+                let markup = format_markdown_to_pango(&combined_line);
+                let res = pango::parse_markup(&markup, '\0');
+                assert!(
+                    res.is_ok(),
+                    "Combinatorial markdown failed on: {}\nOutput: {}\nError: {:?}",
+                    combined_line,
+                    markup,
+                    res.err()
+                );
+            }
         }
     }
 }
