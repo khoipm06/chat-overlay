@@ -159,7 +159,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Interface Definition Languages GraphQL & Protobuf (`test_fuzz_codeblock_with_graphql_and_protobuf_schemas`): Kiểm thử schema GraphQL (type, Query, enum, non-null `[Session!]!`), và tệp Protocol Buffers proto3 (syntax proto3, package, message lồng nhau, trường `oneof`).
   - Combinatorics & Generating Functions (`test_fuzz_latex_combinatorics_and_generating_functions`): Kiểm thử hàm sinh thường (OGF Fibonacci $G(x) = \frac{x}{1-x-x^2}$), hàm sinh mũ (EGF), số Stirling loại hai $\left\{ \begin{matrix} n \\ k \end{matrix} \right\}$, nguyên lý bao hàm - loại trừ (Inclusion-Exclusion) và dãy số Catalan $C_n = \frac{1}{n+1}\binom{2n}{n}$.
   - Hardware Description Languages Verilog & VHDL (`test_fuzz_codeblock_with_hardware_description_verilog_vhdl`): Kiểm thử module Verilog với khối `always @(posedge clk)`, lệnh gán non-blocking `<=`, hằng số nhị phân `4'b0000`, và kiến trúc VHDL `IEEE.STD_LOGIC_1164.ALL`.
-- **Kết quả**: `PASSED` (89/89 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Complex Analysis & Contour Integration (`test_fuzz_latex_complex_analysis_and_contour_integration`): Kiểm thử công thức tích phân Cauchy, định lý phần dư (Residue theorem), hệ phương trình Cauchy-Riemann đạo hàm phức, hàm zeta Riemann $\zeta(s)$ và phương trình hàm Euler, cùng khai triển chuỗi Laurent.
+  - Markup & Stylesheet Languages CSS, SCSS, HTML5, SVG (`test_fuzz_codeblock_with_markup_and_stylesheet_languages`): Kiểm thử khối CSS hiện đại biến tùy chỉnh `:root`, SCSS mixins `@mixin`, HTML5 canvas `<canvas id="gl-surface">` và định nghĩa đồ họa vector SVG `<svg><circle><path>`.
+- **Kết quả**: `PASSED` (91/91 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
