@@ -2482,4 +2482,56 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_astrophysics_general_relativity_and_cosmology() {
+        let astro_cases = [
+            // Schwarzschild metric line element
+            "$$\nds^2 = -\\left(1 - \\frac{2GM}{c^2 r}\\right) c^2 dt^2 + \\left(1 - \\frac{2GM}{c^2 r}\\right)^{-1} dr^2 + r^2 (d\\theta^2 + \\sin^2\\theta \\, d\\phi^2)\n$$",
+            // Friedmann equations for FLRW universe expansion
+            "$$\n\\left(\\frac{\\dot{a}}{a}\\right)^2 = \\frac{8\\pi G}{3} \\rho - \\frac{k c^2}{a^2} + \\frac{\\Lambda c^2}{3}\n$$",
+            "$$\n\\frac{\\ddot{a}}{a} = -\\frac{4\\pi G}{3} \\left(\\rho + \\frac{3p}{c^2}\\right) + \\frac{\\Lambda c^2}{3}\n$$",
+            // Chandrasekhar mass limit
+            "$$\nM_{\\mathrm{Ch}} \\approx \\frac{\\omega_3^0 \\sqrt{3\\pi}}{2} \\left( \\frac{\\hbar c}{G} \\right)^{3/2} \\left( \\frac{1}{\\mu_e m_H} \\right)^2 \\approx 1.44 M_\\odot\n$$",
+            // Hawking radiation temperature and Bekenstein-Hawking black hole entropy
+            "$$\nT_{\\mathrm{H}} = \\frac{\\hbar c^3}{8\\pi G M k_B}, \\quad S_{\\mathrm{BH}} = \\frac{k_B c^3 A}{4 G \\hbar} = \\frac{k_B A}{4 \\ell_P^2}\n$$",
+        ];
+
+        for c in astro_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Astrophysics LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_query_and_search_dsls() {
+        let dsl_cases = [
+            // Elasticsearch Query DSL JSON
+            ("json", "{\n  \"query\": {\n    \"bool\": {\n      \"must\": [\n        { \"match\": { \"title\": \"pi-overlay\" } },\n        { \"range\": { \"timestamp\": { \"gte\": \"now-1d/d\" } } }\n      ],\n      \"filter\": { \"term\": { \"status\": \"active\" } }\n    }\n  }\n}"),
+            // PromQL Prometheus metrics query
+            ("promql", "sum(rate(container_cpu_usage_seconds_total{container!=\"POD\",namespace=\"pi-workspace\"}[5m])) by (pod) > 0.8"),
+            // LogQL Loki query
+            ("logql", "{app=\"pi-overlay\", env=\"production\"} |= \"error\" | json | status_code >= 500"),
+        ];
+
+        for (lang, code) in dsl_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Query DSL codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
