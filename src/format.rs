@@ -2844,4 +2844,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_cryptographic_zero_knowledge_and_zk_snarks() {
+        let zk_cases = [
+            // Quadratic Arithmetic Programs (QAP) and R1CS divisibility
+            "$$\nA(x) \\cdot B(x) - C(x) = H(x) \\cdot T(x), \\quad T(x) = \\prod_{i=1}^m (x - \\omega^i)\n$$",
+            // Groth16 pairing verification equation
+            "$$\ne(\\pi_A, \\pi_B) = e(\\alpha, \\beta) \\cdot e\\left(\\sum_{i=0}^l a_i \\frac{\\beta A_i(x) + \\alpha B_i(x) + C_i(x)}{\\gamma}, \\gamma\\right) \\cdot e(\\pi_C, \\delta)\n$$",
+            // Fiat-Shamir heuristic and Schnorr identification
+            "$$\ns = r + c \\cdot x \\pmod{q}, \\quad c = \\mathcal{H}(G, Y, R, m)\n$$",
+            // Pedersen commitment scheme
+            "$$\nC = g^m h^r \\pmod{p}, \\quad \\log_g(h) \\text{ is unknown}\n$$",
+            // Elliptic curve pairing bilinearity
+            "$$\ne(a P, b Q) = e(P, Q)^{ab} \\in \\mathbb{G}_T, \\quad \\forall P \\in \\mathbb{G}_1, \\; Q \\in \\mathbb{G}_2\n$$",
+        ];
+
+        for c in zk_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Zero-knowledge LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_functional_concurrent_erlang_and_gleam() {
+        let beam_cases = [
+            // Erlang actor model and receive loop
+            ("erlang", "%% Erlang gen_server style loop\n-module(pi_worker).\n-export([loop/1]).\n\nloop(State) ->\n    receive\n        {ping, From} ->\n            From ! {pong, State},\n            loop(State + 1);\n        stop -> ok;\n        _Other -> loop(State)\n    end."),
+            // Gleam type-safe BEAM language
+            ("gleam", "// Gleam type-safe actor\nimport gleam/io\nimport gleam/int\nimport gleam/otp/actor\n\npub type Msg {\n  Increment(Int)\n  Reset\n}\n\npub fn handle_message(msg: Msg, state: Int) -> actor.Next(Msg, Int) {\n  case msg {\n    Increment(amount) -> actor.continue(state + amount)\n    Reset -> actor.continue(0)\n  }\n}"),
+        ];
+
+        for (lang, code) in beam_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "BEAM codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
