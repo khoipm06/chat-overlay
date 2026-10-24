@@ -2012,4 +2012,57 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_number_theory_modular_arithmetic_and_cryptography() {
+        let crypto_cases = [
+            // RSA key generation and Euler's totient function
+            "$$\n\\phi(n) = (p - 1)(q - 1), \\quad e \\cdot d \\equiv 1 \\pmod{\\phi(n)}\n$$",
+            // Elliptic curve equation and group law
+            "$$\ny^2 \\equiv x^3 + ax + b \\pmod{p}, \\quad 4a^3 + 27b^2 \\not\\equiv 0 \\pmod{p}\n$$",
+            // Diffie-Hellman key exchange
+            "$$\ng^{ab} \\equiv (g^a)^b \\equiv (g^b)^a \\pmod{p}\n$$",
+            // Chinese Remainder Theorem
+            "$$\nx \\equiv a_i \\pmod{m_i}, \\quad \\gcd(m_i, m_j) = 1 \\quad \\forall i \\neq j\n$$",
+            // Quadratic residues and Legendre / Jacobi symbol
+            "$$\n\\left( \\frac{a}{p} \\right) \\equiv a^{\\frac{p-1}{2}} \\pmod{p}\n$$",
+        ];
+
+        for c in crypto_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Number theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_assembly_and_bytecode() {
+        let asm_cases = [
+            // x86_64 Assembly AT&T and Intel syntax
+            ("asm", "; x86_64 Intel syntax\nglobal _start\nsection .text\n_start:\n    mov rax, 1          ; sys_write\n    mov rdi, 1          ; stdout\n    mov rsi, msg\n    mov rdx, 13\n    syscall\n    mov rax, 60         ; sys_exit\n    xor rdi, rdi\n    syscall"),
+            // ARM64 / AArch64 Assembly
+            ("assembly", "// AArch64 assembly\n.global _start\n_start:\n    mov x0, #1\n    ldr x1, =msg\n    mov x2, #13\n    mov x8, #64\n    svc #0"),
+            // WebAssembly WAT format
+            ("wat", "(module\n  (func $add (param $lhs i32) (param $rhs i32) (result i32)\n    local.get $lhs\n    local.get $rhs\n    i32.add)\n  (export \"add\" (func $add)))"),
+        ];
+
+        for (lang, code) in asm_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Assembly codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
