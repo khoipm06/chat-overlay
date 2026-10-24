@@ -2275,4 +2275,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_combinatorics_and_generating_functions() {
+        let comb_cases = [
+            // Ordinary generating function (OGF) and Fibonacci recurrence
+            "$$\nG(x) = \\sum_{n=0}^{\\infty} F_n x^n = \\frac{x}{1 - x - x^2}\n$$",
+            // Exponential generating function (EGF)
+            "$$\nE(x) = \\sum_{n=0}^{\\infty} a_n \\frac{x^n}{n!} = \\exp\\left( \\sum_{k=1}^{\\infty} c_k \\frac{x^k}{k!} \\right)\n$$",
+            // Stirling numbers of the second kind and partition numbers
+            "$$\n\\left\\{ \\begin{matrix} n \\\\ k \\end{matrix} \\right\\} = \\frac{1}{k!} \\sum_{j=0}^k (-1)^{k-j} \\binom{k}{j} j^n\n$$",
+            // Inclusion-Exclusion principle
+            "$$\n\\left| \\bigcup_{i=1}^n A_i \\right| = \\sum_{k=1}^n (-1)^{k-1} \\sum_{1 \\le i_1 < \\dots < i_k \\le n} |A_{i_1} \\cap \\dots \\cap A_{i_k}|\n$$",
+            // Catalan numbers formula
+            "$$\nC_n = \\frac{1}{n+1} \\binom{2n}{n} = \\frac{(2n)!}{(n+1)! \\, n!}\n$$",
+        ];
+
+        for c in comb_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Combinatorics LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_hardware_description_verilog_vhdl() {
+        let hdl_cases = [
+            // Verilog module
+            ("verilog", "// 4-bit binary counter\nmodule counter_4bit (\n    input wire clk,\n    input wire rst_n,\n    output reg [3:0] count\n);\n    always @(posedge clk or negedge rst_n) begin\n        if (!rst_n)\n            count <= 4'b0000;\n        else\n            count <= count + 1'b1;\n    end\nendmodule"),
+            // VHDL entity and architecture
+            ("vhdl", "-- 2-input AND gate\nlibrary IEEE;\nuse IEEE.STD_LOGIC_1164.ALL;\n\nentity and_gate is\n    Port ( a : in STD_LOGIC;\n           b : in STD_LOGIC;\n           y : out STD_LOGIC);\nend and_gate;\n\narchitecture Behavioral of and_gate is\nbegin\n    y <= a and b;\nend Behavioral;"),
+        ];
+
+        for (lang, code) in hdl_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "HDL codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
