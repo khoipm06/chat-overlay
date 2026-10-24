@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 14:55:00 +0700
-- **Commit thẩm định**: `72f5613` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **59/59 PASSED** (0 failed, 0 ignored, 0.23s).
+- **Thời điểm kiểm chứng**: 2026-10-24 15:00:00 +0700
+- **Commit thẩm định**: `faa9049` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **61/61 PASSED** (0 failed, 0 ignored, 0.25s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 59 tests bao phủ tích phân mặt/khối Stokes/Gauss, biến đổi Fourier, liên phân số và chuỗi khối code đan xen bảng biểu không dòng trống.
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 61 tests bao phủ ký tự pipe `|` escaped trong ô bảng, chuẩn ma trận `||A||_F`, và thụt dòng hỗn hợp tab/spaces lồng 6 tầng.
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -129,7 +129,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Table Delimiter Alignments & Colon Formatting (`test_fuzz_table_delimiter_alignment_and_colons`): Kiểm thử các cấu hình căn lề bảng Markdown (`:---`, `:---:`, `---:`), thanh phân cách 1 gạch (`:-`, `-:`), thanh phân cách siêu dài và hàng phân cách lỗi cú pháp.
   - Advanced Calculus & Wave Equations (`test_fuzz_latex_calculus_summations_and_integrals`): Kiểm thử tích phân mặt Stokes, định lý phân kỳ Gauss, phương trình sóng đạo hàm riêng phần 3D, biến đổi Fourier thuận/nghịch và phân số liên tục (continued fraction).
   - Multiline Mixed Prose & Unseparated Blocks (`test_fuzz_multiline_mixed_prose_and_code_blocks`): Kiểm thử văn bản xuôi xen kẽ các khối code/table xuất hiện trực tiếp không có dòng trắng cách ly.
-- **Kết quả**: `PASSED` (59/59 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Table Pipe Escaping & Formulas in Cells (`test_fuzz_markdown_table_escaping_and_pipe_in_code_cells`): Kiểm thử ô bảng chứa lệnh shell có pipe (`cat file \| grep ok`), chaining logic (`\|\|`), ô trống chỉ có khoảng trắng, bảng có cột phân tách đôi `||`, và công thức toán chứa dấu giá trị tuyệt đối / chuẩn vector ($|x - y|$, $\|\mathbf{v}\|_2$).
+  - Deep Indentation Mixed Spaces and Tabs (`test_fuzz_deep_indentation_tabs_and_spaces_mix`): Kiểm thử mã thụt lề sâu bằng tab `\t`, hỗn hợp space và tab, danh sách đa tầng thụt lề 8 space và dòng trống có khoảng trắng dư thừa.
+- **Kết quả**: `PASSED` (61/61 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
