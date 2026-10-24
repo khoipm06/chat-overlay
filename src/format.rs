@@ -994,4 +994,61 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_header_levels_and_inline_markup_combinations() {
+        let header_cases = [
+            "# H1 with **bold**",
+            "## H2 with *italic*",
+            "### H3 with `code_fn()`",
+            "# H1 with [Hyperlink](https://example.com)",
+            "## H2 with <tag> & symbols and ~~strikethrough~~",
+            "### H3 with $E = mc^2$",
+            "#### H4 without standard markdown syntax",
+            "##### H5 without standard markdown syntax",
+            "###### H6 without standard markdown syntax",
+            "#    Multiple leading spaces in header text",
+            "#",
+            "##",
+            "###",
+        ];
+
+        for c in header_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Header case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_html_details_summary_variants() {
+        let details_cases = [
+            "<details>\n<summary>Click here to expand</summary>\nDetailed content inside\n</details>",
+            "<details>\n<summary>Summary with **bold** and `code`</summary>\nContent with table:\n| A | B |\n| --- | --- |\n| 1 | 2 |\n</details>",
+            // Unclosed details or summary
+            "<details>\n<summary>Unclosed details block\nContent continues",
+            "<summary>Dangling summary tag without details</summary>",
+            "<details></details>",
+            // Multiple details on same line
+            "<details><summary>Inline details</summary>Body</details>",
+        ];
+
+        for c in details_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Details/summary case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
