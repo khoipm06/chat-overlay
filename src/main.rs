@@ -704,7 +704,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         });
 
         let drawer_drag = drawer.clone();
-        let window_drag = window.clone();
+
         let cur_w = initial_width.clone();
         let state_update = state.clone();
         drag_gesture_w.connect_drag_update(move |_, offset_x, _| {
@@ -720,8 +720,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             } else {
                 drawer_drag.remove_css_class("compact-mode");
             }
-            window_drag.set_default_size(target_width + 24, -1);
-            window_drag.queue_resize();
         });
         resize_handle_w.add_controller(drag_gesture_w);
     }
@@ -793,7 +791,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         });
 
         let drawer_drag_e = drawer.clone();
-        let window_drag_e = window.clone();
+
         let cur_w_drag_e = initial_width_e.clone();
         let state_update_e = state.clone();
         drag_gesture_e.connect_drag_update(move |_, offset_x, _| {
@@ -809,8 +807,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             } else {
                 drawer_drag_e.remove_css_class("compact-mode");
             }
-            window_drag_e.set_default_size(target_width + 24, -1);
-            window_drag_e.queue_resize();
         });
         resize_handle_e.add_controller(drag_gesture_e);
     }
@@ -856,8 +852,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 st.bottom_margin,
                 st.settings.margin_right,
             );
-            window_nw.set_default_size(target_w + 24, -1);
-            window_nw.queue_resize();
         });
         resize_handle_nw.add_controller(drag_nw);
     }
@@ -902,8 +896,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 st.bottom_margin,
                 st.settings.margin_right,
             );
-            window_ne.set_default_size(target_w + 24, -1);
-            window_ne.queue_resize();
         });
         resize_handle_ne.add_controller(drag_ne);
     }
@@ -947,8 +939,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 target_bot,
                 st.settings.margin_right,
             );
-            window_sw.set_default_size(target_w + 24, -1);
-            window_sw.queue_resize();
         });
         resize_handle_sw.add_controller(drag_sw);
     }
@@ -992,8 +982,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 target_bot,
                 st.settings.margin_right,
             );
-            window_se.set_default_size(target_w + 24, -1);
-            window_se.queue_resize();
         });
         resize_handle_se.add_controller(drag_se);
     }

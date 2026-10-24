@@ -30,7 +30,7 @@ pub fn expand_overlay(
         window.set_anchor(Edge::Bottom, true);
         window.set_margin(Edge::Right, right_margin.max(0));
         window.set_margin(Edge::Top, top_margin.max(8));
-        window.set_margin(Edge::Bottom, bottom_margin.max(8));
+        window.set_margin(Edge::Bottom, bottom_margin.max(54));
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::OnDemand);
     }
     window.set_visible(true);
@@ -42,7 +42,7 @@ pub fn update_margins(window: &gtk4::ApplicationWindow, top: i32, bottom: i32, r
     if window.is_layer_window() {
         window.set_margin(Edge::Right, right.max(0));
         window.set_margin(Edge::Top, top.max(8));
-        window.set_margin(Edge::Bottom, bottom.max(8));
+        window.set_margin(Edge::Bottom, bottom.max(54));
     }
 }
 

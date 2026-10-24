@@ -1,3 +1,61 @@
+/* ── Total System Theme Elimination ─────────────────────────────────── */
+*,
+button,
+button:hover,
+button:active,
+button:checked,
+entry,
+entry:focus,
+entry text,
+popover,
+popover > contents,
+checkbutton,
+checkbutton check,
+checkbutton:checked check,
+scrolledwindow,
+scrollbar,
+scrollbar trough,
+scrollbar slider {
+    background-image: none !important;
+    text-shadow: none !important;
+    -gtk-icon-shadow: none !important;
+    outline: none !important;
+    outline-color: transparent !important;
+    box-shadow: none !important;
+}
+
+button {
+    border: none;
+    background-color: transparent;
+}
+
+entry {
+    background-color: #1a191b;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #eeeef0;
+}
+
+entry:focus {
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+checkbutton {
+    background: transparent;
+    border: none;
+}
+
+checkbutton check {
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    background-color: rgba(0, 0, 0, 0.4) !important;
+    border-radius: 4px !important;
+}
+
+checkbutton:checked check {
+    background-color: #3b82f6 !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
+}
+
 /* ── Strict System Theme Isolation & Reset ─────────────────────────── */
 * {
     -gtk-secondary-caret-color: transparent;
