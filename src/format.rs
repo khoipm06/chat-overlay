@@ -1436,4 +1436,56 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_codeblock_ansi_color_escapes_and_terminal_output() {
+        let terminal_cases = [
+            // ANSI escape sequences inside terminal code block (e.g. bash test results)
+            "```bash\n\x1B[32mPASS\x1B[0m src/test.rs\n\x1B[31mFAIL\x1B[0m src/backend.rs\n\x1B[33mWARN\x1B[0m clippy suggestion\n```",
+            // SGR color codes and cursor movement
+            "```output\n\x1B[1;34mINFO\x1B[0m: [2026-10-24 14:00] Server listening on :8080\n\x1B[2K\rLoading... 100%\n```",
+            // Incomplete or fragmented ANSI escape sequence
+            "```text\nRaw escape prefix \x1B[ and dangling \x1B without brackets\n```",
+            // Control characters (CR, LF, TAB, VT, FF) inside code
+            "```text\r\nLine with CRLF\r\nLine with VT \x0B and FF \x0C\r\n```",
+        ];
+
+        for c in terminal_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "ANSI terminal code case failed on:\n{:?}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_table_delimiter_alignment_and_colons() {
+        let align_cases = [
+            // Center, Left, Right alignments with arbitrary number of hyphens
+            "| L | C | R |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |",
+            // Short 1-hyphen separators
+            "| A | B |\n| :- | -: |\n| x | y |",
+            // Only colons or extra wide separators
+            "| Left | Right |\n| :----------------- | -----------------: |\n| Hello | World |",
+            // Malformed separator row (treated as normal row without crashing)
+            "| Col 1 | Col 2 |\n| not a separator | still not |\n| a | b |",
+        ];
+
+        for c in align_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Table alignment case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
