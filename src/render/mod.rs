@@ -7,7 +7,18 @@ use gtk4::glib;
 use gtk4::pango;
 
 /// Master function compiling raw markdown text to robust, styled Pango markup.
+/// If any syntax produces malformed markup, safely falls back to valid XML escaped text.
 pub fn format_markdown_to_pango(markdown: &str) -> String {
+    let candidate = format_markdown_to_pango_inner(markdown);
+    if pango::parse_markup(&candidate, '\0').is_ok() {
+        candidate
+    } else {
+        // Safe fallback: escape all text so Pango parser is 100% guaranteed to succeed
+        glib::markup_escape_text(markdown).to_string()
+    }
+}
+
+fn format_markdown_to_pango_inner(markdown: &str) -> String {
     let mut out = String::with_capacity(markdown.len() + 256);
     let mut in_code_block = false;
     let mut current_lang = String::new();

@@ -22,10 +22,30 @@ pub fn format_inline_elements(line: &str) -> String {
         working = rest.to_string();
     }
 
-    let mut out = glib::markup_escape_text(&working).to_string();
+    let mut code_placeholders: Vec<String> = Vec::new();
+    let mut without_code = String::with_capacity(working.len());
+    let mut rest = working.as_str();
 
-    // Parse inline code and inline math first to protect their contents
-    out = format_inline_code(&out);
+    while let Some(start) = rest.find('`') {
+        without_code.push_str(&rest[..start]);
+        let after_start = &rest[start + 1..];
+        if let Some(end) = after_start.find('`') {
+            let code_content = &after_start[..end];
+            let placeholder = format!("__CODEPH{}__", code_placeholders.len());
+            let escaped_code = glib::markup_escape_text(code_content);
+            code_placeholders.push(format!("<tt>{}</tt>", escaped_code));
+            without_code.push_str(&placeholder);
+            rest = &after_start[end + 1..];
+        } else {
+            // Unclosed backtick: leave as literal backtick
+            without_code.push('`');
+            rest = after_start;
+        }
+    }
+    without_code.push_str(rest);
+
+    let mut out = glib::markup_escape_text(&without_code).to_string();
+
     out = format_inline_math(&out);
     out = format_kbd_tags(&out);
     out = format_links(&out);
@@ -36,6 +56,12 @@ pub fn format_inline_elements(line: &str) -> String {
     out = format_subscript(&out);
     out = format_superscript(&out);
 
+    // Restore protected code blocks
+    for (idx, code_markup) in code_placeholders.into_iter().enumerate() {
+        let ph = format!("__CODEPH{}__", idx);
+        out = out.replace(&ph, &code_markup);
+    }
+
     if !prefix.is_empty() {
         format!("{}{}", prefix, out)
     } else {
@@ -44,11 +70,29 @@ pub fn format_inline_elements(line: &str) -> String {
 }
 
 fn format_kbd_tags(s: &str) -> String {
-    let s = s.replace(
-        "&lt;kbd&gt;",
-        "<tt><span background=\"#27272a\" foreground=\"#eeeef0\" size=\"smaller\"> ",
-    );
-    s.replace("&lt;/kbd&gt;", " </span></tt>")
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    let open_tag = "&lt;kbd&gt;";
+    let close_tag = "&lt;/kbd&gt;";
+
+    while let Some(start_idx) = rest.find(open_tag) {
+        out.push_str(&rest[..start_idx]);
+        let after_open = &rest[start_idx + open_tag.len()..];
+        if let Some(close_idx) = after_open.find(close_tag) {
+            let inner = &after_open[..close_idx];
+            out.push_str("<tt><span background=\"#202226\" foreground=\"#e8e9ed\" size=\"smaller\"> ");
+            out.push_str(inner);
+            out.push_str(" </span></tt>");
+            rest = &after_open[close_idx + close_tag.len()..];
+        } else {
+            // Unmatched opening tag: preserve as escaped text
+            out.push_str(open_tag);
+            rest = after_open;
+            break;
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn format_links(s: &str) -> String {
@@ -215,20 +259,3 @@ fn format_inline_math(s: &str) -> String {
     res
 }
 
-fn format_inline_code(s: &str) -> String {
-    let parts: Vec<&str> = s.split('`').collect();
-    if parts.len().is_multiple_of(2) {
-        return s.to_string();
-    }
-    let mut res = String::new();
-    for (i, p) in parts.iter().enumerate() {
-        if i % 2 == 1 {
-            res.push_str("<tt>");
-            res.push_str(p);
-            res.push_str("</tt>");
-        } else {
-            res.push_str(p);
-        }
-    }
-    res
-}

@@ -523,4 +523,52 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_fuzz_pseudo_random_generative_markdown_stream() {
+        // Pseudo-random generative stress test with PRNG LCG algorithm (no external rand crate needed)
+        let fragments = [
+            "# ", "## ", "### ", "- ", "* ", "1. ", "- [x] ", "- [ ] ",
+            "> ", "> > ", "> [!NOTE]\n", "> [!WARNING]\n",
+            "```rust\n", "```python\n", "```json\n", "```\n", "```",
+            "**", "*", "***", "~~", "`", "$", "~", "^",
+            "[Link text](https://example.com/api?a=1&b=2)",
+            "<kbd>", "</kbd>", "<details>", "</details>", "<summary>", "</summary>",
+            "| col 1 | col 2 |\n| --- | --- |\n| a | b |\n",
+            "---", "***", "___",
+            "<tag>", "</tag>", "<div attr=\"test\">", "</div>",
+            "&", "<", ">", "\"", "'", "🦀 Tiếng Việt 🚀 漢字",
+            "text with newline\n", "    indented code line\n",
+        ];
+
+        let mut seed: u64 = 0xDEADBEEFCAFE;
+        let mut prng = move || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 32) as usize
+        };
+
+        // Generate 300 highly varied, random pseudo-markdown payloads
+        for iter in 0..300 {
+            let num_pieces = (prng() % 15) + 3;
+            let mut payload = String::new();
+            for _ in 0..num_pieces {
+                let idx = prng() % fragments.len();
+                payload.push_str(fragments[idx]);
+                if prng() % 5 == 0 {
+                    payload.push(' ');
+                }
+            }
+
+            let markup = format_markdown_to_pango(&payload);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Generative stress test failed at iter {}:\nInput:\n{:?}\nMarkup:\n{:?}\nError: {:?}",
+                iter,
+                payload,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
