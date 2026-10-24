@@ -2120,4 +2120,59 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_abstract_algebra_and_category_theory() {
+        let cat_cases = [
+            // Commutative diagram and functoriality
+            "$$\nF(f \\circ g) = F(f) \\circ F(g), \\quad F(\\mathrm{id}_A) = \\mathrm{id}_{F(A)}\n$$",
+            // Natural transformation square
+            "$$\n\\eta_B \\circ F(f) = G(f) \\circ \\eta_A, \\quad \\forall f : A \\to B\n$$",
+            // Adjunction (left adjoint -| right adjoint)
+            "$$\n\\mathrm{Hom}_{\\mathcal{D}}(F(C), D) \\cong \\mathrm{Hom}_{\\mathcal{C}}(C, G(D))\n$$",
+            // Yoneda lemma
+            "$$\n\\mathrm{Nat}(\\mathrm{Hom}(A, -), F) \\cong F(A)\n$$",
+            // Exact sequence in homological algebra
+            "$$\n0 \\longrightarrow A \\xrightarrow{\\;f\\;} B \\xrightarrow{\\;g\\;} C \\longrightarrow 0\n$$",
+        ];
+
+        for c in cat_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Category theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_scientific_and_numerical_computing() {
+        let sci_cases = [
+            // Python NumPy / SciPy matrix vectorization
+            ("python", "import numpy as np\nfrom scipy.linalg import eig, svd\n\nA = np.random.randn(100, 100)\nU, s, Vt = svd(A)\nvals, vecs = eig(A)\nprint(f'Condition number: {s[0] / s[-1]:.2e}')"),
+            // Julia broadcasting, multiple dispatch, and unicode operators
+            ("julia", "# Julia numerical computing\nfunction fast_fourier(x::Vector{ComplexF64})::Vector{ComplexF64}\n    N = length(x)\n    N <= 1 && return x\n    even = fast_fourier(x[1:2:end])\n    odd  = fast_fourier(x[2:2:end])\n    T = [exp(-2π * im * (k - 1) / N) * odd[k] for k in 1:div(N, 2)]\n    return vcat(even .+ T, even .- T)\nend"),
+            // R statistical data frame manipulation
+            ("r", "# R tidyverse analysis\nlibrary(dplyr)\nlibrary(ggplot2)\n\ndf %>% filter(status == 'active' & score > 90) %>%\n  group_by(category) %>%\n  summarise(mean_val = mean(value, na.rm = TRUE))"),
+            // MATLAB / Octave matrix operations
+            ("matlab", "% SVD and QR decomposition\nA = [1, 2, 3; 4, 5, 6; 7, 8, 9];\n[Q, R] = qr(A);\n[U, S, V] = svd(A);\neigs = eig(A);"),
+        ];
+
+        for (lang, code) in sci_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Scientific computing codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
