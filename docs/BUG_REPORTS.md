@@ -135,7 +135,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Palette Hex Code Validity & Contrast Integrity (`test_fuzz_syntax_color_palette_contrast_and_accessibility`): Kiểm thử 100% mã màu hex `#RRGGBB` sinh ra từ bộ tô màu cú pháp `syntax.rs` đáp ứng tiêu chuẩn Pango markup và Antigravity palette.
   - Mixed Line Endings CRLF in Code (`test_fuzz_codeblock_with_crlf_and_mixed_newlines`): Kiểm thử khối code mang định dạng ngắt dòng Windows CRLF (`\r\n`), Mac CR (`\r`), hỗn hợp LF/CRLF và khoảng trắng cuối khối.
   - Nested GitHub Alerts with Lists & Code (`test_fuzz_nested_callout_alerts_with_code_and_lists`): Kiểm thử các khối alert `[!NOTE]`, `[!WARNING]`, `[!IMPORTANT]`, `[!CAUTION]` chứa danh sách gạch đầu dòng, inline code, liên kết, công thức toán và checklist hoàn tất.
-- **Kết quả**: `PASSED` (65/65 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Mathematical Logic & Quantifiers (`test_fuzz_mathematical_logic_quantifiers_and_symbols`): Kiểm thử ký hiệu logic vị từ ($\forall, \exists$), luật De Morgan ($\neg, \land, \lor$), lý thuyết tập hợp ($\cap, \cup, \setminus, \emptyset$), quan hệ hệ quả và turnstile ($\vdash, \models, \implies$) và quy tắc suy diễn Modus Ponens.
+  - Nested Brackets & Link Parsing Edge Cases (`test_fuzz_nested_brackets_and_link_parsing_robustness`): Kiểm thử nhãn liên kết chứa cặp ngoặc vuông lồng nhau `[Text [with] brackets]`, liên kết rỗng, liên kết phân cách bằng dấu phẩy/gạch chéo, dải dấu ngoặc đóng/mở dồn dập `[[[[` và `]]]]`, và URL chứa khoảng trắng.
+- **Kết quả**: `PASSED` (67/67 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
