@@ -2224,4 +2224,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_graph_theory_and_network_flows() {
+        let graph_cases = [
+            // Max-flow min-cut theorem
+            "$$\n\\max_{f} \\, |f| = \\min_{S, T} \\, c(S, T) = \\sum_{u \\in S, v \\in T} c(u, v)\n$$",
+            // Graph Laplacian matrix L = D - A
+            "$$\n\\mathbf{L}_{i,j} = \\begin{cases}\n  \\deg(v_i) & \\text{if } i = j \\\\\n  -1 & \\text{if } i \\neq j \\text{ and } (v_i, v_j) \\in E \\\\\n  0 & \\text{otherwise}\n\\end{cases}\n$$",
+            // PageRank random walk equation
+            "$$\n\\mathbf{r} = d \\mathbf{M} \\mathbf{r} + \\frac{1 - d}{N} \\mathbf{1}\n$$",
+            // Adjacency matrix eigenvalue spectrum
+            "$$\n\\operatorname{spec}(G) = \\{ \\lambda_1^{m_1}, \\lambda_2^{m_2}, \\dots, \\lambda_k^{m_k} \\}\n$$",
+            // Chromatic polynomial and Euler formula for planar graphs
+            "$$\nV - E + F = 2, \\quad P(G, k) = k(k-1)^{n-1}\n$$",
+        ];
+
+        for c in graph_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Graph theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_graphql_and_protobuf_schemas() {
+        let schema_cases = [
+            // GraphQL schema definition
+            ("graphql", "# GraphQL Schema\ntype Query {\n  user(id: ID!): User\n  activeSessions(limit: Int = 10): [Session!]!\n}\n\ntype User {\n  id: ID!\n  username: String!\n  email: String\n  role: Role!\n}\n\nenum Role {\n  ADMIN\n  DEVELOPER\n  GUEST\n}"),
+            // Protocol Buffers proto3 definition
+            ("protobuf", "syntax = \"proto3\";\npackage pi.overlay.v1;\n\nmessage StreamEvent {\n  uint64 generation = 1;\n  oneof event {\n    string text_delta = 2;\n    string thinking_delta = 3;\n    ToolCall tool_call = 4;\n  }\n}\n\nmessage ToolCall {\n  string name = 1;\n  string args = 2;\n}"),
+        ];
+
+        for (lang, code) in schema_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Schema codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
