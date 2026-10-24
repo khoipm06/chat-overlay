@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 15:55:00 +0700
-- **Commit thẩm định**: `3a3bae7` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **83/83 PASSED** (0 failed, 0 ignored, 0.22s).
+- **Thời điểm kiểm chứng**: 2026-10-24 16:00:00 +0700
+- **Commit thẩm định**: `001b091` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **85/85 PASSED** (0 failed, 0 ignored, 0.23s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 83 tests bao phủ đại số trừu tượng và lý thuyết phạm trù (First Isomorphism Theorem $G/\ker \phi \cong \operatorname{Im} \phi$, Yoneda lemma, short exact sequences) cùng ngôn ngữ tính toán khoa học (Julia, R, Fortran 90, MATLAB/Octave).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 85 tests bao phủ lý thuyết thông tin (Shannon entropy $H(X)$, phân kỳ Kullback-Leibler, dung lượng kênh Shannon-Hartley) cùng hợp đồng thông minh Web3 (Solidity ^0.8.20, Vyper).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -153,7 +153,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Functional Programming Languages (`test_fuzz_codeblock_with_functional_languages_and_type_signatures`): Kiểm thử khối code Haskell (currying, typeclass Monad `>>=`), OCaml (pattern matching `type 'a tree`), Elixir pipeline operator `|>`, và Clojure macro S-expression.
   - Abstract Algebra & Category Theory (`test_fuzz_latex_abstract_algebra_and_category_theory`): Kiểm thử sơ đồ giao hoán hàm tử $F(f \circ g) = F(f) \circ F(g)$, biến đổi tự nhiên $\eta$, adjunction song đối $\mathrm{Hom}_{\mathcal{D}}(F(C), D) \cong \mathrm{Hom}_{\mathcal{C}}(C, G(D))$, bổ đề Yoneda và dãy khớp ngắn trong đại số đồng điều $0 \to A \to B \to C \to 0$.
   - Scientific & Numerical Computing Codeblocks (`test_fuzz_codeblock_with_scientific_and_numerical_computing`): Kiểm thử khối code Python NumPy/SciPy (SVD, Eigenvalues), Julia broadcasting và toán tử Unicode $\pi$, R tidyverse data frame pipes `%>%`, và ma trận MATLAB/Octave.
-- **Kết quả**: `PASSED` (83/83 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Information Theory & Machine Learning Entropy (`test_fuzz_latex_information_theory_entropy_and_channel_capacity`): Kiểm thử entropy Shannon $H(X)$, phân kỳ Kullback-Leibler $D_{\mathrm{KL}}(P \parallel Q)$, thông tin tương hỗ $I(X; Y)$, dung lượng kênh Shannon-Hartley $C = B \log_2(1 + \mathrm{SNR})$, và hàm mất mát Cross-Entropy $\mathcal{L}_{\mathrm{CE}}$.
+  - Smart Contracts Solidity & Vyper Web3 (`test_fuzz_codeblock_with_solidity_and_smart_contracts`): Kiểm thử hợp đồng thông minh Solidity ERC20 (`pragma solidity ^0.8.20;`), interface `@openzeppelin`, định danh event `TokensMinted`, và mã nguồn Vyper pythonic decorators `@external`.
+- **Kết quả**: `PASSED` (85/85 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
