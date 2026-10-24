@@ -137,7 +137,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Nested GitHub Alerts with Lists & Code (`test_fuzz_nested_callout_alerts_with_code_and_lists`): Kiểm thử các khối alert `[!NOTE]`, `[!WARNING]`, `[!IMPORTANT]`, `[!CAUTION]` chứa danh sách gạch đầu dòng, inline code, liên kết, công thức toán và checklist hoàn tất.
   - Mathematical Logic & Quantifiers (`test_fuzz_mathematical_logic_quantifiers_and_symbols`): Kiểm thử ký hiệu logic vị từ ($\forall, \exists$), luật De Morgan ($\neg, \land, \lor$), lý thuyết tập hợp ($\cap, \cup, \setminus, \emptyset$), quan hệ hệ quả và turnstile ($\vdash, \models, \implies$) và quy tắc suy diễn Modus Ponens.
   - Nested Brackets & Link Parsing Edge Cases (`test_fuzz_nested_brackets_and_link_parsing_robustness`): Kiểm thử nhãn liên kết chứa cặp ngoặc vuông lồng nhau `[Text [with] brackets]`, liên kết rỗng, liên kết phân cách bằng dấu phẩy/gạch chéo, dải dấu ngoặc đóng/mở dồn dập `[[[[` và `]]]]`, và URL chứa khoảng trắng.
-- **Kết quả**: `PASSED` (67/67 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - C/C++ Preprocessor Directives & Headers (`test_fuzz_codeblock_with_c_cpp_macro_preprocessors_and_includes`): Kiểm thử khối code C/C++ chứa chỉ thị tiền xử lý `#include <stdio.h>`, macro `#define MAX(a, b)`, token concatenation `a##b`, concept template C++20 và `#pragma once`.
+  - Single-Character Incremental Expansion (`test_fuzz_streaming_single_character_expansion_stress`): Thử nghiệm cấp độ phân giải cực hạn: nạp từng 1 ký tự một xuyên suốt tài liệu Markdown kết hợp (header, callout, LaTeX, task, table, rust code); khẳng định mọi trạng thái dở dang đều parse hợp lệ.
+- **Kết quả**: `PASSED` (69/69 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:

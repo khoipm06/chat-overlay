@@ -1760,4 +1760,49 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_codeblock_with_c_cpp_macro_preprocessors_and_includes() {
+        let cpp_cases = [
+            ("c", "#include <stdio.h>\n#include <stdlib.h>\n#define MAX(a, b) ((a) > (b) ? (a) : (b))\n\nint main(int argc, char **argv) {\n    printf(\"Hello %s\\n\", \"World\");\n    return 0;\n}"),
+            ("cpp", "#include <iostream>\n#include <vector>\n#include <memory>\n\n#ifdef DEBUG\n#define LOG(x) std::cout << (x) << std::endl\n#else\n#define LOG(x)\n#endif\n\ntemplate<typename T>\nconcept Numeric = std::is_arithmetic_v<T>;\n\nint main() {\n    std::vector<int> v = {1, 2, 3};\n    return 0;\n}"),
+            ("c++", "#pragma once\n#ifndef HEADER_H\n#define HEADER_H\nstruct Node {\n    int val;\n    Node *next;\n};\n#endif"),
+            ("c", "#define STR(x) #x\n#define CONCAT(a, b) a##b\nint CONCAT(var, 1) = 42;"),
+        ];
+
+        for (lang, code) in cpp_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "C/C++ preprocessor case failed for {}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_streaming_single_character_expansion_stress() {
+        // Feed text 1 character at a time across a challenging mixed markdown document
+        let stream_doc = "## Live Header\n> [!TIP]\n> Pro tip with `code`.\n$$\\sum_{i=1}^n i = \\frac{n(n+1)}{2}$$\n- [x] Item 1\n| A | B |\n|---|---|\n| 1 | 2 |\n```rust\nfn main() {}\n```\n";
+        let mut buffer = String::new();
+
+        for ch in stream_doc.chars() {
+            buffer.push(ch);
+            let markup = format_markdown_to_pango(&buffer);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Single-char expansion failed at char {:?} (len {}):\nBuffer:\n{:?}\nMarkup:\n{:?}\nError: {:?}",
+                ch,
+                buffer.len(),
+                buffer,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
