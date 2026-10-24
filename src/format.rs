@@ -1959,4 +1959,57 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_physics_lagrangian_hamiltonian_and_quantum_field() {
+        let physics_cases = [
+            // Euler-Lagrange equations of motion
+            "$$\n\\frac{d}{dt} \\left( \\frac{\\partial L}{\\partial \\dot{q}_i} \\right) - \\frac{\\partial L}{\\partial q_i} = 0\n$$",
+            // Hamiltonian mechanics and Poisson brackets
+            "$$\n\\dot{q}_i = \\frac{\\partial H}{\\partial p_i}, \\quad \\dot{p}_i = -\\frac{\\partial H}{\\partial q_i}, \\quad \\{f, g\\} = \\sum_i \\left( \\frac{\\partial f}{\\partial q_i} \\frac{\\partial g}{\\partial p_i} - \\frac{\\partial f}{\\partial p_i} \\frac{\\partial g}{\\partial q_i} \\right)\n$$",
+            // Dirac equation in covariant form with gamma matrices
+            "$$\n(i \\gamma^\\mu \\partial_\\mu - m) \\psi = 0, \\quad \\{\\gamma^\\mu, \\gamma^\\nu\\} = 2 g^{\\mu\\nu} \\mathbf{I}\n$$",
+            // Quantum field theory path integral
+            "$$\n\\mathcal{Z} = \\int \\mathcal{D}[\\phi] \\exp\\left( \\frac{i}{\\hbar} \\int d^4x \\, \\mathcal{L}(\\phi, \\partial_\\mu \\phi) \\right)\n$$",
+            // Maxwell's equations in differential forms
+            "$$\ndF = 0, \\quad d{*F} = {*J}\n$$",
+        ];
+
+        for c in physics_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Physics LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_dockerfile_and_yaml_configurations() {
+        let config_cases = [
+            // Multi-stage Dockerfile
+            ("dockerfile", "# Build stage\nFROM rust:1.80-alpine AS builder\nWORKDIR /build\nCOPY . .\nRUN cargo build --release\n\n# Runtime stage\nFROM alpine:3.20\nRUN apk add --no-cache gtk4-layer-shell\nCOPY --from=builder /build/target/release/pi-overlay /usr/local/bin/\nENTRYPOINT [\"pi-overlay\"]"),
+            // Complex Kubernetes YAML manifest
+            ("yaml", "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: pi-overlay-worker\n  labels:\n    app: pi-overlay\nspec:\n  replicas: 3\n  selector:\n    matchLabels:\n      app: pi-overlay\n  template:\n    metadata:\n      labels:\n        app: pi-overlay\n    spec:\n      containers:\n      - name: worker\n        image: pi-overlay:latest\n        resources:\n          limits:\n            memory: \"512Mi\"\n            cpu: \"500m\""),
+            // GitHub Actions Workflow YAML
+            ("yaml", "name: CI Test\non: [push, pull_request]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n    - uses: actions/checkout@v4\n    - name: Run tests\n      run: cargo test --all-targets"),
+        ];
+
+        for (lang, code) in config_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Config codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
