@@ -1267,4 +1267,59 @@ mod tests {
             res.err()
         );
     }
+
+    #[test]
+    fn test_fuzz_mermaid_and_ascii_diagram_blocks() {
+        let diagram_cases = [
+            // Flowchart with shapes and arrows
+            "```mermaid\nflowchart TD\n    A[Start] --> B{Is valid?}\n    B -- Yes --> C[Process]\n    B -- No --> D[Error]\n```",
+            // Git graph diagram
+            "```mermaid\ngitGraph\n    commit\n    branch hotfix\n    checkout hotfix\n    commit\n    checkout main\n    merge hotfix\n```",
+            // Entity Relationship diagram
+            "```mermaid\nerDiagram\n    CUSTOMER ||--o{ ORDER : places\n    ORDER ||--|{ LINE-ITEM : contains\n```",
+            // ASCII diagram with unicode box-drawing characters
+            "```ascii\n+-------------------+\n|  Desktop Overlay  |\n+---------+---------+\n          |\n          v\n+---------+---------+\n|   Wayland Surface |\n+-------------------+\n```",
+            // Unclosed mermaid diagram
+            "```mermaid\nsequenceDiagram\n    Client->>Server: SYN\n",
+        ];
+
+        for c in diagram_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Diagram case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_diff_unified_patch_syntax_highlighting() {
+        let diff_cases = [
+            // Standard git unified diff with hunk header
+            "```diff\n@@ -1,5 +1,6 @@\n-use std::collections::HashMap;\n+use std::collections::BTreeMap;\n+// Added new dependency\n```",
+            // Diff containing HTML tags and markdown symbols
+            "```diff\n- <div class=\"old-badge\">Deprecated</div>\n+ <div class=\"new-badge\">**Active**</div>\n```",
+            // Diff with leading/trailing blank lines
+            "```diff\n\n-line a\n+line b\n\n```",
+            // Diff with only additions or only deletions
+            "```diff\n+added 1\n+added 2\n```",
+            "```diff\n-deleted 1\n-deleted 2\n```",
+        ];
+
+        for c in diff_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Diff case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
