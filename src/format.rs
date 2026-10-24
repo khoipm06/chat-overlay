@@ -3204,4 +3204,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_knot_theory_and_jones_polynomial() {
+        let knot_cases = [
+            // Reidemeister moves invariance and writhe
+            "$$\nw(D) = \\sum_{c \\in \\operatorname{Cross}(D)} \\operatorname{sgn}(c), \\quad w(D) \\in \\mathbb{Z}\n$$",
+            // Kauffman bracket polynomial skein relation
+            "$$\n\\langle L_+\\rangle = A \\langle L_0\\rangle + A^{-1} \\langle L_\\infty\\rangle, \\quad \\langle L \\cup \\bigcirc\\rangle = -(A^2 + A^{-2}) \\langle L\\rangle\n$$",
+            // Jones polynomial formula via normalized bracket
+            "$$\nV(L; t) = (-A^3)^{-w(D)} \\langle D\\rangle \\Big|_{A = t^{-1/4}}, \\quad t^{-1} V(L_+) - t V(L_-) = (t^{1/2} - t^{-1/2}) V(L_0)\n$$",
+            // Alexander polynomial skein relation
+            "$$\n\\Delta(L_+) - \\Delta(L_-) = (t^{1/2} - t^{-1/2}) \\Delta(L_0), \\quad \\Delta(t) = \\Delta(t^{-1})\n$$",
+            // HOMFLY-PT two-variable polynomial
+            "$$\n\\alpha P(L_+) - \\alpha^{-1} P(L_-) = z P(L_0)\n$$",
+        ];
+
+        for c in knot_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Knot theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_constraint_logic_programming_prolog_and_minizinc() {
+        let logic_cases = [
+            // ISO-Prolog Horn clauses, cut, and unification
+            ("prolog", "% Prolog knowledge base and DCG\nancestor(X, Y) :- parent(X, Y).\nancestor(X, Y) :- parent(X, Z), ancestor(Z, Y).\n\n% Definite Clause Grammar\nsentence --> noun_phrase, verb_phrase.\nnoun_phrase --> det, noun.\n\n?- ancestor(john, Who), write(Who), nl, fail; true."),
+            // MiniZinc constraint satisfaction problem
+            ("minizinc", "% N-Queens constraint model\nint: n = 8;\narray [1..n] of var 1..n: q;\n\ninclude \"alldifferent.mzn\";\nconstraint alldifferent(q);\nconstraint alldifferent([ q[i] + i | i in 1..n ]);\nconstraint alldifferent([ q[i] - i | i in 1..n ]);\n\nsolve satisfy;\noutput [ show(q) ];"),
+        ];
+
+        for (lang, code) in logic_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Constraint logic codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
