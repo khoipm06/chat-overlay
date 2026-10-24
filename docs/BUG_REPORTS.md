@@ -77,9 +77,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
 - **Thời điểm kiểm chứng**: 2026-10-24 16:00:00 +0700
-- **Commit thẩm định**: `001b091` (HEAD trên branch `main`)
+- **Commit thẩm định**: `a56f9ce` (HEAD trên branch `main`)
 - **Kết quả test suite**: `cargo test --all-targets` -> **85/85 PASSED** (0 failed, 0 ignored, 0.23s).
-- **Trạng thái working tree**: Clean sau khi commit biên bản.
+- **Trạng thái working tree**: Clean (`nothing to commit, working tree clean`).
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
