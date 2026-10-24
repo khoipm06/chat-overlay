@@ -31,7 +31,12 @@ pub fn render_markdown_table_to_pango(table_lines: &[&str]) -> String {
         return table_lines.join("\n");
     }
 
-    let num_cols = rows[0].len();
+    // Determine max columns across all rows to support ragged/uneven tables
+    let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    if num_cols == 0 {
+        return table_lines.join("\n");
+    }
+
     for r in &mut rows {
         while r.len() < num_cols {
             r.push(String::new());

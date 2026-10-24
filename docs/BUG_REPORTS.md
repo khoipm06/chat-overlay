@@ -21,6 +21,25 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ---
 
+### BUG-004: Index Out of Bounds Panic trên bảng biểu không đồng đều (Ragged Tables)
+- **Thành phần**: `src/render/table.rs` (`render_markdown_table_to_pango`)
+- **Mức độ**: Nghiêm trọng (Gây Crash tiến trình do Rust panic khi render table)
+- **Kịch bản tái hiện**:
+  1. Assistant in ra một bảng biểu Markdown có hàng dữ liệu phía sau nhiều cột hơn hàng tiêu đề đầu tiên:
+     ```markdown
+     | A | B |
+     | --- | --- |
+     | 1 |
+     | 1 | 2 | 3 | 4 |
+     ```
+  2. Bảng biểu tính số cột theo hàng đầu tiên `let num_cols = rows[0].len()` (= 2) nhưng chỉ padding các hàng ngắn mà không cắt bớt các hàng dài hơn, khiến mảng `col_widths` có kích thước 2.
+  3. Khi duyệt đến hàng có 4 cột, `col_widths[c_idx]` tại `c_idx = 2` gây `panic: index out of bounds: the len is 2 but the index is 2`.
+- **Giải pháp xử lý**:
+  - Tính toán `num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0)` trải rộng trên toàn bộ các hàng để hỗ trợ bảng biểu không đều (ragged table), đảm bảo `col_widths` luôn đủ phần tử.
+- **Trạng thái**: ĐÃ KHẮC PHỤC. Đã thêm regression test `test_fuzz_multiline_math_and_code_blocks`.
+
+---
+
 ## Báo cáo fuzzing & stress test hiện tại
 
 ### 1. NDJSON Streaming Parser (`src/backend.rs`)

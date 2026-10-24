@@ -166,6 +166,28 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 .unwrap_or(args_json);
             format!("Background task: {} ›", truncate_summary(target, 30))
         }
+        "mcp" | "mcp__playwright" => {
+            let action = parsed
+                .as_ref()
+                .and_then(|v| v.get("action").or_else(|| v.get("tool")).and_then(|s| s.as_str()))
+                .unwrap_or("call");
+            format!("MCP action: {} ›", truncate_summary(action, 30))
+        }
+        "ask_user_question" => {
+            let q = parsed
+                .as_ref()
+                .and_then(|v| {
+                    v.get("question").and_then(|s| s.as_str()).or_else(|| {
+                        v.get("questions")
+                            .and_then(|arr| arr.as_array())
+                            .and_then(|a| a.first())
+                            .and_then(|item| item.get("question"))
+                            .and_then(|s| s.as_str())
+                    })
+                })
+                .unwrap_or(args_json);
+            format!("Prompted user: \"{}\" ›", truncate_summary(q, 32))
+        }
         _ => {
             // General tools (e.g. web_search, fetch_content, subagent, etc.)
             let summary = if let Some(ref obj) = parsed {
@@ -398,6 +420,14 @@ mod tests {
         let bg = format_tool_call_label("bg_run", r#"{"name":"Build Cargo Binary"}"#);
         assert_eq!(bg, "Background task: Build Cargo Binary ›");
 
+        // mcp
+        let m = format_tool_call_label("mcp", r#"{"action":"install","url":"http://localhost:3000"}"#);
+        assert_eq!(m, "MCP action: install ›");
+
+        // ask_user_question
+        let au = format_tool_call_label("ask_user_question", r#"{"questions":[{"question":"Choose an approach?"}]}"#);
+        assert_eq!(au, "Prompted user: \"Choose an approach?\" ›");
+
         // fallback generic
         let f = format_tool_call_label("custom_tool", r#"{"param":"value"}"#);
         assert_eq!(f, "Tool custom_tool: value ›");
@@ -566,6 +596,49 @@ mod tests {
                 "Generative stress test failed at iter {}:\nInput:\n{:?}\nMarkup:\n{:?}\nError: {:?}",
                 iter,
                 payload,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_multiline_math_and_code_blocks() {
+        let cases = [
+            // Multiline math equations with LaTeX matrix, fraction, exponents, and special chars
+            "Here is a complex math formula:\n$$\n\\begin{pmatrix}\na & b \\\\\nc & d\n\\end{pmatrix}\n\\times \\vec{x} = \\lambda \\vec{x}\n$$\nAnd normal prose.",
+            // Double dollar math inline and multiline
+            "Formula $$\\int_{0}^{\\infty} e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}$$ inside paragraph",
+            // Code block with multiple backticks in code body
+            "```markdown\nHere is how to write a codeblock:\n````rust\nfn main() {}\n````\n```",
+            // Empty code fence
+            "```rust\n```",
+            // Code fence with strange language string
+            "```c++ / c# & <generic>\nint main() { return 0; }\n```",
+            // Code fence followed immediately by another code fence
+            "```python\nprint(1)\n```\n```rust\nprintln!(\"2\");\n```",
+            // Incomplete / ragged tables with varying column numbers
+            "| A | B |\n| --- | --- |\n| 1 |\n| 1 | 2 | 3 | 4 |\n| | |",
+            // Table with zero data rows
+            "| A | B |\n| --- | --- |",
+            // Nested alerts & callouts
+            "> [!NOTE]\n> Alert line 1\n> Alert line 2 with `code`\n> > Nested quote\n> > > Triple nested quote",
+            // Mixed HTML comments and entities
+            "Text with <!-- comment --> and entities &copy; &reg; &euro; &amp; &lt;",
+            // Highly repetitive tags (pathological nesting attack)
+            "************************************",
+            "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+            "````````````````````````````````````",
+            "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$",
+        ];
+
+        for c in cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Pango parse failed on case:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
                 markup,
                 res.err()
             );
