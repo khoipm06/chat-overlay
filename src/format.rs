@@ -3614,4 +3614,56 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_supersymmetry_and_supergravity() {
+        let susy_cases = [
+            // Supersymmetry algebra with anti-commutator of supercharges
+            "$$\n\\{ Q_\\alpha, \\bar{Q}_{\\dot{\\beta}} \\} = 2 \\sigma^\\mu_{\\alpha\\dot{\\beta}} P_\\mu, \\quad \\{ Q_\\alpha, Q_\\beta \\} = 0\n$$",
+            // Wess-Zumino model superspace action
+            "$$\nS = \\int d^4x \\, d^4\\theta \\; \\Phi^\\dagger \\Phi + \\left( \\int d^4x \\, d^2\\theta \\; W(\\Phi) + \\text{h.c.} \\right)\n$$",
+            // Superpotential and F-term / D-term equations
+            "$$\nF_i = -\\frac{\\partial W^*}{\\partial \\phi^{*i}}, \\quad D^a = -g \\phi^{*i} (T^a)_i^j \\phi_j\n$$",
+            // Supergravity gravitino covariant derivative
+            "$$\n\\mathcal{D}_\\mu \\psi_\\nu = \\left( \\partial_\\mu + \\frac{1}{4} \\omega_\\mu^{ab} \\gamma_{ab} \\right) \\psi_\\nu\n$$",
+        ];
+
+        for c in susy_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "SUSY LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_nested_image_links_and_yaml_frontmatter() {
+        let cases = [
+            // Linked image
+            "[![Pi Overlay Badge](https://img.shields.io/badge/pi-overlay-blue)](https://github.com/khoipm/pi-overlay)",
+            // YAML frontmatter at document start
+            "---\ntitle: Pi Overlay Spec\nauthor: Verifier Agent\nversion: 3.0.0\ntags: [agent, workspace, rust]\n---\n# Main Documentation Content\nHere is text.",
+            // Multiple linked badges on one line
+            "[![CI](https://ci.png)](https://ci.url) [![License](https://lic.png)](https://lic.url)",
+            // Table with embedded image links
+            "| Badge | Target |\n|---|---|\n| [![A](a.png)](https://a.com) | Service A |\n| [![B](b.png)](https://b.com) | Service B |",
+        ];
+
+        for c in cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Nested image link or frontmatter failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
