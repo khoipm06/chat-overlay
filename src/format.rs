@@ -1106,4 +1106,58 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_footnote_and_reference_styles() {
+        let footnote_cases = [
+            // Standard Markdown footnote citation and definition
+            "Here is a simple statement[^1] with another citation[^note].\n\n[^1]: First footnote content with `code`.\n[^note]: Second footnote with **bold** text.",
+            // Multiple citations in one line
+            "Claim A[^1] and Claim B[^2] and Claim C[^3].",
+            // Unmatched footnote syntax
+            "Statement with [^unclosed bracket and ^dangling caret",
+            // Reference style links: [label][ref] and [ref]: url
+            "[Pi Overlay][pi-repo] is a frameless desktop overlay.\n\n[pi-repo]: https://github.com/khoipm/pi-overlay",
+            // Reference link without definition
+            "Reference [Unknown Reference][missing_ref] continues inline.",
+        ];
+
+        for c in footnote_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Footnote/reference case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_definition_lists_and_abbreviations() {
+        let def_cases = [
+            // Markdown definition list style
+            "Term 1\n: Definition for term 1 with `code`\n\nTerm 2\n: Definition for term 2 with **bold**",
+            // Colon without leading term
+            ": Dangling colon definition line",
+            // Multi-line term definition
+            "Complex Algorithm\n: Step 1: Initialize values.\n: Step 2: Compute $x = \\int f(t) dt$.",
+            // Abbreviation style
+            "*[HTML]: Hyper Text Markup Language\n*[W3C]: World Wide Web Consortium\nThe HTML specification is maintained by the W3C.",
+        ];
+
+        for c in def_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Definition list case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }

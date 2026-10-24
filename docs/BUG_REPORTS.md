@@ -113,7 +113,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - HTML Details & Summary Elements (`test_fuzz_html_details_summary_variants`): Kiểm thử thẻ mở rộng `<details>` và `<summary>` lồng nhau, summary chứa bảng biểu, thẻ không đóng hoặc xuất hiện trên cùng một dòng.
   - Unicode Combining Marks & Trojan Source Bidi (`test_fuzz_codeblock_with_extreme_unicode_and_combining_marks`): Fuzz test ký tự Zalgo (`H̶e̶l̶l̶o̶`), các ký tự ghi đè hướng đọc RTL (RLO/LRO), emoji định danh biến (`🚀`, `🦀`), khoảng trắng không ngắt (NBSP), ZWJ và ký hiệu toán học Alphanumeric (`𝕏`, `ℂ`).
   - Table Nested Cells & Varied Display Widths (`test_fuzz_table_cells_with_multiline_and_nested_formatting`): Kiểm thử bảng biểu lồng chữ đậm/nghiêng/code/toán trong ô, ô trống thiếu border, cờ quốc kỳ Unicode 4-byte (`🇻🇳`, `🇯🇵`, `🇺🇸`) và bảng chỉ có đúng 1 cột.
-- **Kết quả**: `PASSED` (43/43 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Footnote & Reference Styles (`test_fuzz_footnote_and_reference_styles`): Kiểm thử trích dẫn chú thích chân trang Markdown (`[^1]`, `[^note]`), liên kết tham chiếu định danh (`[Label][ref]` & `[ref]: url`), và xử lý an toàn dấu mũ dangling.
+  - Definition Lists & Abbreviations (`test_fuzz_definition_lists_and_abbreviations`): Kiểm thử định dạng danh sách định nghĩa (`Term \n : Definition`), dấu hai chấm mồ côi (`: Dangling`), và cú pháp viết tắt Markdown (`*[HTML]: ...`).
+- **Kết quả**: `PASSED` (45/45 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
