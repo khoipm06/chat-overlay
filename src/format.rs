@@ -2585,4 +2585,58 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_fluid_dynamics_navier_stokes_and_reynolds() {
+        let fluid_cases = [
+            // Incompressible Navier-Stokes momentum equation
+            "$$\n\\rho \\left( \\frac{\\partial \\mathbf{u}}{\\partial t} + (\\mathbf{u} \\cdot \\nabla) \\mathbf{u} \\right) = -\\nabla p + \\mu \\nabla^2 \\mathbf{u} + \\mathbf{f}\n$$",
+            // Continuity equation for incompressible flow
+            "$$\n\\nabla \\cdot \\mathbf{u} = 0, \\quad \\frac{\\partial \\rho}{\\partial t} + \\nabla \\cdot (\\rho \\mathbf{u}) = 0\n$$",
+            // Reynolds transport theorem
+            "$$\n\\frac{d}{dt} \\int_{\\Omega(t)} f \\, dV = \\int_{\\Omega(t)} \\frac{\\partial f}{\\partial t} \\, dV + \\int_{\\partial\\Omega(t)} f (\\mathbf{v} \\cdot \\mathbf{n}) \\, dA\n$$",
+            // Bernoulli's principle along a streamline
+            "$$\n\\frac{1}{2} \\rho v^2 + \\rho g z + p = \\text{constant}\n$$",
+            // Vorticity transport equation
+            "$$\n\\frac{\\partial \\mathbf{\\omega}}{\\partial t} + (\\mathbf{u} \\cdot \\nabla) \\mathbf{\\omega} = (\\mathbf{\\omega} \\cdot \\nabla) \\mathbf{u} + \\nu \\nabla^2 \\mathbf{\\omega}\n$$",
+        ];
+
+        for c in fluid_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Fluid dynamics LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_data_serialization_formats() {
+        let ser_cases = [
+            // CSV / TSV with headers, quotes, and commas
+            ("csv", "id,username,email,roles\n1,\"admin, root\",admin@pi.dev,\"admin,dev\"\n2,user,user@example.com,guest"),
+            ("tsv", "id\tname\tscore\tstatus\n101\tBenchmark\t99.8\tPASS\n102\tStress\t100.0\tPASS"),
+            // INI / Desktop Entry format
+            ("ini", "[Desktop Entry]\nType=Application\nName=Pi Overlay\nComment=Universal Linux Desktop Agent Overlay\nExec=pi-overlay\nTerminal=false\nCategories=Utility;Development;"),
+            // Crontab format
+            ("crontab", "# Run verification tests every 10 minutes\n*/10 * * * * /home/opc/pi-overlay/scripts/verify.sh > /dev/null 2>&1\n0 0 * * * /usr/bin/cargo clean"),
+        ];
+
+        for (lang, code) in ser_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Serialization codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
