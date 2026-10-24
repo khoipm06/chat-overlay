@@ -1217,4 +1217,54 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_syntax_highlighter_token_boundaries_and_unterminated_literals() {
+        // Test language syntax highlighter on edge-case unterminated strings, comments, and numbers
+        let syntax_edge_cases = [
+            ("rust", "let unterminated = \"string without closing quote\nlet x = 10;"),
+            ("rust", "let raw_unterminated = r#\"unterminated raw string;\nlet y = 20;"),
+            ("rust", "/* block comment without closing\nlet z = 30;"),
+            ("python", "s = 'unterminated single quote\nx = 1"),
+            ("python", "s = '''unterminated triple quote\ny = 2"),
+            ("typescript", "const str = `unterminated template literal\nconst a = 1;"),
+            ("json", "{\"key\": \"unterminated string value"),
+            ("bash", "echo \"unterminated double quote"),
+            ("bash", "echo 'unterminated single quote"),
+            ("rust", "let num = 123.456.789; // malformed decimal"),
+            ("rust", "let hex = 0xZZZZ; // invalid hex"),
+        ];
+
+        for (lang, code) in syntax_edge_cases {
+            let highlighted = crate::render::syntax::highlight_code_to_pango(lang, code);
+            let wrapped = format!("<span font_family=\"monospace\">{}</span>", highlighted);
+            let res = pango::parse_markup(&wrapped, '\0');
+            assert!(
+                res.is_ok(),
+                "Syntax highlighter failed on unterminated literal for {}:\nOutput:\n{}\nError: {:?}",
+                lang,
+                wrapped,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_rapid_multiturn_dialogue_state_transitions() {
+        // Simulates rapid accumulation of multi-turn user/assistant conversation
+        let mut session = String::new();
+        for turn in 1..=50 {
+            session.push_str(&format!("**Turn {} User Query:**\nHow to solve issue #{}?\n\n", turn, turn));
+            session.push_str(&format!("**Turn {} Assistant Response:**\nHere is the fix:\n```rust\nfn fix_{}() -> bool {{ true }}\n```\nResult: $2^{} = {}$.\n\n", turn, turn, turn, 1u64.wrapping_shl(turn % 32)));
+            session.push_str("---\n\n");
+        }
+
+        let markup = format_markdown_to_pango(&session);
+        let res = pango::parse_markup(&markup, '\0');
+        assert!(
+            res.is_ok(),
+            "Rapid multi-turn conversation render failed:\nError: {:?}",
+            res.err()
+        );
+    }
 }

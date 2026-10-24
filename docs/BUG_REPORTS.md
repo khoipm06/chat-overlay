@@ -117,7 +117,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Definition Lists & Abbreviations (`test_fuzz_definition_lists_and_abbreviations`): Kiểm thử định dạng danh sách định nghĩa (`Term \n : Definition`), dấu hai chấm mồ côi (`: Dangling`), và cú pháp viết tắt Markdown (`*[HTML]: ...`).
   - Nested Backticks & Fence Collision (`test_fuzz_codeblock_with_nested_backticks_and_fence_collision`): Kiểm thử khối code 4-5 dấu backtick lồng khối code con 3-4 backtick, code chứa backtick gõ lệnh shell (`whoami`), khoảng trắng sau fence đóng và ngôn ngữ có dấu chấm/phiên bản (`vue.js`, `c++20`).
   - Math Environments & Multiline Align (`test_fuzz_math_block_with_complex_environments_and_align`): Kiểm thử môi trường LaTeX `align` với dấu `&` căn lề và `\\` xuống dòng, hàm từng khúc `cases`, ma trận định thức `vmatrix` và môi trường chưa đóng.
-- **Kết quả**: `PASSED` (47/47 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Syntax Highlighter Unterminated Literals (`test_fuzz_syntax_highlighter_token_boundaries_and_unterminated_literals`): Kiểm thử bộ highlight mã nguồn khi gặp chuỗi nháy kép/đơn/template literal chưa đóng, raw string chưa đóng `r#"`, khối comment `/*` chưa đóng, số thập phân hỏng và mã hex không hợp lệ.
+  - Rapid Multi-turn Dialogue Transitions (`test_fuzz_rapid_multiturn_dialogue_state_transitions`): Mô phỏng hội thoại tích lũy 50 lượt user/assistant liên tục xen kẽ khối code, công thức lũy thừa $2^n$ và đường kẻ phân cách horizontal rule `---`.
+- **Kết quả**: `PASSED` (49/49 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
