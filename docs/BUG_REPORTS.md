@@ -167,7 +167,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - UI DSLs & Reactive Frameworks Flutter & Svelte (`test_fuzz_codeblock_with_functional_reactive_and_ui_dsls`): Kiểm thử cây widget Flutter / Dart (`StatelessWidget`, `BoxDecoration`, `Color(0xFF18191B)`), và cú pháp phản ứng Svelte (`writable`, reactive assignment `$: doubled = $count * 2`).
   - Astrophysics, General Relativity & Cosmology (`test_fuzz_latex_astrophysics_general_relativity_and_cosmology`): Kiểm thử phần tử đường Schwarzschild metric $ds^2$, phương trình giãn nở vũ trụ Friedmann FLRW $(\dot{a}/a)^2$, giới hạn khối lượng Chandrasekhar $M_{\mathrm{Ch}} \approx 1.44 M_\odot$, nhiệt độ bức xạ Hawking $T_{\mathrm{H}}$ và entropy lỗ đen Bekenstein-Hawking $S_{\mathrm{BH}} = k_B A / (4\ell_P^2)$.
   - Observability & Log Query DSLs (`test_fuzz_codeblock_with_query_and_search_dsls`): Kiểm thử Elasticsearch JSON Query DSL (bool, must, range, filter), truy vấn chỉ số thời gian thực Prometheus PromQL (`sum(rate(...)) by (pod) > 0.8`), và truy vấn nhật ký phân tán Grafana Loki LogQL.
-- **Kết quả**: `PASSED` (97/97 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Thermodynamics & Statistical Mechanics (`test_fuzz_latex_thermodynamics_and_statistical_mechanics`): Kiểm thử hệ thức cơ bản nhiệt động lực học $dU = T dS - P dV + \sum \mu_i dN_i$, các hệ thức Maxwell đạo hàm riêng, hàm phân phối chính tắc $Z = \sum e^{-\beta E_i}$, phân phối lượng tử Fermi-Dirac & Bose-Einstein, hiệu suất chu trình Carnot $\eta_{\mathrm{Carnot}}$, và phương trình Gibbs-Duhem.
+  - Infrastructure as Code Terraform HCL & Nix (`test_fuzz_codeblock_with_infrastructure_as_code_terraform_and_hcl`): Kiểm thử khối mã HashiCorp HCL Terraform (provider, resource `aws_instance`, tags) và ngôn ngữ biểu thức Nix (`stdenv.mkDerivation`, `buildInputs`).
+- **Kết quả**: `PASSED` (99/99 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
