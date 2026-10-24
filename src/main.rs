@@ -337,6 +337,9 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     drawer.set_widget_name("drawer-container");
     drawer.add_css_class(&initial_settings.theme);
     drawer.set_width_request(initial_settings.width);
+    if initial_settings.width < 420 {
+        drawer.add_css_class("compact-mode");
+    }
     drawer.set_vexpand(true);
 
     // Header Area: Title + Model Badge + Status + Action Buttons
@@ -586,13 +589,28 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     center_box.append(&resize_handle_s);
 
     root_box.append(&center_box);
+
+    // Right edge resize handle (East Handle)
+    let resize_handle_e = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_handle_e.add_css_class("resize-handle");
+    resize_handle_e.set_cursor_from_name(Some("ew-resize"));
+    resize_handle_e.set_width_request(12);
+    resize_handle_e.set_vexpand(true);
+
+    let resize_grip_e = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_grip_e.add_css_class("resize-grip");
+    resize_grip_e.set_valign(gtk4::Align::Center);
+    resize_grip_e.set_vexpand(true);
+    resize_handle_e.append(&resize_grip_e);
+
+    root_box.append(&resize_handle_e);
     window.set_child(Some(&root_box));
 
     let state = Rc::new(RefCell::new(AppState {
         mode: OverlayMode::Hidden,
         runner: PiRunner::new(),
         prompts: Vec::new(),
-        settings: initial_settings,
+        settings: initial_settings.clone(),
         top_margin: 12,
         bottom_margin: 12,
     }));
@@ -666,7 +684,12 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             st.settings.width = target_width;
             let _ = st.settings.save();
             drawer_drag.set_width_request(target_width);
-            window_drag.set_default_size(target_width + 12, -1);
+            if target_width < 420 {
+                drawer_drag.add_css_class("compact-mode");
+            } else {
+                drawer_drag.remove_css_class("compact-mode");
+            }
+            window_drag.set_default_size(target_width + 24, -1);
             window_drag.queue_resize();
         });
         resize_handle_w.add_controller(drag_gesture_w);
@@ -726,6 +749,39 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             );
         });
         resize_handle_s.add_controller(drag_gesture_s);
+    }
+
+    // Setup Right Horizontal Drag Gesture (East Handle)
+    {
+        let drag_gesture_e = gtk4::GestureDrag::new();
+        let initial_width_e = Rc::new(Cell::new(initial_settings.width));
+        let cur_w_e = initial_width_e.clone();
+        let state_e = state.clone();
+        drag_gesture_e.connect_drag_begin(move |_, _, _| {
+            cur_w_e.set(state_e.borrow().settings.width);
+        });
+
+        let drawer_drag_e = drawer.clone();
+        let window_drag_e = window.clone();
+        let cur_w_drag_e = initial_width_e.clone();
+        let state_update_e = state.clone();
+        drag_gesture_e.connect_drag_update(move |_, offset_x, _| {
+            let target_width = (cur_w_drag_e.get() + offset_x as i32)
+                .clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
+
+            let mut st = state_update_e.borrow_mut();
+            st.settings.width = target_width;
+            let _ = st.settings.save();
+            drawer_drag_e.set_width_request(target_width);
+            if target_width < 420 {
+                drawer_drag_e.add_css_class("compact-mode");
+            } else {
+                drawer_drag_e.remove_css_class("compact-mode");
+            }
+            window_drag_e.set_default_size(target_width + 24, -1);
+            window_drag_e.queue_resize();
+        });
+        resize_handle_e.add_controller(drag_gesture_e);
     }
 
     let active_stream: Rc<RefCell<Option<ActiveStreamTarget>>> = Rc::new(RefCell::new(None));

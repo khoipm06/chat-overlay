@@ -1192,3 +1192,43 @@ popover contents {
     border-radius: 4px;
     margin: 2px 0 4px 0;
 }
+
+/* ── Compact Mode for Narrow Widths (< 420px) ─────────────────────────── */
+.compact-mode .header-box {
+    padding-bottom: 6px;
+    gap: 4px;
+}
+
+.compact-mode .app-title {
+    font-size: 11px;
+}
+
+.compact-mode .model-badge-btn {
+    font-size: 10px;
+    padding: 1px 4px;
+}
+
+.compact-mode .btn-header {
+    font-size: 10px;
+    padding: 2px 4px;
+}
+
+.compact-mode .chat-bubble-assistant,
+.compact-mode .chat-bubble-user {
+    padding: 8px 10px;
+}
+
+.compact-mode .bubble-assistant-text,
+.compact-mode .bubble-user-text {
+    font-size: 11.5px;
+}
+
+.compact-mode .antigravity-parent-content {
+    margin-left: 4px;
+    padding-left: 4px;
+}
+
+.compact-mode .antigravity-timeline-list {
+    margin-left: 6px;
+    padding-left: 4px;
+}
