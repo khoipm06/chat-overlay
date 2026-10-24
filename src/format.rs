@@ -2793,4 +2793,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_spectral_graph_theory_and_random_walks() {
+        let spectral_cases = [
+            // Normalized graph Laplacian matrix
+            "$$\n\\mathbf{L}_{\\mathrm{sym}} = \\mathbf{D}^{-1/2} \\mathbf{L} \\mathbf{D}^{-1/2} = \\mathbf{I} - \\mathbf{D}^{-1/2} \\mathbf{A} \\mathbf{D}^{-1/2}\n$$",
+            // Cheeger inequality relating conductance to spectral gap
+            "$$\n\\frac{\\lambda_2}{2} \\le h(G) \\le \\sqrt{2 \\lambda_2}\n$$",
+            // Heat kernel on graphs
+            "$$\n\\mathbf{H}_t = \\exp(-t \\mathbf{L}) = \\sum_{i=1}^n e^{-\\lambda_i t} \\mathbf{u}_i \\mathbf{u}_i^T\n$$",
+            // Commute time and effective resistance
+            "$$\nC_{u,v} = 2m \\, R_{\\mathrm{eff}}(u, v) = 2m (\\mathbf{e}_u - \\mathbf{e}_v)^T \\mathbf{L}^\\dagger (\\mathbf{e}_u - \\mathbf{e}_v)\n$$",
+            // Expander mixing lemma
+            "$$\n\\left| e(S, T) - \\frac{d |S| |T|}{n} \\right| \\le \\lambda \\sqrt{|S| |T| \\left(1 - \\frac{|S|}{n}\\right) \\left(1 - \\frac{|T|}{n}\\right)}\n$$",
+        ];
+
+        for c in spectral_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Spectral graph LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_graph_query_languages_cypher_and_sparql() {
+        let graph_db_cases = [
+            // Neo4j Cypher query
+            ("cypher", "MATCH (user:User {active: true})-[r:ACTED_IN]->(m:Movie)\nWHERE m.released >= 2020\nWITH user, count(m) AS movie_count, collect(m.title) AS titles\nRETURN user.name, movie_count, titles[..3] AS sample_titles\nORDER BY movie_count DESC\nLIMIT 25;"),
+            // W3C SPARQL semantic web query
+            ("sparql", "PREFIX foaf: <http://xmlns.com/foaf/0.1/>\nPREFIX dbo: <http://dbpedia.org/ontology/>\n\nSELECT ?name ?birthDate\nWHERE {\n  ?person a dbo:Person ;\n          foaf:name ?name ;\n          dbo:birthDate ?birthDate .\n  FILTER (?birthDate >= \"1990-01-01\"^^xsd:date)\n}\nLIMIT 50"),
+        ];
+
+        for (lang, code) in graph_db_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Graph query codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
