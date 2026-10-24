@@ -706,4 +706,36 @@ mod tests {
         assert!(elapsed.as_millis() < 500, "Rendering 500 blocks took too long: {:?}", elapsed);
         assert!(pango::parse_markup(&markup, '\0').is_ok(), "Pango parse failed on massive payload");
     }
+
+    #[test]
+    fn test_fuzz_latex_and_ascii_math_delimiters() {
+        let math_cases = [
+            // Matrix transpose, subscripts, superscripts, accents
+            "$$\n\\mathbf{A}^{T} \\mathbf{A} = \\mathbf{I}_{n}\n$$",
+            // Greek symbols and arrows
+            "Inline $\\alpha, \\beta, \\gamma, \\theta, \\lambda, \\pi, \\sigma, \\omega$",
+            // Limits, integrals, sums, products
+            "$$\n\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1\n$$",
+            "$$\n\\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}\n$$",
+            "$$\n\\prod_{i=1}^{k} (1 - p_i) \\le e^{-\\sum p_i}\n$$",
+            // Multiple math segments on one line separated by formatting
+            "Let $a < b$ and **$c > d$**, then `f(x)` satisfies $\\forall x \\in \\mathbb{R}$.",
+            // Math with brackets and curly braces
+            "$$\n\\{ x \\in \\mathbb{Z} \\mid x \\equiv 0 \\pmod{2} \\}\n$$",
+            // Dollar with escaped chars
+            "$\\\\ \\{ \\} \\$ % & # _ ^$",
+        ];
+
+        for c in math_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Pango parse failed on LaTeX math case:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
