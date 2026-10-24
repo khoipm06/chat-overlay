@@ -3255,4 +3255,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_stochastic_processes_martingales_and_stopping_times() {
+        let mart_cases = [
+            // Martingale conditional expectation definition
+            "$$\n\\mathbb{E}[M_t \\mid \\mathcal{F}_s] = M_s \\quad \\forall s \\le t, \\quad \\mathbb{E}[|M_t|] < \\infty\n$$",
+            // Doob's Optional Stopping Theorem
+            "$$\n\\mathbb{E}[M_\\tau] = \\mathbb{E}[M_0], \\quad \\tau \\text{ is a bounded stopping time}\n$$",
+            // Doob's maximal inequality
+            "$$\n\\mathbb{P}\\left( \\sup_{0 \\le t \\le T} |M_t| \\ge \\lambda \\right) \\le \\frac{\\mathbb{E}[|M_T|^p]}{\\lambda^p} \\quad (p > 1)\n$$",
+            // Quadratic variation and Lévy's characterization of Brownian motion
+            "$$\n[M]_t = \\lim_{\\|\\Pi\\| \\to 0} \\sum_{i=1}^n (M_{t_i} - M_{t_{i-1}})^2, \\quad [W]_t = t\n$$",
+            // Burkholder-Davis-Gundy (BDG) inequality
+            "$$\nc_p \\mathbb{E}[[M]_T^{p/2}] \\le \\mathbb{E}\\left[ \\left( \\sup_{0 \\le t \\le T} |M_t| \\right)^p \\right] \\le C_p \\mathbb{E}[[M]_T^{p/2}]\n$$",
+        ];
+
+        for c in mart_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Martingale LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_scientific_notebook_and_matlab_live() {
+        let nb_cases = [
+            // Jupyter Notebook raw code cell JSON representation
+            ("json", "{\n  \"cell_type\": \"code\",\n  \"execution_count\": 42,\n  \"metadata\": {},\n  \"outputs\": [\n    {\n      \"data\": { \"text/plain\": [ \"100% verified (passed)\" ] },\n      \"output_type\": \"execute_result\"\n    }\n  ],\n  \"source\": [ \"import pi_overlay\\n\", \"pi_overlay.test()\" ]\n}"),
+            // MATLAB Live Script syntax with sections
+            ("matlab", "%% Section 1: Signal Generation\nfs = 44100;\nt = 0:1/fs:1;\nf0 = 440;\nx = sin(2*pi*f0*t);\n\n%% Section 2: Frequency Analysis\nX = fft(x);\nf = (0:length(X)-1)*fs/length(X);\nplot(f, abs(X));\ntitle('Fourier Spectrum');"),
+        ];
+
+        for (lang, code) in nb_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Notebook/Matlab codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
