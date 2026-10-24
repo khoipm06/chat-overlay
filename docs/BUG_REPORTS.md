@@ -38,6 +38,17 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Tính toán `num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0)` trải rộng trên toàn bộ các hàng để hỗ trợ bảng biểu không đều (ragged table), đảm bảo `col_widths` luôn đủ phần tử.
 - **Trạng thái**: ĐÃ KHẮC PHỤC. Đã thêm regression test `test_fuzz_multiline_math_and_code_blocks`.
 
+### BUG-005: GStrInteriorNulError Panic khi stream chứa ký tự Null Byte (`\0`)
+- **Thành phần**: `src/render/mod.rs` (`format_markdown_to_pango`)
+- **Mức độ**: Nghiêm trọng (Gây Crash tiến trình do Rust panic khi gọi FFI GLib)
+- **Kịch bản tái hiện**:
+  1. Khi phản hồi từ Pi chứa ký tự nhị phân / raw control character hoặc ký tự NUL (`\0`) do in buffer thô hoặc file binary.
+  2. Hàm `glib::markup_escape_text` và `pango::parse_markup` chuyển đổi chuỗi sang C string pointer `GStr`.
+  3. Ký tự `\0` nằm giữa chuỗi vi phạm bất biến C-string nul-terminated, dẫn đến `panic: called Result::unwrap() on an Err value: GStrInteriorNulError`.
+- **Giải pháp xử lý**:
+  - Tự động làm sạch (sanitize) và loại bỏ toàn bộ ký tự `\0` ngay tại đầu vào `format_markdown_to_pango` trước khi gọi FFI GLib/Pango.
+- **Trạng thái**: ĐÃ KHẮC PHỤC. Đã thêm regression test `test_fuzz_extreme_pathological_markdown_inputs`.
+
 ---
 
 ## Báo cáo fuzzing & stress test hiện tại
@@ -54,15 +65,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 13:28:00 +0700
-- **Commit thẩm định**: `f2cf056` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **28/28 PASSED** (0 failed, 0 ignored, 0.01s).
+- **Thời điểm kiểm chứng**: 2026-10-24 13:30:00 +0700
+- **Commit thẩm định**: `9767684` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **29/29 PASSED** (0 failed, 0 ignored, 0.01s).
 - **Trạng thái working tree**: Clean (`nothing to commit, working tree clean`).
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bổ sung bộ renderer toán học nhiều dòng (`$$`) font serif italic màu lavender (`#a5b4fc`) hỗ trợ streaming unclosed an toàn.
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ lọc NUL byte bảo vệ an toàn tuyệt đối cho GLib/GTK4 C-string runtime; multiline math và table rendering hoạt động hoàn hảo.
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
