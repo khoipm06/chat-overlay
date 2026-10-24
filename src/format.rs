@@ -1542,4 +1542,57 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_markdown_table_escaping_and_pipe_in_code_cells() {
+        let table_pipe_cases = [
+            // Code with pipe inside table cells
+            "| Command | Description |\n| :--- | :--- |\n| `cat file \\| grep ok` | Filter output with pipe |\n| `a && b \\|\\| c` | Boolean chaining |",
+            // Empty table cells with whitespace
+            "| Col A | Col B |\n| --- | --- |\n|    |    |\n|   val   |   |",
+            // Table with multiple consecutive pipes
+            "| A || B |\n| --- || --- |\n| 1 || 2 |",
+            // Table with math formulas containing pipes (absolute values / norms)
+            "| Metric | Formula |\n| :--- | :--- |\n| Absolute | $|x - y| < \\epsilon$ |\n| Norm | $\\|\\mathbf{v}\\|_2 = 1$ |",
+        ];
+
+        for c in table_pipe_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Table with pipes case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_deep_indentation_tabs_and_spaces_mix() {
+        let indent_cases = [
+            // Deeply indented code block (4 spaces vs tabs)
+            "    let x = 1;\n    let y = 2;\n    x + y",
+            "\t\tlet indented_with_tabs = true;",
+            " \t \t Mixed space and tab indentation",
+            // Deeply indented list items with mixed whitespace
+            "  - Space 2\n    - Space 4\n      - Space 6\n        - Space 8",
+            "\t- Tab 1\n\t\t- Tab 2\n\t\t\t- Tab 3",
+            // Trailing whitespace on empty lines
+            "Paragraph\n   \n   \nNext paragraph",
+        ];
+
+        for c in indent_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Indentation case failed on:\n{:?}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
