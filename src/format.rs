@@ -1488,4 +1488,58 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_calculus_summations_and_integrals() {
+        let calculus_cases = [
+            // Surface and volume integrals with differentials
+            "$$\n\\iint_{S} (\\nabla \\times \\mathbf{F}) \\cdot d\\mathbf{S} = \\oint_{C} \\mathbf{F} \\cdot d\\mathbf{r}\n$$",
+            // Divergence theorem
+            "$$\n\\iiint_{V} (\\nabla \\cdot \\mathbf{F}) \\, dV = \\oiint_{S} (\\mathbf{F} \\cdot \\mathbf{n}) \\, dS\n$$",
+            // Partial derivatives and wave equation
+            "$$\n\\frac{\\partial^2 u}{\\partial t^2} = c^2 \\nabla^2 u = c^2 \\left( \\frac{\\partial^2 u}{\\partial x^2} + \\frac{\\partial^2 u}{\\partial y^2} + \\frac{\\partial^2 u}{\\partial z^2} \\right)\n$$",
+            // Fourier transform and inverse Fourier transform
+            "$$\n\\hat{f}(\\xi) = \\int_{-\\infty}^{\\infty} f(x) e^{-2\\pi i x \\xi} dx, \\quad f(x) = \\int_{-\\infty}^{\\infty} \\hat{f}(\\xi) e^{2\\pi i x \\xi} d\\xi\n$$",
+            // Continued fraction
+            "$$\nx = a_0 + \\frac{1}{a_1 + \\frac{1}{a_2 + \\frac{1}{a_3 + \\dots}}}\n$$",
+        ];
+
+        for c in calculus_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Calculus case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_multiline_mixed_prose_and_code_blocks() {
+        let mixed_cases = [
+            // Prose with multiple backticks followed by code block
+            "Check `config.json` and `settings.toml` before running:\n```bash\ncargo run --release\n```\nDone.",
+            // Multiple code blocks separated by single line of prose
+            "```rust\nfn a() {}\n```\nIntermediate text with **bold**.\n```python\ndef b(): pass\n```",
+            // Code block followed immediately by a table without blank line
+            "```rust\nlet x = 1;\n```\n| K | V |\n|---|---|\n| 1 | 2 |",
+            // Table followed immediately by code block without blank line
+            "| A | B |\n|---|---|\n| a | b |\n```bash\necho ok\n```",
+        ];
+
+        for c in mixed_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Mixed prose/code case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
