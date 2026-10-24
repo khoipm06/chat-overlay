@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 15:40:00 +0700
-- **Commit thẩm định**: `aa69a76` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **77/77 PASSED** (0 failed, 0 ignored, 0.23s).
+- **Thời điểm kiểm chứng**: 2026-10-24 15:45:00 +0700
+- **Commit thẩm định**: `a3e18b3` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **79/79 PASSED** (0 failed, 0 ignored, 0.22s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 77 tests bao phủ phương trình cơ học lượng tử / vật lý lý thuyết (Euler-Lagrange, Hamiltonian, Dirac equation $(i \gamma^\mu \partial_\mu - m)\psi = 0$, Maxwell tensor) và cấu hình Dockerfile / Docker Compose YAML.
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 79 tests bao phủ số học mật mã học (RSA, Elliptic Curves, Diffie-Hellman, Legendre symbols) và mã máy Assembly x86_64, AArch64 ARM64, WebAssembly WAT.
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -147,7 +147,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Indented Nested Code Blocks in Lists (`test_fuzz_indented_nested_codeblock_and_list_interleaving`): Kiểm thử khối codeblock lồng bên trong mục danh sách gạch đầu dòng, danh sách đánh số có thụt dòng 3 ký tự, và danh sách công việc checklist chứa JSON config.
   - Classical & Quantum Mechanics Field Theory (`test_fuzz_latex_physics_lagrangian_hamiltonian_and_quantum_field`): Kiểm thử phương trình chuyển động Euler-Lagrange, cơ học Hamilton và ngoặc Poisson $\{f, g\}$, phương trình Dirac hiệp biến với ma trận gamma $\gamma^\mu$, tích phân đường lượng tử QFT $\mathcal{Z}$, và dạng vi phân phương trình Maxwell ($dF = 0, d{*F} = {*J}$).
   - Configuration Codeblocks Dockerfile & YAML (`test_fuzz_codeblock_with_dockerfile_and_yaml_configurations`): Kiểm thử multi-stage Dockerfile (`FROM AS builder`), manifest triển khai Kubernetes Deployment và cấu hình CI workflow GitHub Actions.
-- **Kết quả**: `PASSED` (77/77 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Number Theory & Cryptographic Protocols (`test_fuzz_latex_number_theory_modular_arithmetic_and_cryptography`): Kiểm thử thuật toán sinh khóa RSA và hàm phi Euler $\phi(n)$, phương trình đường cong Elliptic $y^2 \equiv x^3 + ax + b \pmod{p}$, trao đổi khóa Diffie-Hellman $g^{ab}$, định lý số dư Trung Hoa (CRT) và ký hiệu thặng dư bình phương Legendre/Jacobi $\left(\frac{a}{p}\right)$.
+  - Low-Level Assembly & WebAssembly WAT (`test_fuzz_codeblock_with_assembly_and_bytecode`): Kiểm thử khối mã máy x86_64 cú pháp Intel/AT&T (`mov rax, 1; syscall`), mã AArch64 ARM64 (`svc #0`), và định dạng văn bản WebAssembly S-expression WAT (`(module (func $add ...))`).
+- **Kết quả**: `PASSED` (79/79 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
