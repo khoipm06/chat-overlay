@@ -133,7 +133,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Deep Indentation Mixed Spaces and Tabs (`test_fuzz_deep_indentation_tabs_and_spaces_mix`): Kiểm thử mã thụt lề sâu bằng tab `\t`, hỗn hợp space và tab, danh sách đa tầng thụt lề 8 space và dòng trống có khoảng trắng dư thừa.
   - Chemical Formulas & Adjacent Sub/Superscripts (`test_fuzz_superscript_subscript_chemical_and_algebraic`): Kiểm thử công thức hóa học hữu cơ đa chỉ số (Glucose $C_6H_{12}O_6$), ion điện tích ($PO_4^{3-}$, $Ca^{2+}$), đa thức đại số $a_n x^n$, và các ký tự `~`, `^` mồ côi hoặc rỗng.
   - Palette Hex Code Validity & Contrast Integrity (`test_fuzz_syntax_color_palette_contrast_and_accessibility`): Kiểm thử 100% mã màu hex `#RRGGBB` sinh ra từ bộ tô màu cú pháp `syntax.rs` đáp ứng tiêu chuẩn Pango markup và Antigravity palette.
-- **Kết quả**: `PASSED` (63/63 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Mixed Line Endings CRLF in Code (`test_fuzz_codeblock_with_crlf_and_mixed_newlines`): Kiểm thử khối code mang định dạng ngắt dòng Windows CRLF (`\r\n`), Mac CR (`\r`), hỗn hợp LF/CRLF và khoảng trắng cuối khối.
+  - Nested GitHub Alerts with Lists & Code (`test_fuzz_nested_callout_alerts_with_code_and_lists`): Kiểm thử các khối alert `[!NOTE]`, `[!WARNING]`, `[!IMPORTANT]`, `[!CAUTION]` chứa danh sách gạch đầu dòng, inline code, liên kết, công thức toán và checklist hoàn tất.
+- **Kết quả**: `PASSED` (65/65 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
