@@ -3461,4 +3461,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_percolation_theory_and_schramm_loewner_evolution() {
+        let sle_cases = [
+            // Loewner differential equation with Brownian driving function
+            "$$\n\\frac{\\partial g_t(z)}{\\partial t} = \\frac{2}{g_t(z) - \\sqrt{\\kappa} B_t}, \\quad g_0(z) = z\n$$",
+            // SLE critical parameter values (kappa = 8/3 self-avoiding walks, kappa = 6 percolation)
+            "$$\n\\kappa = 8/3 \\; (\\text{SAW}), \\quad \\kappa = 4 \\; (\\text{Gaussian free field}), \\quad \\kappa = 6 \\; (\\text{percolation exploration})\n$$",
+            // Cardy's formula for crossing probability in 2D critical percolation
+            "$$\n\\mathbb{P}(A \\longleftrightarrow B) = \\frac{\\Gamma(2/3)}{\\Gamma(1/3) \\Gamma(4/3)} \\eta^{1/3} \\, {_2F_1}\\left( \\frac{1}{3}, \\frac{2}{3}; \\frac{4}{3}; \\eta \\right)\n$$",
+            // Hausdorff fractal dimension of SLE_kappa curves
+            "$$\nd = 1 + \\frac{\\kappa}{8} \\quad (0 < \\kappa \\le 8)\n$$",
+            // Conformal radius and Koebe 1/4 theorem
+            "$$\n\\operatorname{CR}(D, z) = \\frac{1}{|f'(0)|}, \\quad \\frac{1}{4} |f'(0)| \\le \\operatorname{dist}(f(0), \\partial f(D)) \\le |f'(0)|\n$$",
+        ];
+
+        for c in sle_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "SLE percolation LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_game_development_godot_gdscript_and_hlsl() {
+        let gamedev_cases = [
+            // Godot 4 GDScript 2.0 syntax
+            ("gdscript", "extends CharacterBody2D\n\n@export var speed: float = 300.0\n@export var jump_velocity: float = -400.0\n\nvar gravity = ProjectSettings.get_setting(\"physics/2d/default_gravity\")\n\nfunc _physics_process(delta: float) -> void:\n\tif not is_on_floor():\n\t\tvelocity.y += gravity * delta\n\tmove_and_slide()\n"),
+            // Direct3D HLSL compute shader
+            ("hlsl", "[numthreads(16, 16, 1)]\nvoid CSMain(uint3 DTid : SV_DispatchThreadID) {\n    float2 uv = float2(DTid.xy) / float2(1920.0, 1080.0);\n    OutputTexture[DTid.xy] = float4(uv, 0.5f, 1.0f);\n}"),
+        ];
+
+        for (lang, code) in gamedev_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "GameDev codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
