@@ -1595,4 +1595,59 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_superscript_subscript_chemical_and_algebraic() {
+        let sub_sup_cases = [
+            // Chemical formulas with multiple subscripts
+            "Glucose: C~6~H~12~O~6~ and Sulfuric acid: H~2~SO~4~",
+            // Ions and charges (subscript and superscript adjacent)
+            "Phosphate ion: PO~4~^3-^ and Calcium ion: Ca^2+^",
+            // Algebraic polynomials
+            "P(x) = a~n~x^n^ + a~n-1~x^n-1^ + ... + a~1~x + a~0~",
+            // Einstein mass-energy and power towers
+            "E = mc^2^ and 2^2^ = 4",
+            // Dangling or invalid tildes/carets with spaces
+            "Price approx ~ 100 USD and not~subscript~",
+            "Power ^ 2 and not^superscript^",
+            // Empty tildes/carets
+            "Empty ~~ and ^^ inside text",
+        ];
+
+        for c in sub_sup_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Sub/Sup case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_syntax_color_palette_contrast_and_accessibility() {
+        // Test that highlighted code uses valid Pango foreground hex codes matching Antigravity palette
+        let code_sample = "fn calculate(input: &str) -> Option<u64> {\n    let val: u64 = 42;\n    if true {\n        return Some(val * 2);\n    }\n    None\n}";
+        let highlighted = crate::render::syntax::highlight_code_to_pango("rust", code_sample);
+
+        // Ensure palette hex values are valid 7-character `#RRGGBB` strings
+        for line in highlighted.lines() {
+            let mut rest = line;
+            while let Some(pos) = rest.find("foreground=\"") {
+                let color_str = &rest[pos + 12..];
+                if let Some(end_quote) = color_str.find('"') {
+                    let hex = &color_str[..end_quote];
+                    assert!(hex.starts_with('#'), "Color code must start with #: {}", hex);
+                    assert!(hex.len() == 7, "Hex color code must be 7 chars (#RRGGBB): {}", hex);
+                    assert!(hex[1..].chars().all(|c| c.is_ascii_hexdigit()), "Invalid hex digits: {}", hex);
+                    rest = &color_str[end_quote + 1..];
+                } else {
+                    break;
+                }
+            }
+        }
+    }
 }
