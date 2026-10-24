@@ -155,7 +155,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Scientific & Numerical Computing Codeblocks (`test_fuzz_codeblock_with_scientific_and_numerical_computing`): Kiểm thử khối code Python NumPy/SciPy (SVD, Eigenvalues), Julia broadcasting và toán tử Unicode $\pi$, R tidyverse data frame pipes `%>%`, và ma trận MATLAB/Octave.
   - Information Theory & Machine Learning Entropy (`test_fuzz_latex_information_theory_entropy_and_channel_capacity`): Kiểm thử entropy Shannon $H(X)$, phân kỳ Kullback-Leibler $D_{\mathrm{KL}}(P \parallel Q)$, thông tin tương hỗ $I(X; Y)$, dung lượng kênh Shannon-Hartley $C = B \log_2(1 + \mathrm{SNR})$, và hàm mất mát Cross-Entropy $\mathcal{L}_{\mathrm{CE}}$.
   - Smart Contracts Solidity & Vyper Web3 (`test_fuzz_codeblock_with_solidity_and_smart_contracts`): Kiểm thử hợp đồng thông minh Solidity ERC20 (`pragma solidity ^0.8.20;`), interface `@openzeppelin`, định danh event `TokensMinted`, và mã nguồn Vyper pythonic decorators `@external`.
-- **Kết quả**: `PASSED` (85/85 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Graph Theory & Network Flows (`test_fuzz_latex_graph_theory_and_network_flows`): Kiểm thử định lý luồng cực đại lát cắt cực tiểu (Max-flow min-cut theorem), ma trận Laplace đồ thị $\mathbf{L} = \mathbf{D} - \mathbf{A}$, thuật toán PageRank ngẫu nhiên, phổ ma trận kề $\operatorname{spec}(G)$, và đa thức màu $P(G, k)$.
+  - Interface Definition Languages GraphQL & Protobuf (`test_fuzz_codeblock_with_graphql_and_protobuf_schemas`): Kiểm thử schema GraphQL (type, Query, enum, non-null `[Session!]!`), và tệp Protocol Buffers proto3 (syntax proto3, package, message lồng nhau, trường `oneof`).
+- **Kết quả**: `PASSED` (87/87 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
