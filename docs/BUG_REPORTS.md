@@ -115,7 +115,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Table Nested Cells & Varied Display Widths (`test_fuzz_table_cells_with_multiline_and_nested_formatting`): Kiểm thử bảng biểu lồng chữ đậm/nghiêng/code/toán trong ô, ô trống thiếu border, cờ quốc kỳ Unicode 4-byte (`🇻🇳`, `🇯🇵`, `🇺🇸`) và bảng chỉ có đúng 1 cột.
   - Footnote & Reference Styles (`test_fuzz_footnote_and_reference_styles`): Kiểm thử trích dẫn chú thích chân trang Markdown (`[^1]`, `[^note]`), liên kết tham chiếu định danh (`[Label][ref]` & `[ref]: url`), và xử lý an toàn dấu mũ dangling.
   - Definition Lists & Abbreviations (`test_fuzz_definition_lists_and_abbreviations`): Kiểm thử định dạng danh sách định nghĩa (`Term \n : Definition`), dấu hai chấm mồ côi (`: Dangling`), và cú pháp viết tắt Markdown (`*[HTML]: ...`).
-- **Kết quả**: `PASSED` (45/45 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Nested Backticks & Fence Collision (`test_fuzz_codeblock_with_nested_backticks_and_fence_collision`): Kiểm thử khối code 4-5 dấu backtick lồng khối code con 3-4 backtick, code chứa backtick gõ lệnh shell (`whoami`), khoảng trắng sau fence đóng và ngôn ngữ có dấu chấm/phiên bản (`vue.js`, `c++20`).
+  - Math Environments & Multiline Align (`test_fuzz_math_block_with_complex_environments_and_align`): Kiểm thử môi trường LaTeX `align` với dấu `&` căn lề và `\\` xuống dòng, hàm từng khúc `cases`, ma trận định thức `vmatrix` và môi trường chưa đóng.
+- **Kết quả**: `PASSED` (47/47 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
