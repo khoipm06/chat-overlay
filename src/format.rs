@@ -2175,4 +2175,53 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_information_theory_entropy_and_channel_capacity() {
+        let info_cases = [
+            // Shannon entropy formula
+            "$$\nH(X) = -\\sum_{x \\in \\mathcal{X}} P(x) \\log_2 P(x)\n$$",
+            // Kullback-Leibler divergence (relative entropy)
+            "$$\nD_{\\mathrm{KL}}(P \\parallel Q) = \\sum_{x \\in \\mathcal{X}} P(x) \\log \\left( \\frac{P(x)}{Q(x)} \\right)\n$$",
+            // Mutual information and Venn relation
+            "$$\nI(X; Y) = H(X) - H(X | Y) = H(Y) - H(Y | X) = H(X) + H(Y) - H(X, Y)\n$$",
+            // Shannon-Hartley channel capacity theorem
+            "$$\nC = B \\log_2 \\left( 1 + \\frac{S}{N} \\right) = B \\log_2 (1 + \\mathrm{SNR})\n$$",
+            // Cross-entropy loss in machine learning
+            "$$\n\\mathcal{L}_{\\mathrm{CE}} = -\\frac{1}{N} \\sum_{i=1}^N \\sum_{c=1}^C y_{i,c} \\log(\\hat{y}_{i,c})\n$$",
+        ];
+
+        for c in info_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Information theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_solidity_and_smart_contracts() {
+        let web3_cases = [
+            ("solidity", "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\nimport \"@openzeppelin/contracts/token/ERC20/ERC20.sol\";\n\ncontract PiToken is ERC20 {\n    address public immutable owner;\n\n    event TokensMinted(address indexed to, uint256 amount);\n\n    constructor() ERC20(\"Pi Overlay\", \"PIO\") {\n        owner = msg.sender;\n        _mint(msg.sender, 1_000_000 * 10 ** decimals());\n    }\n}"),
+            ("vyper", "# @version ^0.3.7\nfrom vyper.interfaces import ERC20\n\nimplements: ERC20\n\nbalanceOf: public(HashMap[address, uint256])\ntotalSupply: public(uint256)\n\n@external\ndef transfer(_to: address, _val: uint256) -> bool:\n    self.balanceOf[msg.sender] -= _val\n    self.balanceOf[_to] += _val\n    return True"),
+        ];
+
+        for (lang, code) in web3_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Web3 codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
