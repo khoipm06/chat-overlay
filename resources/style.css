@@ -16,12 +16,12 @@ scrolledwindow,
 scrollbar,
 scrollbar trough,
 scrollbar slider {
-    background-image: none !important;
-    text-shadow: none !important;
-    -gtk-icon-shadow: none !important;
-    outline: none !important;
-    outline-color: transparent !important;
-    box-shadow: none !important;
+    background-image: none;
+    text-shadow: none;
+    -gtk-icon-shadow: none;
+    outline-style: none;
+    
+    box-shadow: none;
 }
 
 button {
@@ -45,21 +45,21 @@ checkbutton {
 }
 
 checkbutton check {
-    border: 1px solid rgba(255, 255, 255, 0.3) !important;
-    background-color: rgba(0, 0, 0, 0.4) !important;
-    border-radius: 4px !important;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    background-color: rgba(0, 0, 0, 0.4);
+    border-radius: 4px;
 }
 
 checkbutton:checked check {
-    background-color: #3b82f6 !important;
-    border-color: #3b82f6 !important;
-    color: #ffffff !important;
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+    color: #ffffff;
 }
 
 /* ── Strict System Theme Isolation & Reset ─────────────────────────── */
 * {
     -gtk-secondary-caret-color: transparent;
-    outline: none;
+    outline-style: none;
     box-shadow: none;
 }
 
@@ -67,7 +67,7 @@ button {
     background-image: none;
     text-shadow: none;
     -gtk-icon-shadow: none;
-    outline-color: transparent;
+    
 }
 
 entry, entry > text {
@@ -1358,4 +1358,102 @@ checkbutton:checked check {
 
 .theme-zinc-light .resize-corner:hover {
     background-color: rgba(9, 9, 11, 0.20);
+}
+
+/* ── GtkDropDown & DropDown Popup Styling (Strict Isolation) ──────────── */
+
+dropdown, dropdown > button.toggle,
+dropdown, dropdown > button {
+    background-color: rgba(255, 255, 255, 0.05);
+    background-image: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    color: #eeeef0;
+    padding: 4px 8px;
+    font-size: 12px;
+    box-shadow: none;
+    outline-style: none;
+}
+
+dropdown, dropdown > button:hover {
+    background-color: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+}
+
+dropdown, dropdown > button:focus {
+    border-color: #3b82f6;
+    outline-style: none;
+}
+
+/* Dropdown popover list */
+dropdown, dropdown > button.toggle popover {
+    background: transparent;
+    padding: 0;
+}
+
+dropdown, dropdown > button.toggle popover > contents {
+    background-color: #1a191b;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+    padding: 4px;
+}
+
+dropdown, dropdown > button.toggle popover listview {
+    background: transparent;
+    color: #d4d4d8;
+}
+
+dropdown, dropdown > button.toggle popover listview > row {
+    padding: 6px 10px;
+    border-radius: 4px;
+    color: #d4d4d8;
+    background-color: transparent;
+    background-image: none;
+    outline-style: none;
+}
+
+dropdown, dropdown > button.toggle popover listview > row:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+}
+
+dropdown, dropdown > button.toggle popover listview > row:selected {
+    background-color: rgba(59, 130, 246, 0.25);
+    color: #93c5fd;
+    font-weight: 600;
+}
+
+/* Light Theme Variant */
+.theme-zinc-light dropdown, dropdown > button.toggle,
+.theme-zinc-light dropdown, dropdown > button {
+    background-color: #ffffff;
+    border-color: rgba(9, 9, 11, 0.15);
+    color: #18181b;
+}
+
+.theme-zinc-light dropdown, dropdown > button:hover {
+    background-color: #f4f4f5;
+    border-color: rgba(9, 9, 11, 0.30);
+}
+
+.theme-zinc-light dropdown, dropdown > button.toggle popover > contents {
+    background-color: #ffffff;
+    border-color: rgba(9, 9, 11, 0.14);
+    box-shadow: 0 10px 28px rgba(9, 9, 11, 0.12);
+}
+
+.theme-zinc-light dropdown, dropdown > button.toggle popover listview {
+    color: #27272a;
+}
+
+.theme-zinc-light dropdown, dropdown > button.toggle popover listview > row:hover {
+    background-color: #f4f4f5;
+    color: #09090b;
+}
+
+.theme-zinc-light dropdown, dropdown > button.toggle popover listview > row:selected {
+    background-color: #e4e4e7;
+    color: #09090b;
 }
