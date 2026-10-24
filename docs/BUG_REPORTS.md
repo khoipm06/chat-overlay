@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 16:05:00 +0700
-- **Commit thẩm định**: `53e6e45` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **87/87 PASSED** (0 failed, 0 ignored, 0.23s).
+- **Thời điểm kiểm chứng**: 2026-10-24 16:10:00 +0700
+- **Commit thẩm định**: `a9d72b8` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **89/89 PASSED** (0 failed, 0 ignored, 0.23s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 87 tests bao phủ lý thuyết đồ thị và luồng mạng (định lý luồng cực đại / lát cắt cực tiểu, ma trận Laplacian $\mathbf{L} = \mathbf{D} - \mathbf{A}$, thuật toán PageRank) cùng lược đồ giao thức dữ liệu (GraphQL Schema, Protocol Buffers proto3).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 89 tests bao phủ giải tích tổ hợp và hàm sinh (generating functions, số Stirling, số Catalan, nguyên lý bù trừ) cùng ngôn ngữ mô tả phần cứng HDL (Verilog, VHDL).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -157,7 +157,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Smart Contracts Solidity & Vyper Web3 (`test_fuzz_codeblock_with_solidity_and_smart_contracts`): Kiểm thử hợp đồng thông minh Solidity ERC20 (`pragma solidity ^0.8.20;`), interface `@openzeppelin`, định danh event `TokensMinted`, và mã nguồn Vyper pythonic decorators `@external`.
   - Graph Theory & Network Flows (`test_fuzz_latex_graph_theory_and_network_flows`): Kiểm thử định lý luồng cực đại lát cắt cực tiểu (Max-flow min-cut theorem), ma trận Laplace đồ thị $\mathbf{L} = \mathbf{D} - \mathbf{A}$, thuật toán PageRank ngẫu nhiên, phổ ma trận kề $\operatorname{spec}(G)$, và đa thức màu $P(G, k)$.
   - Interface Definition Languages GraphQL & Protobuf (`test_fuzz_codeblock_with_graphql_and_protobuf_schemas`): Kiểm thử schema GraphQL (type, Query, enum, non-null `[Session!]!`), và tệp Protocol Buffers proto3 (syntax proto3, package, message lồng nhau, trường `oneof`).
-- **Kết quả**: `PASSED` (87/87 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Combinatorics & Generating Functions (`test_fuzz_latex_combinatorics_and_generating_functions`): Kiểm thử hàm sinh thường (OGF Fibonacci $G(x) = \frac{x}{1-x-x^2}$), hàm sinh mũ (EGF), số Stirling loại hai $\left\{ \begin{matrix} n \\ k \end{matrix} \right\}$, nguyên lý bao hàm - loại trừ (Inclusion-Exclusion) và dãy số Catalan $C_n = \frac{1}{n+1}\binom{2n}{n}$.
+  - Hardware Description Languages Verilog & VHDL (`test_fuzz_codeblock_with_hardware_description_verilog_vhdl`): Kiểm thử module Verilog với khối `always @(posedge clk)`, lệnh gán non-blocking `<=`, hằng số nhị phân `4'b0000`, và kiến trúc VHDL `IEEE.STD_LOGIC_1164.ALL`.
+- **Kết quả**: `PASSED` (89/89 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
