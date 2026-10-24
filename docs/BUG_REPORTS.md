@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 17:35:00 +0700
-- **Commit thẩm định**: `f017af9` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **123/123 PASSED** (0 failed, 0 ignored, 0.24s).
+- **Thời điểm kiểm chứng**: 2026-10-24 17:40:00 +0700
+- **Commit thẩm định**: `0805184` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **125/125 PASSED** (0 failed, 0 ignored, 0.23s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 123 tests bao phủ lý thuyết trò chơi & cân bằng kinh tế (cân bằng Nash $u_i(s_i^*, s_{-i}^*) \ge u_i(s_i, s_{-i}^*)$, định lý Minimax von Neumann, giá trị Shapley $\phi_i(v)$, số siêu thực Conway) cùng các ngôn ngữ truy vấn phân tích dữ liệu lớn Big Data (Azure Data Explorer KQL / Kusto, Apache Spark DataFrame PySpark streaming).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 125 tests bao phủ lý thuyết nút thắt Knot theory (đa thức Kauffman bracket, Jones polynomial $V(L; t)$, Alexander polynomial, HOMFLY-PT, bất biến writhe) cùng các ngôn ngữ lập trình logic ràng buộc (ISO-Prolog DCG/unification, MiniZinc CSP n-queens).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -193,7 +193,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Compiler Frontends & Parser Generators Flex, Bison, ANTLR (`test_fuzz_codeblock_with_compiler_tools_bison_flex_and_antlr`): Kiểm thử tệp định nghĩa quét từ vựng Lex/Flex (`[0-9]+ { return NUMBER; }`), ngữ pháp phân tích cú pháp LALR(1) GNU Bison (`%token NUMBER IDENT; expr: expr '+' expr`), và văn phạm phân tích ANTLR v4 (`grammar MarkdownParser;`).
   - Combinatorial Game Theory & Surreal Numbers (`test_fuzz_latex_combinatorial_game_theory_and_surreal_numbers`): Kiểm thử cấu trúc số siêu thực Conway $x = \{ X_L \mid X_R \}$, định lý Sprague-Grundy với nim-sum $\mathcal{G}(G_1) \oplus \mathcal{G}(G_2)$, giá trị trò chơi $(\ast, \uparrow, \downarrow)$, cân bằng Nash trong chiến lược hỗn hợp, và giá trị Shapley trong lý thuyết trò chơi hợp tác.
   - Big Data Analytics & Distributed Query Kusto KQL / PySpark (`test_fuzz_codeblock_with_data_query_analytics_kusto_and_spark`): Kiểm thử truy vấn nhật ký Azure Data Explorer KQL (`PiOverlayEvents | where Timestamp >= ago(7d) | summarize Count = count() by Generation | top 10 by Count desc`) và PySpark DataFrame Structured Streaming (`spark.readStream.format("kafka")`).
-- **Kết quả**: `PASSED` (123/123 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Knot Theory & Invariant Polynomials (`test_fuzz_latex_knot_theory_and_jones_polynomial`): Kiểm thử bất biến chuyển động Reidemeister và số xoắn writhe $w(D)$, hệ thức skein đa thức ngoặc Kauffman $\langle L_+\rangle = A \langle L_0\rangle + A^{-1} \langle L_\infty\rangle$, đa thức Jones $V(L; t)$, đa thức Alexander $\Delta(t)$, và đa thức hai biến HOMFLY-PT.
+  - Constraint Logic Programming Prolog & MiniZinc (`test_fuzz_codeblock_with_constraint_logic_programming_prolog_and_minizinc`): Kiểm thử mệnh đề Horn trong Prolog (`ancestor(X, Y) :- parent(X, Y).`), văn phạm mệnh đề xác định (DCG `sentence --> noun_phrase, verb_phrase`), toán tử phủ định cắt `!`, và mô hình giải ràng buộc thỏa mãn MiniZinc N-Queens (`constraint alldifferent(q)`).
+- **Kết quả**: `PASSED` (125/125 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
