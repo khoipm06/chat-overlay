@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 16:15:00 +0700
-- **Commit thẩm định**: `c3f8162` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **91/91 PASSED** (0 failed, 0 ignored, 0.23s).
+- **Thời điểm kiểm chứng**: 2026-10-24 16:20:00 +0700
+- **Commit thẩm định**: `f996b1b` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **93/93 PASSED** (0 failed, 0 ignored, 0.23s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 91 tests bao phủ giải tích phức và tích phân đường (định lý phần dư Cauchy $\oint_\gamma f(z) dz = 2\pi i \sum \operatorname{Res}$, chuỗi Laurent, tích phân Fresnel) cùng ngôn ngữ stylesheet/markup (CSS variables, SCSS nesting, HTML5 semantics, SVG vector graphics).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 93 tests bao phủ giải tích ngẫu nhiên (bổ đề Itô, phương trình vi phân ngẫu nhiên SDE Black-Scholes, công thức Feynman-Kac) cùng ngôn ngữ lập trình hệ thống hiện đại (Zig 0.11 `std.debug.print`, Nim syntax).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -161,7 +161,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Hardware Description Languages Verilog & VHDL (`test_fuzz_codeblock_with_hardware_description_verilog_vhdl`): Kiểm thử module Verilog với khối `always @(posedge clk)`, lệnh gán non-blocking `<=`, hằng số nhị phân `4'b0000`, và kiến trúc VHDL `IEEE.STD_LOGIC_1164.ALL`.
   - Complex Analysis & Contour Integration (`test_fuzz_latex_complex_analysis_and_contour_integration`): Kiểm thử công thức tích phân Cauchy, định lý phần dư (Residue theorem), hệ phương trình Cauchy-Riemann đạo hàm phức, hàm zeta Riemann $\zeta(s)$ và phương trình hàm Euler, cùng khai triển chuỗi Laurent.
   - Markup & Stylesheet Languages CSS, SCSS, HTML5, SVG (`test_fuzz_codeblock_with_markup_and_stylesheet_languages`): Kiểm thử khối CSS hiện đại biến tùy chỉnh `:root`, SCSS mixins `@mixin`, HTML5 canvas `<canvas id="gl-surface">` và định nghĩa đồ họa vector SVG `<svg><circle><path>`.
-- **Kết quả**: `PASSED` (91/91 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Stochastic Calculus & Financial Mathematics (`test_fuzz_latex_stochastic_calculus_and_black_scholes`): Kiểm thử phương trình đạo hàm riêng Black-Scholes định giá quyền chọn, Bổ đề Itô (Itô's Lemma), chuyển động Brown hình học SDE $dS_t = \mu S_t dt + \sigma S_t dW_t$, phương trình Kolmogorov/Fokker-Planck và công thức Feynman-Kac.
+  - Modern Systems Languages Zig & Nim (`test_fuzz_codeblock_with_systems_programming_zig_and_nim`): Kiểm thử khối mã nguồn Zig (GeneralPurposeAllocator, `defer`, `@import`, `@memset`) và Nim (object type, pragma `{.inline.}`, format string `fmt""`, `when isMainModule`).
+- **Kết quả**: `PASSED` (93/93 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
