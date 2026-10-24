@@ -1360,100 +1360,133 @@ checkbutton:checked check {
     background-color: rgba(9, 9, 11, 0.20);
 }
 
-/* ── GtkDropDown & DropDown Popup Styling (Strict Isolation) ──────────── */
+/* ── Sleek Modern DropDown (Raycast/Linear Minimalist Dark) ────────── */
 
-dropdown, dropdown > button.toggle,
-dropdown, dropdown > button {
-    background-color: rgba(255, 255, 255, 0.05);
-    background-image: none;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 6px;
-    color: #eeeef0;
-    padding: 4px 8px;
-    font-size: 12px;
+dropdown {
+    background: transparent;
+    border: none;
     box-shadow: none;
     outline-style: none;
 }
 
-dropdown, dropdown > button:hover {
-    background-color: rgba(255, 255, 255, 0.10);
-    border-color: rgba(255, 255, 255, 0.22);
-    color: #ffffff;
+/* The actual button inside GtkDropDown */
+dropdown > button,
+dropdown > button.toggle {
+    background-color: #27272a;
+    background-image: none;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 6px;
+    padding: 6px 10px;
+    box-shadow: none;
+    outline-style: none;
+    min-height: 28px;
 }
 
-dropdown, dropdown > button:focus {
+dropdown > button:hover,
+dropdown > button.toggle:hover {
+    background-color: #3f3f46;
+    border-color: rgba(255, 255, 255, 0.20);
+}
+
+dropdown > button:focus,
+dropdown > button.toggle:focus {
     border-color: #3b82f6;
     outline-style: none;
 }
 
-/* Dropdown popover list */
-dropdown, dropdown > button.toggle popover {
+/* Text and arrow inside dropdown */
+dropdown > button label,
+dropdown > button.toggle label {
+    color: #f4f4f5;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+dropdown > button arrow,
+dropdown > button.toggle arrow {
+    color: #a1a1aa;
+    min-width: 12px;
+    min-height: 12px;
+}
+
+/* Dropdown Popup Menu */
+dropdown popover {
     background: transparent;
     padding: 0;
 }
 
-dropdown, dropdown > button.toggle popover > contents {
-    background-color: #1a191b;
+dropdown popover > contents {
+    background-color: #18181b;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75);
     padding: 4px;
 }
 
-dropdown, dropdown > button.toggle popover listview {
+dropdown popover listview {
     background: transparent;
-    color: #d4d4d8;
 }
 
-dropdown, dropdown > button.toggle popover listview > row {
+dropdown popover listview > row {
     padding: 6px 10px;
-    border-radius: 4px;
-    color: #d4d4d8;
+    border-radius: 5px;
     background-color: transparent;
     background-image: none;
     outline-style: none;
+    color: #d4d4d8;
+    font-size: 12px;
 }
 
-dropdown, dropdown > button.toggle popover listview > row:hover {
+dropdown popover listview > row:hover {
     background-color: rgba(255, 255, 255, 0.08);
     color: #ffffff;
 }
 
-dropdown, dropdown > button.toggle popover listview > row:selected {
+dropdown popover listview > row:selected {
     background-color: rgba(59, 130, 246, 0.25);
     color: #93c5fd;
     font-weight: 600;
 }
 
 /* Light Theme Variant */
-.theme-zinc-light dropdown, dropdown > button.toggle,
-.theme-zinc-light dropdown, dropdown > button {
-    background-color: #ffffff;
+.theme-zinc-light dropdown > button,
+.theme-zinc-light dropdown > button.toggle {
+    background-color: #f4f4f5;
     border-color: rgba(9, 9, 11, 0.15);
+}
+
+.theme-zinc-light dropdown > button:hover,
+.theme-zinc-light dropdown > button.toggle:hover {
+    background-color: #e4e4e7;
+    border-color: rgba(9, 9, 11, 0.25);
+}
+
+.theme-zinc-light dropdown > button label,
+.theme-zinc-light dropdown > button.toggle label {
     color: #18181b;
 }
 
-.theme-zinc-light dropdown, dropdown > button:hover {
-    background-color: #f4f4f5;
-    border-color: rgba(9, 9, 11, 0.30);
+.theme-zinc-light dropdown > button arrow,
+.theme-zinc-light dropdown > button.toggle arrow {
+    color: #71717a;
 }
 
-.theme-zinc-light dropdown, dropdown > button.toggle popover > contents {
+.theme-zinc-light dropdown popover > contents {
     background-color: #ffffff;
     border-color: rgba(9, 9, 11, 0.14);
-    box-shadow: 0 10px 28px rgba(9, 9, 11, 0.12);
+    box-shadow: 0 12px 32px rgba(9, 9, 11, 0.12);
 }
 
-.theme-zinc-light dropdown, dropdown > button.toggle popover listview {
+.theme-zinc-light dropdown popover listview > row {
     color: #27272a;
 }
 
-.theme-zinc-light dropdown, dropdown > button.toggle popover listview > row:hover {
+.theme-zinc-light dropdown popover listview > row:hover {
     background-color: #f4f4f5;
     color: #09090b;
 }
 
-.theme-zinc-light dropdown, dropdown > button.toggle popover listview > row:selected {
+.theme-zinc-light dropdown popover listview > row:selected {
     background-color: #e4e4e7;
     color: #09090b;
 }
