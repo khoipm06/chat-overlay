@@ -125,7 +125,11 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Repeated Delimiter Pathologies (`test_fuzz_repeated_delimiter_pathologies`): Kiểm thử các chuỗi ký tự phân cách bệnh lý dài liên tục 64 ký tự (`*`, `=`, `-`, `~`, `` ` ``, `$`) và trích dẫn lồng sâu 33 cấp (`> > > ... > Level 33`).
   - Mixed Inline Delimiters Without Whitespace (`test_fuzz_mixed_inline_delimiters_without_whitespace`): Kiểm thử các thẻ định dạng dính liền nhau không có khoảng trắng (`**bold***italic*~~strike~~`, `a**b**c*d*e`, `` `code1``code2` ``, `$x_1$$x_2$`, `[L1](u1)[L2](u2)`).
   - Multilingual Asian & African Scripts (`test_fuzz_multilingual_asian_and_african_scripts`): Kiểm thử các hệ thống chữ viết phức tạp: Devanagari (Hindi/Sanskrit), tiếng Thái (không có ranh giới từ), bảng kết hợp tiếng Ả Rập/Do Thái, tiếng Hàn Hangul và tiếng Amharic (Ethiopic script).
-- **Kết quả**: `PASSED` (55/55 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Terminal Output & ANSI Escape Sequences (`test_fuzz_codeblock_ansi_color_escapes_and_terminal_output`): Kiểm thử các chuỗi màu sắc terminal ANSI SGR (`\x1B[32mPASS\x1B[0m`), escape code dang dở và ký tự điều khiển phân dòng CRLF, VT, FF.
+  - Table Delimiter Alignments & Colon Formatting (`test_fuzz_table_delimiter_alignment_and_colons`): Kiểm thử các cấu hình căn lề bảng Markdown (`:---`, `:---:`, `---:`), thanh phân cách 1 gạch (`:-`, `-:`), thanh phân cách siêu dài và hàng phân cách lỗi cú pháp.
+  - Advanced Calculus & Wave Equations (`test_fuzz_latex_calculus_summations_and_integrals`): Kiểm thử tích phân mặt Stokes, định lý phân kỳ Gauss, phương trình sóng đạo hàm riêng phần 3D, biến đổi Fourier thuận/nghịch và phân số liên tục (continued fraction).
+  - Multiline Mixed Prose & Unseparated Blocks (`test_fuzz_multiline_mixed_prose_and_code_blocks`): Kiểm thử văn bản xuôi xen kẽ các khối code/table xuất hiện trực tiếp không có dòng trắng cách ly.
+- **Kết quả**: `PASSED` (59/59 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
