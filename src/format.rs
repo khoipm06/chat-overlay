@@ -684,4 +684,26 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_massive_payload_stress() {
+        // Stress test with 10,000 lines of complex markdown (simulate long session)
+        let mut big_doc = String::with_capacity(1024 * 1024);
+        for i in 0..500 {
+            big_doc.push_str(&format!("# Section {}\n\n", i));
+            big_doc.push_str("Paragraph with **bold**, *italic*, `inline code`, and $E=mc^2$.\n\n");
+            big_doc.push_str("```rust\nfn demo() -> i32 {\n    let val = 42;\n    val\n}\n```\n\n");
+            big_doc.push_str("| Metric | Value | Status |\n| :--- | :--- | :---: |\n| CPU | 24% | OK |\n| Mem | 1.2GB | Normal |\n\n");
+            big_doc.push_str("> [!NOTE]\n> Status updated in real time.\n\n");
+            big_doc.push_str("$$\n\\int_{-\\infty}^{+\\infty} e^{-x^2} dx = \\sqrt{\\pi}\n$$\n\n");
+            big_doc.push_str("- [x] Completed task\n- [ ] Pending task\n\n");
+        }
+
+        let start = std::time::Instant::now();
+        let markup = format_markdown_to_pango(&big_doc);
+        let elapsed = start.elapsed();
+
+        assert!(elapsed.as_millis() < 500, "Rendering 500 blocks took too long: {:?}", elapsed);
+        assert!(pango::parse_markup(&markup, '\0').is_ok(), "Pango parse failed on massive payload");
+    }
 }
