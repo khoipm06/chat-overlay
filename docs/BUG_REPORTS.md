@@ -53,7 +53,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Streaming safety: Code fence ` ``` ` không đóng, inline code ` ` ` chưa đóng.
   - Bảng biểu Unicode và CJK (Kanji, Kana, tiếng Việt) và emoji: Đảm bảo không vỡ Pango parser.
   - Định dạng inline & Math block phức tạp: Unclosed bold, italic, strikethrough, inline code, subscript, superscript, dollar math (`$x < y && z > 0$`, tiền tệ `$10.99`), HTML entities (`&notanentity;`), 4-5 ticks backtick lồng nhau.
-- **Kết quả**: `PASSED` (24/24 tests pass, Pango parse hợp lệ 100%, không panic).
+  - Syntax highlighting đa ngôn ngữ (`syntax.rs`): Fuzz test Rust, Python, TypeScript, Bash, JSON, SQL, Generic XML với các token phức tạp (`Option<Vec<T>>`, docstrings, regex, escape quotes).
+  - Fuzzing tổ hợp ma trận (Combinatorial stress test): Kết hợp ngẫu nhiên 144 cặp thẻ định dạng trên cùng một dòng cùng các ký tự UTF-8 / tiếng Việt / emoji.
+- **Kết quả**: `PASSED` (26/26 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
