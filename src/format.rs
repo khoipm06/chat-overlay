@@ -2691,4 +2691,53 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_control_systems_laplace_and_bode() {
+        let control_cases = [
+            // Transfer function in Laplace domain
+            "$$\nG(s) = \\frac{Y(s)}{U(s)} = \\frac{K \\prod_{i=1}^m (s - z_i)}{\\prod_{j=1}^n (s - p_j)} = \\frac{b_m s^m + \\dots + b_1 s + b_0}{a_n s^n + \\dots + a_1 s + a_0}\n$$",
+            // State-space representation
+            "$$\n\\begin{aligned}\n  \\dot{\\mathbf{x}}(t) &= \\mathbf{A}\\mathbf{x}(t) + \\mathbf{B}\\mathbf{u}(t) \\\\\n  \\mathbf{y}(t) &= \\mathbf{C}\\mathbf{x}(t) + \\mathbf{D}\\mathbf{u}(t)\n\\end{aligned}\n$$",
+            // Linear quadratic regulator (LQR) cost function and Riccati equation
+            "$$\nJ = \\int_0^{\\infty} (\\mathbf{x}^T \\mathbf{Q} \\mathbf{x} + \\mathbf{u}^T \\mathbf{R} \\mathbf{u}) \\, dt, \\quad \\mathbf{A}^T \\mathbf{P} + \\mathbf{P} \\mathbf{A} - \\mathbf{P} \\mathbf{B} \\mathbf{R}^{-1} \\mathbf{B}^T \\mathbf{P} + \\mathbf{Q} = \\mathbf{0}\n$$",
+            // Nyquist stability criterion and gain margin
+            "$$\nN = Z - P, \\quad \\mathrm{GM} = \\frac{1}{|G(j\\omega_{-180^\\circ})|}\n$$",
+        ];
+
+        for c in control_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Control systems LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_functional_lisp_scheme_and_racket() {
+        let lisp_cases = [
+            // Scheme / Racket Y-combinator and tail recursion
+            ("scheme", ";; Y Combinator in Scheme\n(define Y\n  (lambda (f)\n    ((lambda (x) (x x))\n     (lambda (x)\n       (f (lambda (y) ((x x) y)))))))\n\n;; Tail recursive factorial\n(define (fact-tail n acc)\n  (if (<= n 1)\n      acc\n      (fact-tail (- n 1) (* n acc))))"),
+            // Common Lisp CLOS class and method definition
+            ("lisp", ";; Common Lisp CLOS\n(defclass agent-overlay ()\n  ((generation :initarg :gen :accessor agent-gen)\n   (status :initform \"ready\" :accessor agent-status)))\n\n(defmethod spawn-prompt ((self agent-overlay) prompt)\n  (format t \"Spawning prompt: ~A~%\" prompt))"),
+        ];
+
+        for (lang, code) in lisp_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Lisp/Scheme codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
