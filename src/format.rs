@@ -1861,4 +1861,51 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_mermaid_gantt_and_pie_chart_diagrams() {
+        let chart_cases = [
+            // Gantt chart syntax
+            "```mermaid\ngantt\n    title A Gantt Diagram\n    dateFormat YYYY-MM-DD\n    section Section\n    A task :a1, 2026-01-01, 30d\n    Another task :after a1, 20d\n```",
+            // Pie chart syntax
+            "```mermaid\npie title Key Performance Metrics\n    \"Rust Backend\" : 75\n    \"GTK4 Shell\" : 20\n    \"CSS Custom\" : 5\n```",
+            // State diagram
+            "```mermaid\nstateDiagram-v2\n    [*] --> Ready\n    Ready --> Working : Submit\n    Working --> Ready : Done\n    Working --> [*] : Abort\n```",
+            // Mindmap syntax
+            "```mermaid\nmindmap\n  root((Pi Overlay))\n    Universal Linux Desktop\n      Layer-Shell\n      X11 Fallback\n    High Performance\n      Zero Zombie\n      Safe Markdown\n```",
+        ];
+
+        for c in chart_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Mermaid chart case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_sql_complex_syntax_joins_and_subqueries() {
+        let sql_cases = [
+            "```sql\nSELECT u.id, u.username, COUNT(p.id) AS post_count\nFROM users u\nLEFT JOIN posts p ON u.id = p.user_id AND p.status = 'published'\nWHERE u.created_at >= '2026-01-01'\nGROUP BY u.id, u.username\nHAVING COUNT(p.id) > 10\nORDER BY post_count DESC\nLIMIT 50;\n```",
+            "```sql\nINSERT INTO sessions (id, token, user_id, expires_at)\nVALUES ('sess_123', 'tok_abc', 42, NOW() + INTERVAL '7 days')\nON CONFLICT (id) DO UPDATE SET expires_at = EXCLUDED.expires_at;\n```",
+            "```sql\n-- Create partitioned table\nCREATE TABLE logs (\n    log_id BIGSERIAL,\n    created_at TIMESTAMPTZ NOT NULL,\n    level VARCHAR(10),\n    message TEXT\n) PARTITION BY RANGE (created_at);\n```",
+        ];
+
+        for c in sql_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "SQL complex syntax case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
