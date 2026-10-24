@@ -3408,4 +3408,57 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_p_adic_analysis_and_tate_curves() {
+        let padic_cases = [
+            // p-adic valuation and ultrametric triangle inequality
+            "$$\n|x + y|_p \\le \\max(|x|_p, |y|_p), \\quad |p^k \\cdot u|_p = p^{-k} \\quad (p \\nmid u)\n$$",
+            // Ostrowski's theorem on absolute values
+            "$$\n|x|_\\infty \\cdot \\prod_{p \\text{ prime}} |x|_p = 1 \\quad \\forall x \\in \\mathbb{Q}^\\times\n$$",
+            // Tate curve p-adic uniformization
+            "$$\nE_q(\\mathbb{C}_p) \\cong \\mathbb{C}_p^\\times / q^\\mathbb{Z}, \\quad 0 < |q|_p < 1\n$$",
+            // p-adic regulator and Leopoldt's conjecture
+            "$$\nR_p(K) = \\det\\left( \\log_p(\\sigma_i(\\varepsilon_j)) \\right)_{1 \\le i, j \\le r} \\neq 0\n$$",
+            // Fontaine's period rings in p-adic Hodge theory
+            "$$\n\\mathbf{B}_{\\mathrm{dR}} = \\varprojlim_{n} \\mathbf{B}_{\\mathrm{cris}} / \\mathrm{Fil}^n, \\quad \\operatorname{D}_{\\mathrm{cris}}(V) = (V \\otimes_{\\mathbb{Q}_p} \\mathbf{B}_{\\mathrm{cris}})^{G_K}\n$$",
+        ];
+
+        for c in padic_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "p-adic analysis LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_spatial_geospatial_gis_wkt_and_geojson() {
+        let geo_cases = [
+            // Well-Known Text (WKT) 3D geometry
+            ("wkt", "POLYGON Z ((30 10 5, 40 40 10, 20 40 15, 10 20 20, 30 10 5))\nLINESTRING (30 10, 10 30, 40 40)\nMULTIPOINT ((10 40), (40 30), (20 20), (30 10))"),
+            // GeoJSON FeatureCollection
+            ("json", "{\n  \"type\": \"FeatureCollection\",\n  \"features\": [\n    {\n      \"type\": \"Feature\",\n      \"geometry\": {\n        \"type\": \"Point\",\n        \"coordinates\": [106.660172, 10.762622]\n      },\n      \"properties\": {\n        \"name\": \"Ho Chi Minh City, Vietnam\",\n        \"active\": true\n      }\n    }\n  ]\n}"),
+            // PostGIS spatial SQL query
+            ("sql", "SELECT id, name, ST_AsGeoJSON(geom) AS geojson\nFROM spatial_nodes\nWHERE ST_DWithin(geom, ST_SetSRID(ST_Point(106.66, 10.76), 4326), 5000)\nORDER BY ST_Distance(geom, ST_SetSRID(ST_Point(106.66, 10.76), 4326))\nLIMIT 10;"),
+        ];
+
+        for (lang, code) in geo_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Geospatial codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
