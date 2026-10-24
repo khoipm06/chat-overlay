@@ -2326,4 +2326,59 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_complex_analysis_and_contour_integration() {
+        let complex_cases = [
+            // Cauchy's integral formula
+            "$$\nf(z_0) = \\frac{1}{2\\pi i} \\oint_{\\gamma} \\frac{f(z)}{z - z_0} \\, dz\n$$",
+            // Residue theorem
+            "$$\n\\oint_{\\gamma} f(z) \\, dz = 2\\pi i \\sum_{k=1}^n \\operatorname{Res}(f, a_k)\n$$",
+            // Cauchy-Riemann equations
+            "$$\n\\frac{\\partial u}{\\partial x} = \\frac{\\partial v}{\\partial y}, \\quad \\frac{\\partial u}{\\partial y} = -\\frac{\\partial v}{\\partial x}\n$$",
+            // Riemann zeta function and functional equation
+            "$$\n\\zeta(s) = \\sum_{n=1}^{\\infty} \\frac{1}{n^s} = \\prod_{p \\text{ prime}} \\frac{1}{1 - p^{-s}}, \\quad \\zeta(s) = 2^s \\pi^{s-1} \\sin\\left(\\frac{\\pi s}{2}\\right) \\Gamma(1-s) \\zeta(1-s)\n$$",
+            // Laurent series expansion
+            "$$\nf(z) = \\sum_{n=-\\infty}^{\\infty} a_n (z - c)^n, \\quad a_n = \\frac{1}{2\\pi i} \\oint_{\\gamma} \\frac{f(w)}{(w - c)^{n+1}} \\, dw\n$$",
+        ];
+
+        for c in complex_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Complex analysis LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_markup_and_stylesheet_languages() {
+        let markup_cases = [
+            // Modern CSS with custom properties and media queries
+            ("css", ":root {\n  --primary: #3b82f6;\n  --surface: #18191b;\n}\n\n@media (prefers-color-scheme: dark) {\n  body {\n    background-color: var(--surface);\n    color: rgba(255, 255, 255, 0.9);\n  }\n}"),
+            // SCSS / SASS with nesting and mixins
+            ("scss", "@mixin flex-center {\n  display: flex;\n  justify-content: center;\n  align-items: center;\n}\n\n.card {\n  @include flex-center;\n  &__header {\n    font-weight: 600;\n  }\n}"),
+            // HTML5 with doctype, meta, scripts, and canvas
+            ("html", "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <title>Pi Overlay & Demo</title>\n</head>\n<body>\n  <canvas id=\"gl-surface\" width=\"800\" height=\"600\"></canvas>\n</body>\n</html>"),
+            // SVG vector graphic definition
+            ("svg", "<svg viewBox=\"0 0 100 100\" xmlns=\"http://www.w3.org/2000/svg\">\n  <circle cx=\"50\" cy=\"50\" r=\"40\" stroke=\"#8ab4f8\" stroke-width=\"4\" fill=\"none\" />\n  <path d=\"M 30 50 L 45 65 L 70 35\" stroke=\"#81c995\" stroke-width=\"4\" fill=\"none\" />\n</svg>"),
+        ];
+
+        for (lang, code) in markup_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Stylesheet/markup codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
