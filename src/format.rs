@@ -1380,4 +1380,60 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_mixed_inline_delimiters_without_whitespace() {
+        // Delimiters directly touching words or each other without spaces
+        let compact_cases = [
+            "**bold***italic*~~strike~~`code`$math$",
+            "a**b**c*d*e~~f~~g`h`i$j$k",
+            "***bolditalic***and***more***",
+            "~~**boldstrike**~~and**~~strikebold~~**",
+            "`code1``code2``code3`",
+            "$x_1$$x_2$$x_3$",
+            "H~2~O+CO~2~->H~2~CO~3~",
+            "10^2^+10^3^=1100",
+            "[L1](u1)[L2](u2)[L3](u3)",
+        ];
+
+        for c in compact_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Compact delimiter case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_multilingual_asian_and_african_scripts() {
+        let script_cases = [
+            // Devanagari (Hindi, Sanskrit)
+            "# नमस्ते दुनिया\nयह **बोल्ड** और *इटैलिक* टेक्स्ट है।\n```python\nprint('नमस्ते')\n```",
+            // Thai (no word boundaries)
+            "## สวัสดีชาวโลก\nข้อความที่มี `โค้ด` และ **ตัวหนา**",
+            // Arabic and Hebrew RTL in table
+            "| English | Arabic | Hebrew |\n| :--- | :--- | :--- |\n| Hello | مرحبا | שלום |\n| World | العالم | עולם |",
+            // Korean Hangul
+            "### 안녕하세요 세계\n- [x] 완료된 작업: `cargo test`\n- [ ] 대기 중인 작업: **Pango 렌더링**",
+            // Amharic (Ethiopic script)
+            "> ሰላም ልዑል\n> ይህ **የተመረጠ** ጽሑፍ ነው።",
+        ];
+
+        for c in script_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Multilingual script case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
