@@ -689,7 +689,14 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             let new_top = (cur_top.get() + offset_y as i32).clamp(8, 600);
             let mut st = state_update_top.borrow_mut();
             st.top_margin = new_top;
-            overlay::update_vertical_margins(&window_top, new_top, st.bottom_margin);
+            st.settings.margin_top = new_top;
+            let _ = st.settings.save();
+            overlay::update_margins(
+                &window_top,
+                new_top,
+                st.bottom_margin,
+                st.settings.margin_right,
+            );
         });
         resize_handle_n.add_controller(drag_gesture_n);
     }
@@ -711,7 +718,12 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             let new_bottom = (cur_bottom.get() - offset_y as i32).clamp(8, 600);
             let mut st = state_update_bottom.borrow_mut();
             st.bottom_margin = new_bottom;
-            overlay::update_vertical_margins(&window_bottom, st.top_margin, new_bottom);
+            overlay::update_margins(
+                &window_bottom,
+                st.top_margin,
+                new_bottom,
+                st.settings.margin_right,
+            );
         });
         resize_handle_s.add_controller(drag_gesture_s);
     }
@@ -832,17 +844,21 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let just_expanded = just_expanded.clone();
 
         Rc::new(move || {
-            let (top, bottom) = {
+            let (top, bottom, right) = {
                 let mut st = state.borrow_mut();
                 if st.mode == OverlayMode::Visible {
                     return;
                 }
                 st.mode = OverlayMode::Visible;
-                (st.top_margin, st.bottom_margin)
+                (
+                    st.settings.margin_top,
+                    st.bottom_margin,
+                    st.settings.margin_right,
+                )
             };
             just_expanded.set(true);
 
-            overlay::expand_overlay(&window, top, bottom);
+            overlay::expand_overlay(&window, top, bottom, right);
             entry.grab_focus();
 
             let je = just_expanded.clone();

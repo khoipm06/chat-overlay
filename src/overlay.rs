@@ -3,36 +3,32 @@ use gtk4::prelude::*;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 
 pub fn init_layer_shell(window: &gtk4::ApplicationWindow) {
-    // Universal Wayland / X11 capability check:
-    // If the compositor supports wlr-layer-shell protocol, initialize as layer surface.
-    // If running on X11, GNOME Mutter without layer-shell, or macOS, fallback gracefully as standard top-level.
     if gtk4_layer_shell::is_supported() {
         window.init_layer_shell();
         window.set_namespace("pi-ephemeral-overlay");
         window.set_layer(Layer::Overlay);
-
-        // Overlay on top of existing windows without claiming screen space
         window.set_exclusive_zone(0);
-
-        // Start fully hidden: unmapped surface, no input region, 100% click-through
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
         window.set_visible(false);
     } else {
-        // Fallback for non-layer-shell environments: normal modal overlay with decorated=false
         window.set_decorated(false);
         window.set_visible(false);
     }
 }
 
-/// Map the surface with keyboard focus on demand.
-/// Margin top/bottom controls panel height, while width request sets width.
-pub fn expand_overlay(window: &gtk4::ApplicationWindow, top_margin: i32, bottom_margin: i32) {
+/// Map the surface with keyboard focus on demand using persistent margins.
+pub fn expand_overlay(
+    window: &gtk4::ApplicationWindow,
+    top_margin: i32,
+    bottom_margin: i32,
+    right_margin: i32,
+) {
     if window.is_layer_window() {
         window.set_anchor(Edge::Left, false);
         window.set_anchor(Edge::Right, true);
         window.set_anchor(Edge::Top, true);
         window.set_anchor(Edge::Bottom, true);
-        window.set_margin(Edge::Right, 12);
+        window.set_margin(Edge::Right, right_margin.max(0));
         window.set_margin(Edge::Top, top_margin.max(8));
         window.set_margin(Edge::Bottom, bottom_margin.max(8));
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::OnDemand);
@@ -41,9 +37,10 @@ pub fn expand_overlay(window: &gtk4::ApplicationWindow, top_margin: i32, bottom_
     window.present();
 }
 
-/// Update vertical margins dynamically for vertical resizing
-pub fn update_vertical_margins(window: &gtk4::ApplicationWindow, top: i32, bottom: i32) {
+/// Update position margins dynamically when dragging or resizing
+pub fn update_margins(window: &gtk4::ApplicationWindow, top: i32, bottom: i32, right: i32) {
     if window.is_layer_window() {
+        window.set_margin(Edge::Right, right.max(0));
         window.set_margin(Edge::Top, top.max(8));
         window.set_margin(Edge::Bottom, bottom.max(8));
     }

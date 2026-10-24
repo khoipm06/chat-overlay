@@ -28,6 +28,18 @@ pub struct AppSettings {
     pub sound_bell_on_done: bool,
     #[serde(default = "default_ephemeral")]
     pub ephemeral: bool,
+    #[serde(default = "default_margin_right")]
+    pub margin_right: i32,
+    #[serde(default = "default_margin_top")]
+    pub margin_top: i32,
+}
+
+fn default_margin_right() -> i32 {
+    12
+}
+
+fn default_margin_top() -> i32 {
+    32
 }
 
 fn default_model() -> String {
@@ -73,6 +85,8 @@ impl Default for AppSettings {
             thinking_level: default_thinking_level(),
             sound_bell_on_done: default_sound_bell(),
             ephemeral: default_ephemeral(),
+            margin_right: default_margin_right(),
+            margin_top: default_margin_top(),
         }
     }
 }
@@ -116,6 +130,8 @@ impl AppSettings {
     pub fn clamped(mut self) -> Self {
         self.width = self.width.clamp(MIN_WIDTH, MAX_WIDTH);
         self.height = self.height.clamp(MIN_HEIGHT, MAX_HEIGHT);
+        self.margin_right = self.margin_right.clamp(0, 3840);
+        self.margin_top = self.margin_top.clamp(0, 2160);
         self
     }
 }
