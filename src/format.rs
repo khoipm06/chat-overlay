@@ -738,4 +738,33 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_codeblock_nested_language_payloads() {
+        // Diverse code payloads containing tricky tokens in strings / comments
+        let payloads = [
+            ("rust", "fn test() {\n    let re = regex::Regex::new(r\"^[a-zA-Z0-9_.-]+$\").unwrap();\n    let raw = r###\"raw string with \"quotes\" and # comments\"###;\n}"),
+            ("python", "import re\npattern = r'^[\\w\\.-]+@[\\w\\.-]+\\.\\w+$'\nquery = f\"SELECT * FROM t WHERE c = '{pattern}' and 1 > 0\""),
+            ("typescript", "const template = `Hello ${name.toUpperCase()} <span class=\"bold\">!</span>`;\nconst rx = /[a-z0-9]/gi;"),
+            ("bash", "cat << 'EOF' > /tmp/output.sh\n#!/bin/bash\necho \"nested delimiter <tag>\"\nEOF"),
+            ("sql", "WITH recursive_cte AS (\n  SELECT id, 1 as level FROM nodes WHERE parent_id IS NULL\n  UNION ALL\n  SELECT n.id, rc.level + 1 FROM nodes n JOIN recursive_cte rc ON n.parent_id = rc.id\n)\nSELECT * FROM recursive_cte;"),
+            ("json", "{\n  \"escaped\": \"line 1\\nline 2\\t\\\"quoted\\\"\",\n  \"empty_arr\": [],\n  \"empty_obj\": {}\n}"),
+            ("mermaid", "sequenceDiagram\n    autonumber\n    Alice->>Bob: Hello Bob, how are you?\n    Bob-->>Alice: I am good thanks!\n"),
+            ("diff", "--- a/src/main.rs\n+++ b/src/main.rs\n@@ -10,3 +10,4 @@\n-old line\n+new line with <tag>\n"),
+        ];
+
+        for (lang, code) in payloads {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Pango parse failed on language {} code block:\n{}\nMarkup:\n{}\nError: {:?}",
+                lang,
+                code,
+                markup,
+                res.err()
+            );
+        }
+    }
 }

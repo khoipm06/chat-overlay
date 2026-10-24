@@ -90,7 +90,8 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Pathological Extreme Inputs (`test_fuzz_extreme_pathological_markdown_inputs`): Săn tìm và triệt tiêu lỗi panic `GStrInteriorNulError` khi stream chứa ký tự `\0`, lồng danh sách 20 bậc, ký tự điều khiển, văn bản RTL / Do Thái / Ả Rập, ký tự độ rộng bằng 0 (`\u{200B}`).
   - Massive Document Stress Test (`test_fuzz_massive_payload_stress`): Thử nghiệm tài liệu markdown khổng lồ (500 blocks, 3.500 dòng phức tạp gồm code, table, callouts, math). Toàn bộ quá trình parse & compile Pango hoàn tất dưới 220ms, Pango parse hợp lệ 100%, không tràn stack hay rò rỉ bộ nhớ.
   - LaTeX & ASCII Math Delimiters (`test_fuzz_latex_and_ascii_math_delimiters`): Kiểm tra công thức toán giới hạn `\lim`, tích phân vô hạn, tổng chuỗi `\sum_{n=1}^\infty`, tích số `\prod`, ma trận chuyển vị `\mathbf{A}^T`, tập hợp số nguyên `\mathbb{Z}` và các ký hiệu Hy Lạp.
-- **Kết quả**: `PASSED` (31/31 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Code Block Tricky Language Payloads (`test_fuzz_codeblock_nested_language_payloads`): Fuzz test các khối code có chuỗi raw string (`r###"..."###`), regex lồng nhau (`/[a-z0-9]/gi`), heredoc Bash (`cat << 'EOF'`), recursive CTE SQL, Mermaid sequence diagram và định dạng unified git diff.
+- **Kết quả**: `PASSED` (32/32 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
