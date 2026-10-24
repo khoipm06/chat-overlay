@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 17:45:00 +0700
-- **Commit thẩm định**: `7c57253` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **127/127 PASSED** (0 failed, 0 ignored, 0.25s).
+- **Thời điểm kiểm chứng**: 2026-10-24 17:50:00 +0700
+- **Commit thẩm định**: `fbea2ec` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **129/129 PASSED** (0 failed, 0 ignored, 0.24s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 127 tests bao phủ quá trình ngẫu nhiên Martingales & thời điểm dừng (định lý dừng tùy chọn Doob $\mathbb{E}[M_\tau] = \mathbb{E}[M_0]$, bất đẳng thức cực đại Doob, phân tích Doob-Meyer, bất đẳng thức Burkholder-Davis-Gundy) cùng định dạng sổ tay tương tác khoa học (Jupyter Notebook `.ipynb` JSON code cell, MATLAB Live Script `%% Section`).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 129 tests bao phủ hình học đại số & đối đồng điều bó Sheaf cohomology (định lý Riemann-Roch $\chi(X, \mathcal{L}) = \deg(\mathcal{L}) + 1 - g$, đối ngẫu Serre $H^i \cong H^{n-i*}$, định lý triệt tiêu Grothendieck) cùng các định nghĩa dịch vụ Cloud-Native (OpenAPI 3.1 YAML spec, gRPC Protobuf service rpc streaming).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -197,7 +197,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Constraint Logic Programming Prolog & MiniZinc (`test_fuzz_codeblock_with_constraint_logic_programming_prolog_and_minizinc`): Kiểm thử mệnh đề Horn trong Prolog (`ancestor(X, Y) :- parent(X, Y).`), văn phạm mệnh đề xác định (DCG `sentence --> noun_phrase, verb_phrase`), toán tử phủ định cắt `!`, và mô hình giải ràng buộc thỏa mãn MiniZinc N-Queens (`constraint alldifferent(q)`).
   - Stochastic Processes, Martingales & Stopping Times (`test_fuzz_latex_stochastic_processes_martingales_and_stopping_times`): Kiểm thử định nghĩa kỳ vọng có điều kiện Martingale $\mathbb{E}[M_t \mid \mathcal{F}_s] = M_s$, định lý dừng tùy chọn Doob (Optional Stopping Theorem) $\mathbb{E}[M_\tau] = \mathbb{E}[M_0]$, bất đẳng thức cực đại Doob, biến thiên bậc hai $[M]_t$, và bất đẳng thức Burkholder-Davis-Gundy (BDG).
   - Computational Science Notebooks Jupyter & MATLAB Live (`test_fuzz_codeblock_with_scientific_notebook_and_matlab_live`): Kiểm thử định dạng cell mã nguồn thô Jupyter Notebook JSON (`cell_type: code`, metadata, outputs) và cấu trúc phân đoạn kịch bản MATLAB Live Script (`%% Section 1: Signal Generation`, tính toán biến đổi Fourier nhanh FFT).
-- **Kết quả**: `PASSED` (127/127 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Algebraic Geometry & Sheaf Cohomology (`test_fuzz_latex_algebraic_geometry_and_sheaf_cohomology`): Kiểm thử dãy khớp ngắn của bó và đối đồng điều Čech $0 \to \mathcal{F}' \to \mathcal{F} \to \mathcal{F}'' \to 0$, đối ngẫu Serre $H^i(X, \mathcal{E}) \cong H^{n-i}(X, \omega_X \otimes \mathcal{E}^\vee)^\vee$, định lý Riemann-Roch-Hirzebruch, phổ Scheme $\operatorname{Spec}(R)$, và định lý triệt tiêu Grothendieck.
+  - Cloud-Native APIs OpenAPI & gRPC Protobuf Services (`test_fuzz_codeblock_with_cloud_native_openapi_and_grpc`): Kiểm thử đặc tả OpenAPI 3.1.0 YAML (`paths: /v1/stream: post`, `$ref` schema components), và khai báo dịch vụ gRPC proto3 (`service OverlayAssistantService { rpc StreamPrompt ... }`).
+- **Kết quả**: `PASSED` (129/129 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
