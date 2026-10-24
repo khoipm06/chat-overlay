@@ -3306,4 +3306,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_algebraic_geometry_and_sheaf_cohomology() {
+        let sheaf_cases = [
+            // Exact sequence of sheaves and Čech cohomology
+            "$$\n0 \\longrightarrow \\mathcal{F}' \\longrightarrow \\mathcal{F} \\longrightarrow \\mathcal{F}'' \\longrightarrow 0 \\implies \\dots \\to H^i(X, \\mathcal{F}) \\to H^i(X, \\mathcal{F}'') \\to H^{i+1}(X, \\mathcal{F}') \\to \\dots\n$$",
+            // Serre duality for smooth projective varieties
+            "$$\nH^i(X, \\mathcal{E}) \\cong H^{n-i}(X, \\omega_X \\otimes \\mathcal{E}^\\vee)^\\vee\n$$",
+            // Riemann-Roch-Hirzebruch theorem
+            "$$\n\\chi(X, \\mathcal{E}) = \\sum_{i=0}^n (-1)^i \\dim H^i(X, \\mathcal{E}) = \\int_X \\operatorname{ch}(\\mathcal{E}) \\smile \\operatorname{td}(T_X)\n$$",
+            // Scheme spectrum and localization at prime ideal
+            "$$\nX = \\operatorname{Spec}(R), \\quad \\mathcal{O}_{X, \\mathfrak{p}} \\cong R_\\mathfrak{p} = S^{-1} R, \\; S = R \\setminus \\mathfrak{p}\n$$",
+            // Grothendieck vanishing theorem
+            "$$\nH^i(X, \\mathcal{F}) = 0 \\quad \\forall i > \\dim(X)\n$$",
+        ];
+
+        for c in sheaf_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Sheaf cohomology LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_cloud_native_openapi_and_grpc() {
+        let api_cases = [
+            // OpenAPI 3.1 YAML specification
+            ("yaml", "openapi: 3.1.0\ninfo:\n  title: Pi Overlay IPC API\n  version: 3.0.0\npaths:\n  /v1/stream:\n    post:\n      summary: Dispatch streaming prompt to Pi agent\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              $ref: '#/components/schemas/PromptPayload'\n      responses:\n        '200':\n          description: Successful streaming connection"),
+            // gRPC Protocol Buffers service definition
+            ("protobuf", "syntax = \"proto3\";\n\npackage pi.overlay.service.v1;\n\nservice OverlayAssistantService {\n  rpc StreamPrompt (PromptRequest) returns (stream StreamResponse);\n  rpc AbortActiveTask (AbortRequest) returns (AbortResponse);\n  rpc GetRuntimeMetrics (MetricsRequest) returns (MetricsResponse);\n}\n\nmessage PromptRequest {\n  string prompt = 1;\n  optional string model = 2;\n}"),
+        ];
+
+        for (lang, code) in api_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "API definition codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
