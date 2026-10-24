@@ -1908,4 +1908,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_statistical_and_probability_distributions() {
+        let prob_cases = [
+            // Gaussian / Normal distribution PDF
+            "$$\nf(x | \\mu, \\sigma^2) = \\frac{1}{\\sqrt{2\\pi\\sigma^2}} \\exp\\left( -\\frac{(x - \\mu)^2}{2\\sigma^2} \\right)\n$$",
+            // Bayes theorem and conditional expectation
+            "$$\nP(A | B) = \\frac{P(B | A) P(A)}{P(B)} = \\frac{P(B | A) P(A)}{\\sum_i P(B | A_i) P(A_i)}\n$$",
+            "$$\n\\mathbb{E}[X | Y] = \\int_{-\\infty}^{\\infty} x f_{X|Y}(x | y) dx\n$$",
+            // Poisson and Binomial distributions
+            "$$\nP(X = k) = \\frac{\\lambda^k e^{-\\lambda}}{k!}, \\quad \\binom{n}{k} p^k (1-p)^{n-k}\n$$",
+            // Covariance matrix and multivariate normal
+            "$$\n\\mathbf{\\Sigma} = \\mathbb{E}[(\\mathbf{X} - \\mathbf{\\mu})(\\mathbf{X} - \\mathbf{\\mu})^T]\n$$",
+        ];
+
+        for c in prob_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Probability LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_indented_nested_codeblock_and_list_interleaving() {
+        let nested_list_code = [
+            // List item containing code block
+            "- Step 1: Install tools\n\n  ```bash\n  curl -fsSL https://get.pi.dev | sh\n  ```\n\n- Step 2: Run overlay",
+            // Numbered list item with indented code block
+            "1. First step\n   ```rust\n   let ok = true;\n   ```\n2. Second step",
+            // Task list with nested code block
+            "- [x] Configure environment\n\n  ```json\n  {\"port\": 8080}\n  ```\n\n- [ ] Launch daemon",
+        ];
+
+        for c in nested_list_code {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Nested list code case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }

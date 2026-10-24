@@ -143,7 +143,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Unicode Math Operators & Vulgar Fractions (`test_fuzz_unicode_mathematical_operators_and_fractions`): Kiểm thử các toán tử số học Unicode bên ngoài math mode ($\times, \div, \pm, \neq$), phân số thường ($\frac{1}{2}, \frac{3}{4}, \frac{3}{8}$), ký hiệu tiệm cận ($\approx, \ll, \gg, \equiv$), vi tích phân ($\partial, \nabla, \oint$) và lý thuyết tập hợp ($\in, \notin, \subseteq, \emptyset$).
   - Mermaid Gantt, Pie & State Diagrams (`test_fuzz_mermaid_gantt_and_pie_chart_diagrams`): Kiểm thử sơ đồ Gantt tiến độ, biểu đồ tròn phân bổ `pie`, sơ đồ máy trạng thái `stateDiagram-v2` và sơ đồ tư duy `mindmap`.
   - Complex SQL Queries, Joins & Partitions (`test_fuzz_sql_complex_syntax_joins_and_subqueries`): Kiểm thử truy vấn SQL phức tạp kết hợp `LEFT JOIN`, `GROUP BY`, `HAVING`, mệnh đề `ON CONFLICT DO UPDATE`, và cú pháp tạo bảng phân vùng `PARTITION BY RANGE`.
-- **Kết quả**: `PASSED` (73/73 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Statistical & Probability Distributions (`test_fuzz_latex_statistical_and_probability_distributions`): Kiểm thử hàm mật độ xác suất Gaussian/Normal distribution, định lý Bayes và kỳ vọng có điều kiện $\mathbb{E}[X|Y]$, phân phối Poisson, phân phối nhị thức tổ hợp $\binom{n}{k}$, và ma trận hiệp phương sai đa biến $\mathbf{\Sigma}$.
+  - Indented Nested Code Blocks in Lists (`test_fuzz_indented_nested_codeblock_and_list_interleaving`): Kiểm thử khối codeblock lồng bên trong mục danh sách gạch đầu dòng, danh sách đánh số có thụt dòng 3 ký tự, và danh sách công việc checklist chứa JSON config.
+- **Kết quả**: `PASSED` (75/75 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
