@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 17:10:00 +0700
-- **Commit thẩm định**: `8db6184` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **113/113 PASSED** (0 failed, 0 ignored, 0.27s).
+- **Thời điểm kiểm chứng**: 2026-10-24 17:15:00 +0700
+- **Commit thẩm định**: `125f5a5` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **115/115 PASSED** (0 failed, 0 ignored, 0.26s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 113 tests bao phủ lý thuyết biểu diễn & đại số Lie (ngoặc Lie Jacobi, Killing form $B(X, Y)$, toán tử Casimir bậc hai $C = \sum g^{ab} T_a T_b$) cùng lập trình nhúng & phần cứng cấp thấp (Embedded C volatile register mapping `*(volatile uint32_t*)`, SystemVerilog interface với clocking blocks).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 115 tests bao phủ lý thuyết số đại số & lý thuyết trường lớp (công thức số lớp Dirichlet, luật tương hỗ Artin, trường lớp Hilbert $\operatorname{Cl}(K) \cong \operatorname{Gal}(H/K)$) cùng ngôn ngữ đồ họa shader và tổng hợp âm thanh DSP (OpenGL GLSL fragment shaders, SuperCollider SynthDef).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -183,7 +183,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Concurrent Functional BEAM Languages Erlang & Gleam (`test_fuzz_codeblock_with_functional_concurrent_erlang_and_gleam`): Kiểm thử vòng lặp actor Erlang (`-module(pi_worker)`, nhận thông điệp `receive {ping, From} -> From ! {pong, State}`), và mã nguồn kiểu gõ an toàn Gleam OTP actor (`pub type Msg`, `actor.continue(state + amount)`).
   - Lie Algebras & Root Systems Representation Theory (`test_fuzz_latex_representation_theory_lie_algebras_and_root_systems`): Kiểm thử đồng nhất thức Jacobi cho ngoặc Lie $[X, [Y, Z]] + [Y, [Z, X]] + [Z, [X, Y]] = 0$, dạng song tuyến tính bất biến Cartan-Killing $B(X, Y) = \operatorname{Tr}(\operatorname{ad}_X \circ \operatorname{ad}_Y)$, phân rã không gian nghiệm gốc $\mathfrak{g} = \mathfrak{h} \oplus \bigoplus \mathfrak{g}_\alpha$, công thức ký tự Weyl $\operatorname{ch}(V_\lambda)$, và toán tử bất biến Casimir $C = \sum g^{ab} T_a T_b$.
   - Embedded Systems & Hardware Verification C / SystemVerilog (`test_fuzz_codeblock_with_systems_hardware_embedded_c_and_sv`): Kiểm thử thao tác thanh ghi phần cứng nhúng Embedded C (`volatile uint32_t *`, dịch bit thanh ghi `1UL << 0`), và giao tiếp SystemVerilog AXI interface với khẳng định ràng buộc phần cứng `property` / `assert property`.
-- **Kết quả**: `PASSED` (113/113 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Algebraic Number Theory & Class Field Theory (`test_fuzz_latex_algebraic_number_theory_and_class_field_theory`): Kiểm thử hàm zeta Dedekind $\zeta_K(s)$ và công thức số lớp giải tích, luật tương hỗ Artin trong trường lớp, chặn Minkowski trên các lớp i-đê-an $M_K$, định lý mật độ Chebotarev, và trường lớp Hilbert $\operatorname{Cl}(K) \cong \operatorname{Gal}(H/K)$.
+  - Audio DSP & Graphics Shaders GLSL / SuperCollider (`test_fuzz_codeblock_with_audio_shader_dsp_glsl_and_supercollider`): Kiểm thử shader GLSL (`#version 330 core`, uniforms `vec2 u_resolution`, swizzling vector `st.xyx`, biến đầu ra `out vec4 FragColor`) và tổng hợp âm thanh SuperCollider SynthDef (`SinOsc.ar`, `EnvGen.kr`, `Env.adsr`).
+- **Kết quả**: `PASSED` (115/115 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
