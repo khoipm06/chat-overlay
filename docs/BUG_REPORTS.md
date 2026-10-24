@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 13:50:00 +0700
-- **Commit thẩm định**: `a30afdd` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **33/33 PASSED** (0 failed, 0 ignored, 0.22s).
-- **Trạng thái working tree**: Clean (`nothing to commit, working tree clean`).
+- **Thời điểm kiểm chứng**: 2026-10-24 13:55:00 +0700
+- **Commit thẩm định**: `14a99d7` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **35/35 PASSED** (0 failed, 0 ignored, 0.24s).
+- **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test mở rộng lên 33 tests mô phỏng token streaming thời gian thực ở các kích thước chunk khác nhau (1, 3, 7, 15, 32 chars).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test mở rộng lên 35 tests bao phủ an toàn cắt UTF-8 multibyte boundary và triệt tiêu nguy cơ injection từ raw HTML tags.
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -103,7 +103,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - LaTeX & ASCII Math Delimiters (`test_fuzz_latex_and_ascii_math_delimiters`): Kiểm tra công thức toán giới hạn `\lim`, tích phân vô hạn, tổng chuỗi `\sum_{n=1}^\infty`, tích số `\prod`, ma trận chuyển vị `\mathbf{A}^T`, tập hợp số nguyên `\mathbb{Z}` và các ký hiệu Hy Lạp.
   - Code Block Tricky Language Payloads (`test_fuzz_codeblock_nested_language_payloads`): Fuzz test các khối code có chuỗi raw string (`r###"..."###`), regex lồng nhau (`/[a-z0-9]/gi`), heredoc Bash (`cat << 'EOF'`), recursive CTE SQL, Mermaid sequence diagram và định dạng unified git diff.
   - Streaming Chunk Boundaries (`test_fuzz_streaming_chunk_boundaries`): Mô phỏng stream vi phân theo kích thước 1, 3, 7, 15, 32 ký tự cắt ngang qua header, inline code, công thức toán và bảng biểu; phát hiện và loại bỏ triệt để panic slicing tại ranh giới ký tự pipe `|`.
-- **Kết quả**: `PASSED` (33/33 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - UTF-8 Multibyte Boundary Splitting (`test_fuzz_utf8_multibyte_boundary_splitting`): Kiểm thử cắt byte stream ngang qua các ký tự UTF-8 3-byte và 4-byte (tiếng Việt có dấu, Hán tự CJK, tổ hợp emoji đa thành phần); bảo đảm không làm vỡ Pango parser.
+  - Raw HTML Tag Injection (`test_fuzz_html_raw_tags_and_attribute_injection`): Fuzz test các thẻ HTML nguy hiểm (`<script>`, `<iframe>`, `<img>` có handler `onerror`, `<font>`, `<input>`, tag đóng lệch `<b><i></b></i>`); toàn bộ được escape thành chuỗi XML hợp lệ.
+- **Kết quả**: `PASSED` (35/35 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
