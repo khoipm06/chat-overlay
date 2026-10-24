@@ -6,7 +6,7 @@ pub fn init_layer_shell(window: &gtk4::ApplicationWindow) {
     if gtk4_layer_shell::is_supported() {
         window.init_layer_shell();
         window.set_namespace("pi-ephemeral-overlay");
-        window.set_layer(Layer::Overlay);
+        window.set_layer(Layer::Top);
         window.set_exclusive_zone(0);
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
         window.set_visible(false);

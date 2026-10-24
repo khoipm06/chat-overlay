@@ -1196,7 +1196,7 @@ popover contents {
 /* ── Compact Mode for Narrow Widths (< 420px) ─────────────────────────── */
 .compact-mode .header-box {
     padding-bottom: 6px;
-    gap: 4px;
+    
 }
 
 .compact-mode .app-title {
