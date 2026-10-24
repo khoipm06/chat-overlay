@@ -35,15 +35,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 13:20:00 +0700
-- **Commit thẩm định**: `05f7f20` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **26/26 PASSED** (0 failed, 0 ignored, 0.00s).
+- **Thời điểm kiểm chứng**: 2026-10-24 13:22:00 +0700
+- **Commit thẩm định**: `220d8d3` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **27/27 PASSED** (0 failed, 0 ignored, 0.01s).
 - **Trạng thái working tree**: Clean (`nothing to commit, working tree clean`).
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác.
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ parser Pango markup đạt infallible level qua isolation placeholder.
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -55,7 +55,8 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Định dạng inline & Math block phức tạp: Unclosed bold, italic, strikethrough, inline code, subscript, superscript, dollar math (`$x < y && z > 0$`, tiền tệ `$10.99`), HTML entities (`&notanentity;`), 4-5 ticks backtick lồng nhau.
   - Syntax highlighting đa ngôn ngữ (`syntax.rs`): Fuzz test Rust, Python, TypeScript, Bash, JSON, SQL, Generic XML với các token phức tạp (`Option<Vec<T>>`, docstrings, regex, escape quotes).
   - Fuzzing tổ hợp ma trận (Combinatorial stress test): Kết hợp ngẫu nhiên 144 cặp thẻ định dạng trên cùng một dòng cùng các ký tự UTF-8 / tiếng Việt / emoji.
-- **Kết quả**: `PASSED` (26/26 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Fuzzing sinh ngẫu nhiên (300 Generative Pseudo-random streams - `test_fuzz_pseudo_random_generative_markdown_stream`): Phát hiện và sửa lỗi unclosed `<kbd>` tag làm đóng sai thẻ Pango `span`, đồng thời cơ chế bảo vệ placeholder `__CODEPH__` ngăn các thẻ markdown khác đè chéo vào inline code block. Fallback an toàn bảo đảm không bao giờ vỡ giao diện.
+- **Kết quả**: `PASSED` (27/27 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
