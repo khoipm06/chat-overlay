@@ -646,4 +646,42 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_extreme_pathological_markdown_inputs() {
+        let extreme_cases = [
+            // Deeply nested list items (20 tiers)
+            "                                        - Level 20 nested list item",
+            // Unordered list with numeric content
+            "- 1.2.3.4 version numbering in bullet",
+            // Code block with zero-width characters and RTL / Hebrew / Arabic
+            "```text\n\u{200B}\u{200C}\u{200D}שלום עולם مرحبا بالعالم\n```",
+            // Tables with escaped pipes and unbalanced backticks
+            "| Command | Syntax |\n| --- | --- |\n| Grep | `grep \\| sort` |\n| Cat | `cat file` |",
+            // Pathological header with trailing hashes and formatting
+            "####### Header Level 7 (standard only defines 1-6) with **bold**",
+            // Consecutive horizontal rules
+            "---\n***\n___\n---\n***",
+            // Link with query params, port, fragments and brackets inside
+            "[Complex URL](https://example.com:8443/path/to/resource?param1=val%201&param2=a[b]#section_3)",
+            // Task checkboxes with strange casings and marks
+            "- [X] Uppercase checked\n- [-] Dash checked\n- [?] Question checked",
+            // Blockquote containing table and code fence
+            "> Blockquote containing table:\n> | H1 | H2 |\n> | --- | --- |\n> | V1 | V2 |\n> And code:\n> ```\n> echo 1\n> ```",
+            // Text with raw control characters (null, bell, backspace, escape)
+            "Control chars: \u{0000}\u{0007}\u{0008}\u{001B} sanitized cleanly",
+        ];
+
+        for case in extreme_cases {
+            let markup = format_markdown_to_pango(case);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Pango parse failed on extreme case:\n{}\nGenerated markup:\n{}\nError: {:?}",
+                case,
+                markup,
+                res.err()
+            );
+        }
+    }
 }

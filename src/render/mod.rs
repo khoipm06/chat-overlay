@@ -9,12 +9,21 @@ use gtk4::pango;
 /// Master function compiling raw markdown text to robust, styled Pango markup.
 /// If any syntax produces malformed markup, safely falls back to valid XML escaped text.
 pub fn format_markdown_to_pango(markdown: &str) -> String {
-    let candidate = format_markdown_to_pango_inner(markdown);
+    // Sanitize interior NUL bytes (`\0`) which violate GLib/C string invariants and cause panic
+    let sanitized;
+    let safe_markdown = if markdown.contains('\0') {
+        sanitized = markdown.replace('\0', "");
+        &sanitized
+    } else {
+        markdown
+    };
+
+    let candidate = format_markdown_to_pango_inner(safe_markdown);
     if pango::parse_markup(&candidate, '\0').is_ok() {
         candidate
     } else {
         // Safe fallback: escape all text so Pango parser is 100% guaranteed to succeed
-        glib::markup_escape_text(markdown).to_string()
+        glib::markup_escape_text(safe_markdown).to_string()
     }
 }
 
