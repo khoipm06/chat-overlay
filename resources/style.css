@@ -867,3 +867,45 @@ popover contents {
 .theme-zinc-light .shortcut-label {
     color: #71717a;
 }
+
+/* ── Open-WebUI Style Separate Tool Executions Box ────────────────────── */
+
+.tools-expander {
+    margin: 4px 0 6px 0;
+    padding: 2px 0;
+}
+
+.tools-expander > title {
+    font-size: 11px;
+    font-weight: 500;
+    color: #a1a1aa;
+    padding: 2px 4px;
+}
+
+.tools-container {
+    padding: 6px 8px;
+    background: rgba(0, 0, 0, 0.20);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    margin-top: 4px;
+}
+
+.tool-call-row {
+    padding: 4px 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
+    border-left: 2px solid #89b4fa;
+}
+
+.tool-badge {
+    font-family: monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #89b4fa;
+}
+
+.tool-args-text {
+    font-family: monospace;
+    font-size: 10.5px;
+    color: #a6adc8;
+}
