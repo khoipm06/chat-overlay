@@ -111,7 +111,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Blockquotes Nested & Interleaved Markdown (`test_fuzz_blockquotes_nested_and_interleaved_markdown`): Kiểm thử trích dẫn lồng 3 cấp, trích dẫn xen kẽ dòng trống (`> \n >`), toàn bộ 5 biến thể GitHub Alert (`NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`) kết hợp inline code/math/links, và các tiền tố trích dẫn thiếu dấu cách (`>Without space`, `>>Double`).
   - Header Levels & Inline Markup (`test_fuzz_header_levels_and_inline_markup_combinations`): Kiểm thử tiêu đề H1, H2, H3 kết hợp in đậm, nghiêng, code, liên kết, công thức toán $E=mc^2$, tag gạch đầu dòng trống `#`, `##`, `###` và khoảng cách bất thường.
   - HTML Details & Summary Elements (`test_fuzz_html_details_summary_variants`): Kiểm thử thẻ mở rộng `<details>` và `<summary>` lồng nhau, summary chứa bảng biểu, thẻ không đóng hoặc xuất hiện trên cùng một dòng.
-- **Kết quả**: `PASSED` (41/41 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Unicode Combining Marks & Trojan Source Bidi (`test_fuzz_codeblock_with_extreme_unicode_and_combining_marks`): Fuzz test ký tự Zalgo (`H̶e̶l̶l̶o̶`), các ký tự ghi đè hướng đọc RTL (RLO/LRO), emoji định danh biến (`🚀`, `🦀`), khoảng trắng không ngắt (NBSP), ZWJ và ký hiệu toán học Alphanumeric (`𝕏`, `ℂ`).
+  - Table Nested Cells & Varied Display Widths (`test_fuzz_table_cells_with_multiline_and_nested_formatting`): Kiểm thử bảng biểu lồng chữ đậm/nghiêng/code/toán trong ô, ô trống thiếu border, cờ quốc kỳ Unicode 4-byte (`🇻🇳`, `🇯🇵`, `🇺🇸`) và bảng chỉ có đúng 1 cột.
+- **Kết quả**: `PASSED` (43/43 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:

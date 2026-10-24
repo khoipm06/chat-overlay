@@ -1051,4 +1051,59 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_codeblock_with_extreme_unicode_and_combining_marks() {
+        let unicode_code_cases = [
+            // Zalgo / Combining diacritical marks in code
+            ("python", "# Zalgo test: H̶e̶l̶l̶o̶ W̶o̶r̶l̶d̶\nx = 'Z̸a̸l̸g̸o̸'"),
+            // Bidirectional bidi override characters (Trojan Source attack vectors: RLO, LRO, PDF)
+            ("rust", "fn check_access() {\n    // \u{202E} } if is_admin { \u{202C}\n    let access = true;\n}"),
+            // Emoji identifiers & variable names
+            ("javascript", "const 🚀 = 42;\nconst 🦀 = 'rust';\nconsole.log(🚀, 🦀);"),
+            // Non-breaking spaces and zero-width joiners
+            ("bash", "echo\u{00A0}\"NBSP argument\"\nVAR=\"ZWJ:\u{200D}\""),
+            // Mathematical Alphanumeric Symbols (𝕏, ℂ, ℜ, 𝔽)
+            ("python", "𝕏 = 10\nℂ = 20\nprint(𝕏 + ℂ)"),
+        ];
+
+        for (lang, code) in unicode_code_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Unicode codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_table_cells_with_multiline_and_nested_formatting() {
+        let table_cases = [
+            // Table with bold, italic, code, math inside cells
+            "| Feature | Status | Formula |\n| :--- | :---: | ---: |\n| **Fast** | `v1.2` | $O(1)$ |\n| *Secure* | ☑ | $O(\\log n)$ |",
+            // Table with empty cells and missing borders
+            "| Col 1 | Col 2 | Col 3 |\n| --- | --- | --- |\n| | Middle only | |\n| Left only | | |",
+            // Table with unicode characters of varying display widths
+            "| Quốc Gia | Thủ Đô | Ký Hiệu |\n| :--- | :--- | :--- |\n| Việt Nam | Hà Nội | 🇻🇳 |\n| Nhật Bản (日本) | Tokyo (東京) | 🇯🇵 |\n| Hoa Kỳ | Washington D.C. | 🇺🇸 |",
+            // Table with single column
+            "| Single Column |\n| --- |\n| Item 1 |\n| Item 2 |",
+        ];
+
+        for c in table_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Table nested formatting case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
