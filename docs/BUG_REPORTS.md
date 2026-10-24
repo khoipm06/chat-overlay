@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 17:00:00 +0700
-- **Commit thẩm định**: `16dbf88` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **109/109 PASSED** (0 failed, 0 ignored, 0.25s).
+- **Thời điểm kiểm chứng**: 2026-10-24 17:05:00 +0700
+- **Commit thẩm định**: `97a0826` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **111/111 PASSED** (0 failed, 0 ignored, 0.25s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 109 tests bao phủ lý thuyết phổ đồ thị (Laplacian chuẩn hóa $\mathbf{L}_{\mathrm{sym}}$, bất đẳng thức Cheeger $\frac{\lambda_2}{2} \le h(G) \le \sqrt{2\lambda_2}$, nhân nhiệt đồ thị $\mathbf{H}_t = e^{-t\mathbf{L}}$, trở kháng hiệu dụng $R_{\mathrm{eff}}$) cùng ngôn ngữ truy vấn cơ sở dữ liệu đồ thị & Semantic Web (Neo4j Cypher, W3C SPARQL).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 111 tests bao phủ mật mã học không kiến thức (zk-SNARKs Groth16 pairings, QAP polynomials, Fiat-Shamir heuristic, Pedersen commitments) cùng các ngôn ngữ đồng thời hướng actor nền tảng BEAM (Erlang OTP gen_server loop, Gleam type-safe actor).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -179,7 +179,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Formal Verification & Proof Assistants Coq, Lean 4, TLA+ (`test_fuzz_codeblock_with_formal_verification_coq_lean_and_tla`): Kiểm thử định lý Lean 4 (`theorem add_comm : n + m = m + n`), trợ lý chứng minh Coq (`Theorem plus_comm ... Proof. elim n ... Qed.`), và đặc tả hình thức TLA+ cho thuật toán Two-Phase Commit (`/\\ rmState = ...`).
   - Spectral Graph Theory & Expander Mixing (`test_fuzz_latex_spectral_graph_theory_and_random_walks`): Kiểm thử ma trận Laplacian chuẩn hóa $\mathbf{L}_{\mathrm{sym}} = \mathbf{D}^{-1/2} \mathbf{L} \mathbf{D}^{-1/2}$, bất đẳng thức Cheeger $\frac{\lambda_2}{2} \le h(G) \le \sqrt{2\lambda_2}$, nhân nhiệt trên đồ thị (Heat kernel) $\mathbf{H}_t = \exp(-t\mathbf{L})$, điện trở hiệu dụng (Effective resistance), và bổ đề trộn đồ thị giãn nở Expander Mixing Lemma.
   - Graph Database Queries Cypher & SPARQL (`test_fuzz_codeblock_with_graph_query_languages_cypher_and_sparql`): Kiểm thử truy vấn đồ thị Neo4j Cypher (`MATCH (user:User)-[r:ACTED_IN]->(m:Movie)` với `collect`, `titles[..3]`) và truy vấn ngữ nghĩa ngữ nghĩa W3C SPARQL (`PREFIX`, `SELECT ?name ?birthDate`, `FILTER`).
-- **Kết quả**: `PASSED` (109/109 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Cryptographic Zero-Knowledge Proofs & ZK-SNARKs (`test_fuzz_latex_cryptographic_zero_knowledge_and_zk_snarks`): Kiểm thử chương trình số học bậc hai Quadratic Arithmetic Programs (QAP $A(x)B(x) - C(x) = H(x)T(x)$), phương trình kiểm tra cặp ghép Groth16 $e(\pi_A, \pi_B)$, Fiat-Shamir biến đổi chữ ký Schnorr, cam kết Pedersen $C = g^m h^r \pmod{p}$, và tính song tuyến tính của cặp ghép đường cong Elliptic $e(aP, bQ) = e(P, Q)^{ab}$.
+  - Concurrent Functional BEAM Languages Erlang & Gleam (`test_fuzz_codeblock_with_functional_concurrent_erlang_and_gleam`): Kiểm thử vòng lặp actor Erlang (`-module(pi_worker)`, nhận thông điệp `receive {ping, From} -> From ! {pong, State}`), và mã nguồn kiểu gõ an toàn Gleam OTP actor (`pub type Msg`, `actor.continue(state + amount)`).
+- **Kết quả**: `PASSED` (111/111 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
