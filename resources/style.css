@@ -1096,3 +1096,63 @@ popover contents {
     background: #2aa198;
     color: #fdf6e3;
 }
+
+/* ── Antigravity-Style Timeline Collapsibles ───────────────────────────── */
+
+.antigravity-parent-expander {
+    margin: 4px 0 8px 0;
+}
+
+.antigravity-parent-expander > title {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #a1a1aa;
+    padding: 2px 0;
+}
+
+.antigravity-parent-content {
+    margin-left: 8px;
+    padding-left: 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.antigravity-steps-expander > title {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #71717a;
+    padding: 2px 0;
+}
+
+.antigravity-timeline-list {
+    margin-left: 12px;
+    padding-left: 6px;
+    border-left: 1px dashed rgba(255, 255, 255, 0.06);
+}
+
+.timeline-sub-expander > title {
+    font-size: 11px;
+    color: #71717a;
+    padding: 1px 0;
+}
+
+.timeline-sub-expander:hover > title {
+    color: #e4e4e7;
+}
+
+.thought-sub-item > title {
+    color: #a1a1aa;
+}
+
+.tool-sub-item > title {
+    font-family: monospace;
+    font-size: 10.5px;
+    color: #93c5fd;
+}
+
+.timeline-item-text {
+    font-size: 11px;
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 4px;
+    margin: 2px 0 4px 0;
+}

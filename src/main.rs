@@ -4,6 +4,7 @@ mod ipc;
 mod overlay;
 mod render;
 mod settings;
+mod tray;
 
 use backend::{PiRunner, StreamEvent};
 use gtk4::gdk;
@@ -104,15 +105,18 @@ struct TrackedPrompt {
     bubble: gtk4::Box,
 }
 
+type ActiveThoughtState = Option<(gtk4::Expander, gtk4::Label, Rc<RefCell<String>>)>;
+
 struct ActiveStreamTarget {
     label: gtk4::Label,
-    thought_expander: gtk4::Expander,
-    thought_label: gtk4::Label,
-    tools_expander: gtk4::Expander,
-    tools_box: gtk4::Box,
+    parent_expander: gtk4::Expander,
+    steps_expander: gtk4::Expander,
+    timeline_box: gtk4::Box,
+    active_thought_expander: Rc<RefCell<ActiveThoughtState>>,
+    start_time: std::time::Instant,
     metrics_badge: gtk4::Label,
     full_text: Rc<RefCell<String>>,
-    thinking_text: Rc<RefCell<String>>,
+    tool_count: Rc<Cell<usize>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -952,6 +956,14 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         });
     }
 
+    // Setup Taskbar System Tray Applet (StatusNotifierItem)
+    {
+        let toggle_tray = toggle.clone();
+        tray::setup_tray(move || {
+            toggle_tray();
+        });
+    }
+
     // Handle Keyboard Shortcuts on Window
     let key_controller = gtk4::EventControllerKey::new();
     key_controller.set_propagation_phase(gtk4::PropagationPhase::Capture);
@@ -1015,27 +1027,68 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 }
                 StreamEvent::ThinkingDelta(delta) => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
-                        target.thought_expander.set_visible(true);
-                        let mut think = target.thinking_text.borrow_mut();
-                        think.push_str(&delta);
-                        target.thought_label.set_text(&think);
+                        target.parent_expander.set_visible(true);
+                        target.steps_expander.set_visible(true);
+
+                        // If there is no active thought sub-expander, create one
+                        let mut cur_thought = target.active_thought_expander.borrow_mut();
+                        if cur_thought.is_none() {
+                            let item_expander = gtk4::Expander::builder()
+                                .label("Thinking...")
+                                .css_classes(["timeline-sub-expander", "thought-sub-item"])
+                                .expanded(true)
+                                .build();
+                            let item_label = gtk4::Label::builder()
+                                .selectable(true)
+                                .wrap(true)
+                                .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                                .width_chars(10)
+                                .max_width_chars(0)
+                                .xalign(0.0)
+                                .css_classes(["timeline-item-text", "thought-text"])
+                                .build();
+                            item_expander.set_child(Some(&item_label));
+                            target.timeline_box.append(&item_expander);
+                            *cur_thought = Some((
+                                item_expander,
+                                item_label,
+                                Rc::new(RefCell::new(String::new())),
+                            ));
+                        }
+
+                        if let Some((ref exp, ref lbl, ref txt)) = *cur_thought {
+                            let mut t = txt.borrow_mut();
+                            t.push_str(&delta);
+                            lbl.set_text(&t);
+                            let elapsed = target.start_time.elapsed().as_secs();
+                            exp.set_label(Some(&format!("Thought for {}s ›", elapsed.max(1))));
+                        }
                     }
                     scroll_fn();
                 }
                 StreamEvent::ToolCall { name, args } => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
-                        target.tools_expander.set_visible(true);
-                        let item_row = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-                        item_row.add_css_class("tool-call-row");
+                        target.parent_expander.set_visible(true);
+                        target.steps_expander.set_visible(true);
 
-                        let header_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-                        let tool_badge = gtk4::Label::builder()
-                            .label(format!("Tool: {}", name))
-                            .css_classes(["tool-badge"])
-                            .xalign(0.0)
+                        // Close active thinking block on tool execution
+                        if let Some((ref exp, _, _)) = *target.active_thought_expander.borrow() {
+                            exp.set_expanded(false);
+                        }
+                        *target.active_thought_expander.borrow_mut() = None;
+
+                        target.tool_count.set(target.tool_count.get() + 1);
+                        let steps_lbl = format!(
+                            "Explored files, ran {} command(s) ▾",
+                            target.tool_count.get()
+                        );
+                        target.steps_expander.set_label(Some(&steps_lbl));
+
+                        let tool_expander = gtk4::Expander::builder()
+                            .label(format!("Ran tool: {} ›", name))
+                            .css_classes(["timeline-sub-expander", "tool-sub-item"])
+                            .expanded(false)
                             .build();
-                        header_row.append(&tool_badge);
-                        item_row.append(&header_row);
 
                         let args_label = gtk4::Label::builder()
                             .label(&args)
@@ -1045,11 +1098,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                             .width_chars(10)
                             .max_width_chars(0)
                             .xalign(0.0)
-                            .css_classes(["tool-args-text"])
+                            .css_classes(["timeline-item-text", "tool-args-text"])
                             .build();
-                        item_row.append(&args_label);
-
-                        target.tools_box.append(&item_row);
+                        tool_expander.set_child(Some(&args_label));
+                        target.timeline_box.append(&tool_expander);
                     }
                     scroll_fn();
                 }
@@ -1087,8 +1139,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 StreamEvent::Done => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
                         // Collapse thought and tool expanders automatically once done (clean Open-WebUI standard)
-                        target.thought_expander.set_expanded(false);
-                        target.tools_expander.set_expanded(false);
+                        target.parent_expander.set_expanded(false);
+                        target.steps_expander.set_expanded(false);
                     }
                     status_clone.set_text("ready");
                     status_clone.remove_css_class("working");
@@ -1230,38 +1282,31 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             asst_header.append(&btn_copy);
             asst_bubble.append(&asst_header);
 
-            // Open-WebUI Style Separate Collapsible Thought Box
-            let thought_expander = gtk4::Expander::builder()
-                .label("Thought Process")
-                .css_classes(["thought-expander"])
+            // Antigravity-Style Nested Timeline Collapsible Box
+            let parent_expander = gtk4::Expander::builder()
+                .label("Working... ▾")
+                .css_classes(["antigravity-parent-expander"])
                 .expanded(true)
                 .visible(false)
                 .build();
 
-            let thought_label = gtk4::Label::builder()
-                .selectable(true)
-                .wrap(true)
-                .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                .width_chars(10)
-                .max_width_chars(0)
-                .xalign(0.0)
-                .css_classes(["thought-text"])
-                .build();
-            thought_expander.set_child(Some(&thought_label));
-            asst_bubble.append(&thought_expander);
+            let parent_content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+            parent_content_box.add_css_class("antigravity-parent-content");
 
-            // Open-WebUI Style Separate Collapsible Tool Executions Box
-            let tools_expander = gtk4::Expander::builder()
-                .label("Tool Executions")
-                .css_classes(["tools-expander"])
+            let steps_expander = gtk4::Expander::builder()
+                .label("Explored files, ran commands ▾")
+                .css_classes(["antigravity-steps-expander"])
                 .expanded(true)
                 .visible(false)
                 .build();
 
-            let tools_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-            tools_box.add_css_class("tools-container");
-            tools_expander.set_child(Some(&tools_box));
-            asst_bubble.append(&tools_expander);
+            let timeline_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+            timeline_box.add_css_class("antigravity-timeline-list");
+            steps_expander.set_child(Some(&timeline_box));
+            parent_content_box.append(&steps_expander);
+
+            parent_expander.set_child(Some(&parent_content_box));
+            asst_bubble.append(&parent_expander);
 
             let divider = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
             divider.add_css_class("bubble-divider");
@@ -1281,7 +1326,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             messages_box.append(&asst_row);
 
             let full_text = Rc::new(RefCell::new(String::new()));
-            let thinking_text = Rc::new(RefCell::new(String::new()));
+
             let copy_text_ref = full_text.clone();
             let copy_btn_clone = btn_copy.clone();
             btn_copy.connect_clicked(move |_| {
@@ -1298,13 +1343,14 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
             *active_stream.borrow_mut() = Some(ActiveStreamTarget {
                 label: asst_label.clone(),
-                thought_expander: thought_expander.clone(),
-                thought_label: thought_label.clone(),
-                tools_expander: tools_expander.clone(),
-                tools_box: tools_box.clone(),
+                parent_expander: parent_expander.clone(),
+                steps_expander: steps_expander.clone(),
+                timeline_box: timeline_box.clone(),
+                active_thought_expander: Rc::new(RefCell::new(None)),
+                start_time: std::time::Instant::now(),
                 metrics_badge: metrics_badge.clone(),
                 full_text: full_text.clone(),
-                thinking_text: thinking_text.clone(),
+                tool_count: Rc::new(Cell::new(0)),
             });
 
             scroll_fn();
@@ -1322,7 +1368,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 let err_str = format!("[Error] Failed to spawn pi: {}", e);
                 full_text.borrow_mut().push_str(&err_str);
                 format::apply_assistant_markup(&asst_label, &err_str);
-                thought_expander.set_expanded(false);
+                parent_expander.set_expanded(false);
                 status_label.set_text("error");
                 status_label.remove_css_class("working");
                 scroll_fn();
