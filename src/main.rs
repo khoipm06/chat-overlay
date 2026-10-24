@@ -170,7 +170,7 @@ fn main() -> glib::ExitCode {
     });
 
     // Auto-register KDE global shortcut Ctrl+Alt+L if on KDE Plasma
-    ensure_kde_global_shortcut();
+    ensure_desktop_integration();
 
     // Initialize Tokio runtime for background IPC and subprocesses
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -201,7 +201,7 @@ fn main() -> glib::ExitCode {
     app.run()
 }
 
-fn ensure_kde_global_shortcut() {
+fn ensure_desktop_integration() {
     let desktop_dir = match std::env::var("XDG_DATA_HOME") {
         Ok(d) => std::path::PathBuf::from(d).join("applications"),
         Err(_) => match std::env::var("HOME") {
@@ -305,28 +305,43 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     root_box.set_halign(gtk4::Align::End);
     root_box.set_vexpand(true);
 
-    // Multi-directional Resize Frame Container
-    // Left edge resize handle
+    // Multi-directional 8-Way Resize Frame Container
+    // Left column: NW corner, West edge, SW corner
+    let left_col = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    left_col.set_width_request(12);
+    left_col.set_vexpand(true);
+
+    let resize_handle_nw = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_handle_nw.add_css_class("resize-corner");
+    resize_handle_nw.set_cursor_from_name(Some("nwse-resize"));
+    resize_handle_nw.set_size_request(12, 12);
+    left_col.append(&resize_handle_nw);
+
     let resize_handle_w = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     resize_handle_w.add_css_class("resize-handle");
     resize_handle_w.set_cursor_from_name(Some("ew-resize"));
-    resize_handle_w.set_width_request(12);
     resize_handle_w.set_vexpand(true);
 
-    // Visual grip bar
-    let resize_grip = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    resize_grip.add_css_class("resize-grip");
-    resize_grip.set_valign(gtk4::Align::Center);
-    resize_grip.set_vexpand(true);
-    resize_handle_w.append(&resize_grip);
+    let resize_grip_w = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_grip_w.add_css_class("resize-grip");
+    resize_grip_w.set_valign(gtk4::Align::Center);
+    resize_grip_w.set_vexpand(true);
+    resize_handle_w.append(&resize_grip_w);
+    left_col.append(&resize_handle_w);
 
-    root_box.append(&resize_handle_w);
+    let resize_handle_sw = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_handle_sw.add_css_class("resize-corner");
+    resize_handle_sw.set_cursor_from_name(Some("nesw-resize"));
+    resize_handle_sw.set_size_request(12, 12);
+    left_col.append(&resize_handle_sw);
 
-    // Center Vertical Box holding top handle, drawer, bottom handle
+    root_box.append(&left_col);
+
+    // Center Vertical Box holding North handle, drawer, South handle
     let center_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     center_box.set_vexpand(true);
 
-    // Top edge resize handle
+    // Top edge resize handle (North)
     let resize_handle_n = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     resize_handle_n.add_css_class("resize-handle-horiz");
     resize_handle_n.set_cursor_from_name(Some("ns-resize"));
@@ -590,11 +605,20 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
     root_box.append(&center_box);
 
-    // Right edge resize handle (East Handle)
+    // Right column: NE corner, East edge, SE corner
+    let right_col = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    right_col.set_width_request(12);
+    right_col.set_vexpand(true);
+
+    let resize_handle_ne = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_handle_ne.add_css_class("resize-corner");
+    resize_handle_ne.set_cursor_from_name(Some("nesw-resize"));
+    resize_handle_ne.set_size_request(12, 12);
+    right_col.append(&resize_handle_ne);
+
     let resize_handle_e = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     resize_handle_e.add_css_class("resize-handle");
     resize_handle_e.set_cursor_from_name(Some("ew-resize"));
-    resize_handle_e.set_width_request(12);
     resize_handle_e.set_vexpand(true);
 
     let resize_grip_e = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -602,8 +626,15 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     resize_grip_e.set_valign(gtk4::Align::Center);
     resize_grip_e.set_vexpand(true);
     resize_handle_e.append(&resize_grip_e);
+    right_col.append(&resize_handle_e);
 
-    root_box.append(&resize_handle_e);
+    let resize_handle_se = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    resize_handle_se.add_css_class("resize-corner");
+    resize_handle_se.set_cursor_from_name(Some("nwse-resize"));
+    resize_handle_se.set_size_request(12, 12);
+    right_col.append(&resize_handle_se);
+
+    root_box.append(&right_col);
     window.set_child(Some(&root_box));
 
     let state = Rc::new(RefCell::new(AppState {
@@ -782,6 +813,189 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             window_drag_e.queue_resize();
         });
         resize_handle_e.add_controller(drag_gesture_e);
+    }
+
+    // Corner Resize Gestures (NW, NE, SW, SE)
+    // NW: adjusts width from left (offset_x) and top margin (offset_y)
+    {
+        let drag_nw = gtk4::GestureDrag::new();
+        let init_w = Rc::new(Cell::new(initial_settings.width));
+        let init_top = Rc::new(Cell::new(12));
+        let iw = init_w.clone();
+        let it = init_top.clone();
+        let state_nw = state.clone();
+        drag_nw.connect_drag_begin(move |_, _, _| {
+            let st = state_nw.borrow();
+            iw.set(st.settings.width);
+            it.set(st.top_margin);
+        });
+
+        let drawer_nw = drawer.clone();
+        let window_nw = window.clone();
+        let iw_u = init_w.clone();
+        let it_u = init_top.clone();
+        let state_u_nw = state.clone();
+        drag_nw.connect_drag_update(move |_, offset_x, offset_y| {
+            let target_w =
+                (iw_u.get() - offset_x as i32).clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
+            let target_top = (it_u.get() + offset_y as i32).clamp(8, 600);
+            let mut st = state_u_nw.borrow_mut();
+            st.settings.width = target_w;
+            st.settings.margin_top = target_top;
+            st.top_margin = target_top;
+            let _ = st.settings.save();
+            drawer_nw.set_width_request(target_w);
+            if target_w < 420 {
+                drawer_nw.add_css_class("compact-mode");
+            } else {
+                drawer_nw.remove_css_class("compact-mode");
+            }
+            overlay::update_margins(
+                &window_nw,
+                target_top,
+                st.bottom_margin,
+                st.settings.margin_right,
+            );
+            window_nw.set_default_size(target_w + 24, -1);
+            window_nw.queue_resize();
+        });
+        resize_handle_nw.add_controller(drag_nw);
+    }
+
+    // NE: adjusts width from right (offset_x) and top margin (offset_y)
+    {
+        let drag_ne = gtk4::GestureDrag::new();
+        let init_w = Rc::new(Cell::new(initial_settings.width));
+        let init_top = Rc::new(Cell::new(12));
+        let iw = init_w.clone();
+        let it = init_top.clone();
+        let state_ne = state.clone();
+        drag_ne.connect_drag_begin(move |_, _, _| {
+            let st = state_ne.borrow();
+            iw.set(st.settings.width);
+            it.set(st.top_margin);
+        });
+
+        let drawer_ne = drawer.clone();
+        let window_ne = window.clone();
+        let iw_u = init_w.clone();
+        let it_u = init_top.clone();
+        let state_u_ne = state.clone();
+        drag_ne.connect_drag_update(move |_, offset_x, offset_y| {
+            let target_w =
+                (iw_u.get() + offset_x as i32).clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
+            let target_top = (it_u.get() + offset_y as i32).clamp(8, 600);
+            let mut st = state_u_ne.borrow_mut();
+            st.settings.width = target_w;
+            st.settings.margin_top = target_top;
+            st.top_margin = target_top;
+            let _ = st.settings.save();
+            drawer_ne.set_width_request(target_w);
+            if target_w < 420 {
+                drawer_ne.add_css_class("compact-mode");
+            } else {
+                drawer_ne.remove_css_class("compact-mode");
+            }
+            overlay::update_margins(
+                &window_ne,
+                target_top,
+                st.bottom_margin,
+                st.settings.margin_right,
+            );
+            window_ne.set_default_size(target_w + 24, -1);
+            window_ne.queue_resize();
+        });
+        resize_handle_ne.add_controller(drag_ne);
+    }
+
+    // SW: adjusts width from left (offset_x) and bottom margin (offset_y)
+    {
+        let drag_sw = gtk4::GestureDrag::new();
+        let init_w = Rc::new(Cell::new(initial_settings.width));
+        let init_bot = Rc::new(Cell::new(12));
+        let iw = init_w.clone();
+        let ib = init_bot.clone();
+        let state_sw = state.clone();
+        drag_sw.connect_drag_begin(move |_, _, _| {
+            let st = state_sw.borrow();
+            iw.set(st.settings.width);
+            ib.set(st.bottom_margin);
+        });
+
+        let drawer_sw = drawer.clone();
+        let window_sw = window.clone();
+        let iw_u = init_w.clone();
+        let ib_u = init_bot.clone();
+        let state_u_sw = state.clone();
+        drag_sw.connect_drag_update(move |_, offset_x, offset_y| {
+            let target_w =
+                (iw_u.get() - offset_x as i32).clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
+            let target_bot = (ib_u.get() - offset_y as i32).clamp(8, 600);
+            let mut st = state_u_sw.borrow_mut();
+            st.settings.width = target_w;
+            st.bottom_margin = target_bot;
+            let _ = st.settings.save();
+            drawer_sw.set_width_request(target_w);
+            if target_w < 420 {
+                drawer_sw.add_css_class("compact-mode");
+            } else {
+                drawer_sw.remove_css_class("compact-mode");
+            }
+            overlay::update_margins(
+                &window_sw,
+                st.top_margin,
+                target_bot,
+                st.settings.margin_right,
+            );
+            window_sw.set_default_size(target_w + 24, -1);
+            window_sw.queue_resize();
+        });
+        resize_handle_sw.add_controller(drag_sw);
+    }
+
+    // SE: adjusts width from right (offset_x) and bottom margin (offset_y)
+    {
+        let drag_se = gtk4::GestureDrag::new();
+        let init_w = Rc::new(Cell::new(initial_settings.width));
+        let init_bot = Rc::new(Cell::new(12));
+        let iw = init_w.clone();
+        let ib = init_bot.clone();
+        let state_se = state.clone();
+        drag_se.connect_drag_begin(move |_, _, _| {
+            let st = state_se.borrow();
+            iw.set(st.settings.width);
+            ib.set(st.bottom_margin);
+        });
+
+        let drawer_se = drawer.clone();
+        let window_se = window.clone();
+        let iw_u = init_w.clone();
+        let ib_u = init_bot.clone();
+        let state_u_se = state.clone();
+        drag_se.connect_drag_update(move |_, offset_x, offset_y| {
+            let target_w =
+                (iw_u.get() + offset_x as i32).clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
+            let target_bot = (ib_u.get() - offset_y as i32).clamp(8, 600);
+            let mut st = state_u_se.borrow_mut();
+            st.settings.width = target_w;
+            st.bottom_margin = target_bot;
+            let _ = st.settings.save();
+            drawer_se.set_width_request(target_w);
+            if target_w < 420 {
+                drawer_se.add_css_class("compact-mode");
+            } else {
+                drawer_se.remove_css_class("compact-mode");
+            }
+            overlay::update_margins(
+                &window_se,
+                st.top_margin,
+                target_bot,
+                st.settings.margin_right,
+            );
+            window_se.set_default_size(target_w + 24, -1);
+            window_se.queue_resize();
+        });
+        resize_handle_se.add_controller(drag_se);
     }
 
     let active_stream: Rc<RefCell<Option<ActiveStreamTarget>>> = Rc::new(RefCell::new(None));
