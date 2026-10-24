@@ -1160,4 +1160,61 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_codeblock_with_nested_backticks_and_fence_collision() {
+        let code_cases = [
+            // 4 backticks outer fence containing 3 backticks inner fence
+            ("markdown", "````markdown\n```rust\nfn inner() {}\n```\n````"),
+            // 5 backticks outer fence containing 4 backticks inner fence
+            ("markdown", "`````markdown\n````rust\nfn deeper() {}\n````\n`````"),
+            // Code with lines starting with backticks
+            ("bash", "```bash\n`whoami` && `hostname`\n```"),
+            // Inline code with triple backtick inside
+            ("text", "```\nHere is a string with ``` inside it\n```"),
+            // Codeblock with trailing spaces after closing fence
+            ("python", "```python\nx = 1\n```   "),
+            // Codeblock with language containing dot or version
+            ("vue.js", "```vue.js\n<template><div>Hello</div></template>\n```"),
+            ("c++20", "```c++20\nauto concept Integral = std::is_integral_v<T>;\n```"),
+        ];
+
+        for (lang, code) in code_cases {
+            let markup = format_markdown_to_pango(code);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Nested backtick case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_math_block_with_complex_environments_and_align() {
+        let math_env_cases = [
+            // LaTeX align environment with & column separators and \\ row breaks
+            "$$\n\\begin{align}\n  f(x) &= (x + 1)^2 \\\\\n       &= x^2 + 2x + 1\n\\end{align}\n$$",
+            // Cases environment for piecewise functions
+            "$$\nf(x) = \\begin{cases}\n  1, & \\text{if } x \\ge 0 \\\\\n  0, & \\text{otherwise}\n\\end{cases}\n$$",
+            // Matrix with determinants and absolute values
+            "$$\n\\det(\\mathbf{A}) = \\begin{vmatrix}\n  a & b \\\\\n  c & d\n\\end{vmatrix} = ad - bc\n$$",
+            // Unclosed math environment
+            "$$\n\\begin{matrix}\n  1 & 2 \\\\\n  3 & 4\n",
+        ];
+
+        for c in math_env_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Math environment case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
