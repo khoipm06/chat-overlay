@@ -2381,4 +2381,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_stochastic_calculus_and_black_scholes() {
+        let stoch_cases = [
+            // Black-Scholes partial differential equation
+            "$$\n\\frac{\\partial V}{\\partial t} + \\frac{1}{2} \\sigma^2 S^2 \\frac{\\partial^2 V}{\\partial S^2} + r S \\frac{\\partial V}{\\partial S} - r V = 0\n$$",
+            // Itô's Lemma formula
+            "$$\ndf(t, X_t) = \\left( \\frac{\\partial f}{\\partial t} + \\mu_t \\frac{\\partial f}{\\partial x} + \\frac{1}{2} \\sigma_t^2 \\frac{\\partial^2 f}{\\partial x^2} \\right) dt + \\sigma_t \\frac{\\partial f}{\\partial x} dW_t\n$$",
+            // Geometric Brownian motion SDE and solution
+            "$$\ndS_t = \\mu S_t dt + \\sigma S_t dW_t \\implies S_t = S_0 \\exp\\left( \\left(\\mu - \\frac{\\sigma^2}{2}\\right)t + \\sigma W_t \\right)\n$$",
+            // Fokker-Planck / Kolmogorov forward equation
+            "$$\n\\frac{\\partial p(x,t)}{\\partial t} = -\\frac{\\partial}{\\partial x} [\\mu(x,t) p(x,t)] + \\frac{\\partial^2}{\\partial x^2} [D(x,t) p(x,t)]\n$$",
+            // Feynman-Kac formula
+            "$$\nu(x, t) = \\mathbb{E}^x \\left[ \\exp\\left( -\\int_t^T V(X_s) ds \\right) \\psi(X_T) \\right]\n$$",
+        ];
+
+        for c in stoch_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Stochastic calculus LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_systems_programming_zig_and_nim() {
+        let sys_cases = [
+            // Zig memory allocation and defer
+            ("zig", "const std = @import(\"std\");\n\npub fn main() !void {\n    var gpa = std.heap.GeneralPurposeAllocator(.{}){};\n    defer _ = gpa.deinit();\n    const allocator = gpa.allocator();\n\n    const list = try allocator.alloc(u32, 100);\n    defer allocator.free(list);\n    @memset(list, 42);\n}"),
+            // Nim macros, pragmas and templates
+            ("nim", "import strformat, os\n\ntype\n  Person = object\n    name*: string\n    age*: int\n\nproc greet(p: Person) {.inline.} =\n  echo fmt\"Hello, {p.name}! Age: {p.age}\"\n\nwhen isMainModule:\n  let user = Person(name: \"Pi\", age: 1)\n  user.greet()"),
+        ];
+
+        for (lang, code) in sys_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Systems codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
