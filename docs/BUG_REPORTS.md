@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 15:00:00 +0700
-- **Commit thẩm định**: `faa9049` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **61/61 PASSED** (0 failed, 0 ignored, 0.25s).
+- **Thời điểm kiểm chứng**: 2026-10-24 15:05:00 +0700
+- **Commit thẩm định**: `4ebc491` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **63/63 PASSED** (0 failed, 0 ignored, 0.22s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 61 tests bao phủ ký tự pipe `|` escaped trong ô bảng, chuẩn ma trận `||A||_F`, và thụt dòng hỗn hợp tab/spaces lồng 6 tầng.
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 63 tests bao phủ công thức hóa học/đa thức đại số sub/sup (glucose, ion PO~4~^3-^), và xác thực 100% tính hợp lệ màu sắc HEX `#RRGGBB` của bộ syntax highlighter.
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -131,7 +131,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Multiline Mixed Prose & Unseparated Blocks (`test_fuzz_multiline_mixed_prose_and_code_blocks`): Kiểm thử văn bản xuôi xen kẽ các khối code/table xuất hiện trực tiếp không có dòng trắng cách ly.
   - Table Pipe Escaping & Formulas in Cells (`test_fuzz_markdown_table_escaping_and_pipe_in_code_cells`): Kiểm thử ô bảng chứa lệnh shell có pipe (`cat file \| grep ok`), chaining logic (`\|\|`), ô trống chỉ có khoảng trắng, bảng có cột phân tách đôi `||`, và công thức toán chứa dấu giá trị tuyệt đối / chuẩn vector ($|x - y|$, $\|\mathbf{v}\|_2$).
   - Deep Indentation Mixed Spaces and Tabs (`test_fuzz_deep_indentation_tabs_and_spaces_mix`): Kiểm thử mã thụt lề sâu bằng tab `\t`, hỗn hợp space và tab, danh sách đa tầng thụt lề 8 space và dòng trống có khoảng trắng dư thừa.
-- **Kết quả**: `PASSED` (61/61 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Chemical Formulas & Adjacent Sub/Superscripts (`test_fuzz_superscript_subscript_chemical_and_algebraic`): Kiểm thử công thức hóa học hữu cơ đa chỉ số (Glucose $C_6H_{12}O_6$), ion điện tích ($PO_4^{3-}$, $Ca^{2+}$), đa thức đại số $a_n x^n$, và các ký tự `~`, `^` mồ côi hoặc rỗng.
+  - Palette Hex Code Validity & Contrast Integrity (`test_fuzz_syntax_color_palette_contrast_and_accessibility`): Kiểm thử 100% mã màu hex `#RRGGBB` sinh ra từ bộ tô màu cú pháp `syntax.rs` đáp ứng tiêu chuẩn Pango markup và Antigravity palette.
+- **Kết quả**: `PASSED` (63/63 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
