@@ -145,7 +145,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Complex SQL Queries, Joins & Partitions (`test_fuzz_sql_complex_syntax_joins_and_subqueries`): Kiểm thử truy vấn SQL phức tạp kết hợp `LEFT JOIN`, `GROUP BY`, `HAVING`, mệnh đề `ON CONFLICT DO UPDATE`, và cú pháp tạo bảng phân vùng `PARTITION BY RANGE`.
   - Statistical & Probability Distributions (`test_fuzz_latex_statistical_and_probability_distributions`): Kiểm thử hàm mật độ xác suất Gaussian/Normal distribution, định lý Bayes và kỳ vọng có điều kiện $\mathbb{E}[X|Y]$, phân phối Poisson, phân phối nhị thức tổ hợp $\binom{n}{k}$, và ma trận hiệp phương sai đa biến $\mathbf{\Sigma}$.
   - Indented Nested Code Blocks in Lists (`test_fuzz_indented_nested_codeblock_and_list_interleaving`): Kiểm thử khối codeblock lồng bên trong mục danh sách gạch đầu dòng, danh sách đánh số có thụt dòng 3 ký tự, và danh sách công việc checklist chứa JSON config.
-- **Kết quả**: `PASSED` (75/75 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Classical & Quantum Mechanics Field Theory (`test_fuzz_latex_physics_lagrangian_hamiltonian_and_quantum_field`): Kiểm thử phương trình chuyển động Euler-Lagrange, cơ học Hamilton và ngoặc Poisson $\{f, g\}$, phương trình Dirac hiệp biến với ma trận gamma $\gamma^\mu$, tích phân đường lượng tử QFT $\mathcal{Z}$, và dạng vi phân phương trình Maxwell ($dF = 0, d{*F} = {*J}$).
+  - Configuration Codeblocks Dockerfile & YAML (`test_fuzz_codeblock_with_dockerfile_and_yaml_configurations`): Kiểm thử multi-stage Dockerfile (`FROM AS builder`), manifest triển khai Kubernetes Deployment và cấu hình CI workflow GitHub Actions.
+- **Kết quả**: `PASSED` (77/77 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
