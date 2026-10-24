@@ -799,4 +799,57 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_fuzz_utf8_multibyte_boundary_splitting() {
+        // Test chunk boundaries splitting inside complex UTF-8 multibyte characters
+        // (4-byte emojis, 3-byte CJK/Vietnamese, combining diacritics)
+        let sample = "🦀 Trí tuệ nhân tạo Tiếng Việt 🚀 漢字 (かんじ) \u{1F9D1}\u{200D}\u{1F4BB} (Technologist)";
+        let bytes = sample.as_bytes();
+
+        for len in 1..=bytes.len() {
+            let partial_bytes = &bytes[..len];
+            // Lossy decode simulates reading raw byte stream across socket boundaries
+            let decoded = String::from_utf8_lossy(partial_bytes);
+            let markup = format_markdown_to_pango(&decoded);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "UTF-8 multibyte boundary render failed at len {}:\nString: {:?}\nMarkup: {:?}\nError: {:?}",
+                len,
+                decoded,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_html_raw_tags_and_attribute_injection() {
+        let tag_cases = [
+            "<a href=\"https://example.com\" target=\"_blank\">Link</a>",
+            "<img src=\"x\" onerror=\"alert(1)\" />",
+            "<font color=\"red\" size=\"+2\">Colored font</font>",
+            "<span style=\"color: red; font-size: 20px;\">Inline CSS</span>",
+            "<!-- HTML comment with <embedded> tags and -- dashes -->",
+            "<input type=\"text\" value=\"test\" />",
+            "<iframe src=\"https://evil.com\"></iframe>",
+            "<br><hr><wbr>",
+            "<custom-element attribute=\"value\">Custom</custom-element>",
+            "Unclosed <tag with attr=\"val\" without close",
+            "Mismatched <b><i>bold and italic</b></i>",
+        ];
+
+        for c in tag_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "HTML raw tag injection failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
