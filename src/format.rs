@@ -2997,4 +2997,57 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_symplectic_geometry_and_classical_mechanics() {
+        let symp_cases = [
+            // Symplectic form definition and non-degeneracy
+            "$$\n\\omega = \\sum_{i=1}^n dp_i \\wedge dq_i, \\quad d\\omega = 0, \\quad \\omega^n \\neq 0\n$$",
+            // Hamiltonian vector field and interior product
+            "$$\n\\iota_{X_H} \\omega = -dH, \\quad \\omega(X_f, X_g) = \\{f, g\\}\n$$",
+            // Darboux's theorem and canonical coordinates
+            "$$\n\\omega = \\sum_{i=1}^n dx^i \\wedge dy^i, \\quad \\omega(u, v) = u^T \\mathbf{J} v, \\; \\mathbf{J} = \\begin{pmatrix} \\mathbf{0} & \\mathbf{I} \\\\ -\\mathbf{I} & \\mathbf{0} \\end{pmatrix}\n$$",
+            // Symplectic group condition
+            "$$\n\\mathbf{M}^T \\mathbf{J} \\mathbf{M} = \\mathbf{J}, \\quad \\mathbf{M} \\in \\operatorname{Sp}(2n, \\mathbb{R})\n$$",
+            // Liouville's theorem on phase space volume conservation
+            "$$\n\\mathcal{L}_{X_H} (\\omega^n) = 0, \\quad \\operatorname{div}(X_H) = 0\n$$",
+        ];
+
+        for c in symp_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Symplectic geometry LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_data_processing_awk_sed_and_jq() {
+        let text_dsl_cases = [
+            // AWK associative arrays and field separators
+            ("awk", "BEGIN { FS = \",\"; OFS = \"\\t\"; total = 0 }\nNR > 1 && $4 == \"active\" {\n    count[$2]++\n    total += $3\n}\nEND {\n    for (user in count) {\n        print user, count[user]\n    }\n    printf(\"Total Score: %.2f\\n\", total)\n}"),
+            // Sed regular expression substitution and hold space
+            ("sed", "#!/usr/bin/sed -f\n# Swap two lines using hold buffer\n1{h;d}\n2{H;g}\n# Regex replace XML tags\ns/<[^>]*>//g\ns/&amp;/\\&/g"),
+            // jq JSON filtering and transformation expressions
+            ("jq", "# jq transform array of events\n.events\n| map(select(.type == \"message_update\"))\n| [ .[] | { delta: .assistantMessageEvent.delta, time: .timestamp } ]\n| sort_by(.time)"),
+        ];
+
+        for (lang, code) in text_dsl_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Text DSL codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
