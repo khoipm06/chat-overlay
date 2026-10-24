@@ -3512,4 +3512,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_general_equilibrium_and_macroeconomics() {
+        let macro_cases = [
+            // Ramsey-Cass-Koopmans optimal consumption Euler equation
+            "$$\n\\frac{\\dot{c}(t)}{c(t)} = \\frac{1}{\\theta} \\left( f'(k(t)) - \\delta - \\rho \\right)\n$$",
+            // Arrow-Debreu general equilibrium market clearing
+            "$$\n\\sum_{i=1}^I x_i^l(p^*) = \\sum_{i=1}^I \\omega_i^l + \\sum_{j=1}^J y_j^l(p^*) \\quad \\forall l = 1, \\dots, L\n$$",
+            // Dynamic Stochastic General Equilibrium (DSGE) New Keynesian Phillips Curve
+            "$$\n\\pi_t = \\beta \\mathbb{E}_t[\\pi_{t+1}] + \\kappa (y_t - y_t^n) + u_t\n$$",
+            // Taylor rule for monetary policy interest rate setting
+            "$$\ni_t = r^* + \\pi_t + 0.5 (\\pi_t - \\pi^*) + 0.5 (y_t - \\bar{y}_t)\n$$",
+            // Solow-Swan capital accumulation fundamental equation
+            "$$\n\\dot{k} = s f(k) - (n + g + \\delta) k\n$$",
+        ];
+
+        for c in macro_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Macroeconomics LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_formal_hardware_chisel_and_spinalhdl() {
+        let hdl_scala_cases = [
+            // Chisel 3 / Scala hardware generation language
+            ("scala", "// Chisel 3 hardware module\nimport chisel3._\nimport chisel3.util._\n\nclass MacUnit(val w: Int) extends Module {\n  val io = IO(new Bundle {\n    val a   = Input(UInt(w.W))\n    val b   = Input(UInt(w.W))\n    val acc = Input(UInt((2 * w).W))\n    val out = Output(UInt((2 * w).W))\n  })\n  io.out := RegNext(io.a * io.b + io.acc)\n}"),
+            // SpinalHDL hardware description language
+            ("scala", "// SpinalHDL synchronous FIFO\nimport spinal.core._\nimport spinal.lib._\n\nclass StreamFifo[T <: Data](dataType: T, depth: Int) extends Component {\n  val io = new Bundle {\n    val push = slave Stream(dataType)\n    val pop  = master Stream(dataType)\n  }\n  val logic = new Area {\n    val mem = Mem(dataType, depth)\n  }\n}"),
+        ];
+
+        for (lang, code) in hdl_scala_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Chisel/SpinalHDL codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
