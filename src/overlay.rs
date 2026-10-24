@@ -7,7 +7,7 @@ pub fn init_layer_shell(window: &gtk4::ApplicationWindow) {
         window.init_layer_shell();
         window.set_namespace("pi-ephemeral-overlay");
         window.set_layer(Layer::Top);
-        window.set_exclusive_zone(0);
+        window.set_exclusive_zone(-1);
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
         window.set_visible(false);
     } else {
@@ -30,7 +30,7 @@ pub fn expand_overlay(
         window.set_anchor(Edge::Bottom, true);
         window.set_margin(Edge::Right, right_margin.max(0));
         window.set_margin(Edge::Top, top_margin.max(8));
-        window.set_margin(Edge::Bottom, bottom_margin.max(54));
+        window.set_margin(Edge::Bottom, bottom_margin.max(0));
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::OnDemand);
     }
     window.set_visible(true);

@@ -835,23 +835,24 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             let target_w =
                 (iw_u.get() - offset_x as i32).clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
             let target_top = (it_u.get() + offset_y as i32).clamp(8, 600);
-            let mut st = state_u_nw.borrow_mut();
-            st.settings.width = target_w;
-            st.settings.margin_top = target_top;
-            st.top_margin = target_top;
-            let _ = st.settings.save();
             drawer_nw.set_width_request(target_w);
             if target_w < 420 {
                 drawer_nw.add_css_class("compact-mode");
             } else {
                 drawer_nw.remove_css_class("compact-mode");
             }
-            overlay::update_margins(
-                &window_nw,
-                target_top,
-                st.bottom_margin,
-                st.settings.margin_right,
-            );
+            let (bot, right) = {
+                let mut st = state_u_nw.borrow_mut();
+                st.settings.width = target_w;
+                st.settings.margin_top = target_top;
+                st.top_margin = target_top;
+                (st.bottom_margin, st.settings.margin_right)
+            };
+            overlay::update_margins(&window_nw, target_top, bot, right);
+        });
+        let state_nw_end = state.clone();
+        drag_nw.connect_drag_end(move |_, _, _| {
+            let _ = state_nw_end.borrow().settings.save();
         });
         resize_handle_nw.add_controller(drag_nw);
     }
@@ -879,23 +880,24 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             let target_w =
                 (iw_u.get() + offset_x as i32).clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
             let target_top = (it_u.get() + offset_y as i32).clamp(8, 600);
-            let mut st = state_u_ne.borrow_mut();
-            st.settings.width = target_w;
-            st.settings.margin_top = target_top;
-            st.top_margin = target_top;
-            let _ = st.settings.save();
             drawer_ne.set_width_request(target_w);
             if target_w < 420 {
                 drawer_ne.add_css_class("compact-mode");
             } else {
                 drawer_ne.remove_css_class("compact-mode");
             }
-            overlay::update_margins(
-                &window_ne,
-                target_top,
-                st.bottom_margin,
-                st.settings.margin_right,
-            );
+            let (bot, right) = {
+                let mut st = state_u_ne.borrow_mut();
+                st.settings.width = target_w;
+                st.settings.margin_top = target_top;
+                st.top_margin = target_top;
+                (st.bottom_margin, st.settings.margin_right)
+            };
+            overlay::update_margins(&window_ne, target_top, bot, right);
+        });
+        let state_ne_end = state.clone();
+        drag_ne.connect_drag_end(move |_, _, _| {
+            let _ = state_ne_end.borrow().settings.save();
         });
         resize_handle_ne.add_controller(drag_ne);
     }
@@ -923,22 +925,23 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             let target_w =
                 (iw_u.get() - offset_x as i32).clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
             let target_bot = (ib_u.get() - offset_y as i32).clamp(8, 600);
-            let mut st = state_u_sw.borrow_mut();
-            st.settings.width = target_w;
-            st.bottom_margin = target_bot;
-            let _ = st.settings.save();
             drawer_sw.set_width_request(target_w);
             if target_w < 420 {
                 drawer_sw.add_css_class("compact-mode");
             } else {
                 drawer_sw.remove_css_class("compact-mode");
             }
-            overlay::update_margins(
-                &window_sw,
-                st.top_margin,
-                target_bot,
-                st.settings.margin_right,
-            );
+            let (top, right) = {
+                let mut st = state_u_sw.borrow_mut();
+                st.settings.width = target_w;
+                st.bottom_margin = target_bot;
+                (st.top_margin, st.settings.margin_right)
+            };
+            overlay::update_margins(&window_sw, top, target_bot, right);
+        });
+        let state_sw_end = state.clone();
+        drag_sw.connect_drag_end(move |_, _, _| {
+            let _ = state_sw_end.borrow().settings.save();
         });
         resize_handle_sw.add_controller(drag_sw);
     }
@@ -966,22 +969,23 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             let target_w =
                 (iw_u.get() + offset_x as i32).clamp(settings::MIN_WIDTH, settings::MAX_WIDTH);
             let target_bot = (ib_u.get() - offset_y as i32).clamp(8, 600);
-            let mut st = state_u_se.borrow_mut();
-            st.settings.width = target_w;
-            st.bottom_margin = target_bot;
-            let _ = st.settings.save();
             drawer_se.set_width_request(target_w);
             if target_w < 420 {
                 drawer_se.add_css_class("compact-mode");
             } else {
                 drawer_se.remove_css_class("compact-mode");
             }
-            overlay::update_margins(
-                &window_se,
-                st.top_margin,
-                target_bot,
-                st.settings.margin_right,
-            );
+            let (top, right) = {
+                let mut st = state_u_se.borrow_mut();
+                st.settings.width = target_w;
+                st.bottom_margin = target_bot;
+                (st.top_margin, st.settings.margin_right)
+            };
+            overlay::update_margins(&window_se, top, target_bot, right);
+        });
+        let state_se_end = state.clone();
+        drag_se.connect_drag_end(move |_, _, _| {
+            let _ = state_se_end.borrow().settings.save();
         });
         resize_handle_se.add_controller(drag_se);
     }
