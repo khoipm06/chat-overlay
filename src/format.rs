@@ -2946,4 +2946,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_algebraic_number_theory_and_class_field_theory() {
+        let ant_cases = [
+            // Dedekind zeta function and analytic class number formula
+            "$$\n\\lim_{s \\to 1} (s - 1) \\zeta_K(s) = \\frac{2^{r_1} (2\\pi)^{r_2} h_K R_K}{w_K \\sqrt{|d_K|}}\n$$",
+            // Artin reciprocity law isomorphism in class field theory
+            "$$\n\\left( \\frac{L/K}{\\mathfrak{p}} \\right) \\in \\operatorname{Gal}(L/K), \\quad \\mathbb{A}_K^\\times / K^\\times \\operatorname{N}_{L/K}(\\mathbb{A}_L^\\times) \\cong \\operatorname{Gal}(L/K)^{\\mathrm{ab}}\n$$",
+            // Minkowski's bound on ideal classes
+            "$$\nM_K = \\frac{n!}{n^n} \\left( \\frac{4}{\\pi} \\right)^{r_2} \\sqrt{|d_K|}\n$$",
+            // Chebotarev density theorem
+            "$$\n\\lim_{x \\to \\infty} \\frac{\\#\\{ \\mathfrak{p} \\in \\operatorname{Spec}(\\mathcal{O}_K) : N(\\mathfrak{p}) \\le x, \\, \\left(\\frac{L/K}{\\mathfrak{p}}\\right) = C \\}}{\\#\\{ \\mathfrak{p} : N(\\mathfrak{p}) \\le x \\}} = \\frac{|C|}{[L:K]}\n$$",
+            // Hilbert class field and principal prime ideals
+            "$$\n\\operatorname{Cl}(K) \\cong \\operatorname{Gal}(H/K), \\quad \\mathfrak{p} \\mathcal{O}_H = (\\alpha)\n$$",
+        ];
+
+        for c in ant_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Algebraic number theory LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_audio_shader_dsp_glsl_and_supercollider() {
+        let dsp_cases = [
+            // GLSL fragment shader with uniforms and vector swizzling
+            ("glsl", "#version 330 core\nuniform vec2 u_resolution;\nuniform float u_time;\nout vec4 FragColor;\n\nvoid main() {\n    vec2 st = gl_FragCoord.xy / u_resolution.xy;\n    vec3 color = 0.5 + 0.5 * cos(u_time + st.xyx + vec3(0.0, 2.0, 4.0));\n    FragColor = vec4(color, 1.0);\n}"),
+            // SuperCollider synthdef audio synthesis
+            ("supercollider", "SynthDef(\\pi_ambient, {\n    arg out = 0, freq = 440, amp = 0.2, gate = 1;\n    var sig, env;\n    env = EnvGen.kr(Env.adsr(0.1, 0.2, 0.7, 1.5), gate, doneAction: 2);\n    sig = SinOsc.ar(freq * [1, 1.005]) * env * amp;\n    Out.ar(out, sig);\n}).add;"),
+        ];
+
+        for (lang, code) in dsp_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Audio/Shader codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
