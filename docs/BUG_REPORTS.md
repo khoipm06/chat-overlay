@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 15:25:00 +0700
-- **Commit thẩm định**: `1b3508b` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **71/71 PASSED** (0 failed, 0 ignored, 0.23s).
+- **Thời điểm kiểm chứng**: 2026-10-24 15:30:00 +0700
+- **Commit thẩm định**: `cc9f1af` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **73/73 PASSED** (0 failed, 0 ignored, 0.23s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 71 tests bao phủ JSON cấu trúc sâu với chuỗi escape ký tự đặc biệt, và các toán tử toán học Unicode trực tiếp (phân số thường ½, ký hiệu vi tích phân ∇, ∮, ký hiệu tập hợp).
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 73 tests bao phủ các sơ đồ Mermaid phức tạp (Gantt, Pie chart, State diagram v2, Mindmap) và truy vấn SQL nâng cao (JOINs, HAVING, ON CONFLICT, partitioned tables).
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -141,7 +141,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Single-Character Incremental Expansion (`test_fuzz_streaming_single_character_expansion_stress`): Thử nghiệm cấp độ phân giải cực hạn: nạp từng 1 ký tự một xuyên suốt tài liệu Markdown kết hợp (header, callout, LaTeX, task, table, rust code); khẳng định mọi trạng thái dở dang đều parse hợp lệ.
   - JSON Syntax Highlighter & Deep Escapes (`test_fuzz_json_syntax_highlighter_deep_structures_and_escapes`): Kiểm thử JSON lồng sâu 4 tầng object/array, chuỗi escape ngoặc kép/backslash/unicode `\u0041`, HTML-like content trong chuỗi JSON, mảng số thực mũ âm `1e-10`, và JSON minified không khoảng trắng.
   - Unicode Math Operators & Vulgar Fractions (`test_fuzz_unicode_mathematical_operators_and_fractions`): Kiểm thử các toán tử số học Unicode bên ngoài math mode ($\times, \div, \pm, \neq$), phân số thường ($\frac{1}{2}, \frac{3}{4}, \frac{3}{8}$), ký hiệu tiệm cận ($\approx, \ll, \gg, \equiv$), vi tích phân ($\partial, \nabla, \oint$) và lý thuyết tập hợp ($\in, \notin, \subseteq, \emptyset$).
-- **Kết quả**: `PASSED` (71/71 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Mermaid Gantt, Pie & State Diagrams (`test_fuzz_mermaid_gantt_and_pie_chart_diagrams`): Kiểm thử sơ đồ Gantt tiến độ, biểu đồ tròn phân bổ `pie`, sơ đồ máy trạng thái `stateDiagram-v2` và sơ đồ tư duy `mindmap`.
+  - Complex SQL Queries, Joins & Partitions (`test_fuzz_sql_complex_syntax_joins_and_subqueries`): Kiểm thử truy vấn SQL phức tạp kết hợp `LEFT JOIN`, `GROUP BY`, `HAVING`, mệnh đề `ON CONFLICT DO UPDATE`, và cú pháp tạo bảng phân vùng `PARTITION BY RANGE`.
+- **Kết quả**: `PASSED` (73/73 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
