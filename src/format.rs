@@ -2639,4 +2639,56 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_electromagnetism_and_maxwell_potential_gauge() {
+        let em_cases = [
+            // Maxwell equations with electric and magnetic fields in SI units
+            "$$\n\\nabla \\cdot \\mathbf{E} = \\frac{\\rho}{\\varepsilon_0}, \\quad \\nabla \\cdot \\mathbf{B} = 0\n$$",
+            "$$\n\\nabla \\times \\mathbf{E} = -\\frac{\\partial \\mathbf{B}}{\\partial t}, \\quad \\nabla \\times \\mathbf{B} = \\mu_0 \\mathbf{J} + \\mu_0 \\varepsilon_0 \\frac{\\partial \\mathbf{E}}{\\partial t}\n$$",
+            // Four-potential and electromagnetic field tensor F_munu
+            "$$\nF_{\\mu\\nu} = \\partial_\\mu A_\\nu - \\partial_\\nu A_\\mu, \\quad \\mathbf{E} = -\\nabla \\Phi - \\frac{\\partial \\mathbf{A}}{\\partial t}, \\quad \\mathbf{B} = \\nabla \\times \\mathbf{A}\n$$",
+            // Lorenz gauge and Coulomb gauge conditions
+            "$$\n\\partial_\\mu A^\\mu = 0, \\quad \\nabla \\cdot \\mathbf{A} = 0\n$$",
+            // Poynting vector and energy density
+            "$$\n\\mathbf{S} = \\frac{1}{\\mu_0} (\\mathbf{E} \\times \\mathbf{B}), \\quad u = \\frac{1}{2} \\left( \\varepsilon_0 |\\mathbf{E}|^2 + \\frac{1}{\\mu_0} |\\mathbf{B}|^2 \\right)\n$$",
+        ];
+
+        for c in em_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Electromagnetism LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_scientific_parallel_mpi_and_openmp() {
+        let parallel_cases = [
+            // C with OpenMP pragma directives
+            ("c", "#include <omp.h>\n#include <stdio.h>\n\nint main(void) {\n    int sum = 0;\n    #pragma omp parallel for reduction(+:sum) schedule(dynamic, 64)\n    for (int i = 0; i < 10000; i++) {\n        sum += i * i;\n    }\n    printf(\"Total: %d\\n\", sum);\n    return 0;\n}"),
+            // C++ with Message Passing Interface (MPI)
+            ("cpp", "#include <mpi.h>\n#include <iostream>\n\nint main(int argc, char** argv) {\n    MPI_Init(&argc, &argv);\n    int rank, size;\n    MPI_Comm_rank(MPI_COMM_WORLD, &rank);\n    MPI_Comm_size(MPI_COMM_WORLD, &size);\n    std::cout << \"Rank \" << rank << \" of \" << size << std::endl;\n    MPI_Finalize();\n    return 0;\n}"),
+            // Fortran 90 array syntax and DO CONCURRENT
+            ("fortran", "program parallel_array\n  implicit none\n  real, dimension(1000, 1000) :: A, B, C\n  call random_number(A)\n  call random_number(B)\n  do concurrent (integer :: i = 1:1000, integer :: j = 1:1000)\n    C(i, j) = A(i, j) + B(i, j)\n  end do\nend program parallel_array"),
+        ];
+
+        for (lang, code) in parallel_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Parallel scientific codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
