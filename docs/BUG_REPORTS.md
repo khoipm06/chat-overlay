@@ -35,14 +35,14 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 13:18:00 +0700
-- **Commit thẩm định**: `3416d79` (HEAD trên branch `feat/antigravity-workspace-and-timeline-standard`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **24/24 PASSED** (0 failed, 0 ignored, 0.00s).
-- **Trạng thái working tree**: Clean.
+- **Thời điểm kiểm chứng**: 2026-10-24 13:20:00 +0700
+- **Commit thẩm định**: `05f7f20` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **26/26 PASSED** (0 failed, 0 ignored, 0.00s).
+- **Trạng thái working tree**: Clean (`nothing to commit, working tree clean`).
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
-  3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp đầy đủ cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`.
+  3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`.
   4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác.
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
