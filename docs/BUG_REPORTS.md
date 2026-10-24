@@ -76,15 +76,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 14:30:00 +0700
-- **Commit thẩm định**: `fb31dd9` (HEAD trên branch `main`)
-- **Kết quả test suite**: `cargo test --all-targets` -> **49/49 PASSED** (0 failed, 0 ignored, 0.22s).
+- **Thời điểm kiểm chứng**: 2026-10-24 14:35:00 +0700
+- **Commit thẩm định**: `7065619` (HEAD trên branch `main`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **51/51 PASSED** (0 failed, 0 ignored, 0.22s).
 - **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop an toàn.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
   3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp toàn diện cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`, `todo`, `fusion_*`, `ctx_*`, `bg_*`, `mcp`, `ask_user_question`.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 49 tests bao phủ chuỗi ký tự code/string/comment chưa kết thúc (unterminated literals) và chuỗi hội thoại nhanh 50 turns.
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác; bộ test suite mở rộng lên 51 tests bao phủ toàn diện Mermaid diagrams, ASCII box-drawings và tô màu unified git diff patches.
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -119,7 +119,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Math Environments & Multiline Align (`test_fuzz_math_block_with_complex_environments_and_align`): Kiểm thử môi trường LaTeX `align` với dấu `&` căn lề và `\\` xuống dòng, hàm từng khúc `cases`, ma trận định thức `vmatrix` và môi trường chưa đóng.
   - Syntax Highlighter Unterminated Literals (`test_fuzz_syntax_highlighter_token_boundaries_and_unterminated_literals`): Kiểm thử bộ highlight mã nguồn khi gặp chuỗi nháy kép/đơn/template literal chưa đóng, raw string chưa đóng `r#"`, khối comment `/*` chưa đóng, số thập phân hỏng và mã hex không hợp lệ.
   - Rapid Multi-turn Dialogue Transitions (`test_fuzz_rapid_multiturn_dialogue_state_transitions`): Mô phỏng hội thoại tích lũy 50 lượt user/assistant liên tục xen kẽ khối code, công thức lũy thừa $2^n$ và đường kẻ phân cách horizontal rule `---`.
-- **Kết quả**: `PASSED` (49/49 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Mermaid & ASCII Diagram Blocks (`test_fuzz_mermaid_and_ascii_diagram_blocks`): Kiểm thử sơ đồ lưu trình flowchart, git graph, entity relationship ER diagram, sơ đồ hộp ASCII box-drawing, và sơ đồ Mermaid chưa đóng.
+  - Unified Git Diff Syntax Highlighting (`test_fuzz_diff_unified_patch_syntax_highlighting`): Kiểm thử tô màu unified diff với hunk header `@@ -1,5 +1,6 @@`, diff chứa thẻ HTML và markdown lồng, diff chỉ có thêm dòng (`+`) hoặc chỉ có xóa dòng (`-`).
+- **Kết quả**: `PASSED` (51/51 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
