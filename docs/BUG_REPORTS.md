@@ -49,6 +49,17 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Tự động làm sạch (sanitize) và loại bỏ toàn bộ ký tự `\0` ngay tại đầu vào `format_markdown_to_pango` trước khi gọi FFI GLib/Pango.
 - **Trạng thái**: ĐÃ KHẮC PHỤC. Đã thêm regression test `test_fuzz_extreme_pathological_markdown_inputs`.
 
+### BUG-006: Slicing Panic (begin <= end) trong Table Renderer khi stream ký tự pipe lẻ
+- **Thành phần**: `src/render/table.rs` (`is_table_row` & `render_markdown_table_to_pango`)
+- **Mức độ**: Nghiêm trọng (Gây Crash tiến trình do Rust string slicing panic trong quá trình live streaming)
+- **Kịch bản tái hiện**:
+  1. Khi assistant đang stream từng token và xuất hiện dòng chỉ chứa đúng 1 ký tự pipe: `|`.
+  2. Điều kiện `is_table_row` cũ: `starts_with('|') && ends_with('|') && contains('|')` trả về `true` cho chuỗi `|` độ dài 1.
+  3. Hàm `render_markdown_table_to_pango` thực hiện cắt chuỗi `&trimmed[1..trimmed.len() - 1]` thành `&trimmed[1..0]`, gây panic: `begin <= end (1 <= 0) when slicing |`.
+- **Giải pháp xử lý**:
+  - Siết chặt điều kiện: `trimmed.len() >= 2 && trimmed.starts_with('|') && trimmed.ends_with('|')`. Dòng đơn `|` không bị nhận diện nhầm là table row.
+- **Trạng thái**: ĐÃ KHẮC PHỤC. Đã thêm regression test `test_fuzz_streaming_chunk_boundaries`.
+
 ---
 
 ## Báo cáo fuzzing & stress test hiện tại

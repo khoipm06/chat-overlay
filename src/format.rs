@@ -767,4 +767,36 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_streaming_chunk_boundaries() {
+        // Simulates incremental arrival of tokens across syntax boundaries
+        let full_text = "### Real-time Streaming Response\n\nHere is some `streaming code` and a formula: $\\nabla \\cdot \\vec{B} = 0$.\n\n```python\nfor i in range(10):\n    print(f\"index: {i}\")\n```\n\n| Item | Qty |\n| --- | --- |\n| Widget | 5 |\n";
+
+        // Break full_text into arbitrary chunk sizes (1, 3, 7, 15 chars) to test partial renders
+        for chunk_size in [1, 3, 7, 15, 32] {
+            let mut accumulator = String::new();
+            let mut chars = full_text.chars().peekable();
+
+            while chars.peek().is_some() {
+                for _ in 0..chunk_size {
+                    if let Some(c) = chars.next() {
+                        accumulator.push(c);
+                    }
+                }
+
+                let markup = format_markdown_to_pango(&accumulator);
+                let res = pango::parse_markup(&markup, '\0');
+                assert!(
+                    res.is_ok(),
+                    "Streaming partial render failed at chunk size {} with length {}:\nAccumulator:\n{:?}\nMarkup:\n{:?}\nError: {:?}",
+                    chunk_size,
+                    accumulator.len(),
+                    accumulator,
+                    markup,
+                    res.err()
+                );
+            }
+        }
+    }
 }

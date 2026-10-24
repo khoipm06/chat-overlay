@@ -2,7 +2,7 @@ use gtk4::glib;
 
 pub fn is_table_row(line: &str) -> bool {
     let trimmed = line.trim();
-    trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.contains('|')
+    trimmed.len() >= 2 && trimmed.starts_with('|') && trimmed.ends_with('|')
 }
 
 pub fn render_markdown_table_to_pango(table_lines: &[&str]) -> String {
