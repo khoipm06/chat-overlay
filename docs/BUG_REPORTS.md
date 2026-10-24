@@ -185,7 +185,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Embedded Systems & Hardware Verification C / SystemVerilog (`test_fuzz_codeblock_with_systems_hardware_embedded_c_and_sv`): Kiểm thử thao tác thanh ghi phần cứng nhúng Embedded C (`volatile uint32_t *`, dịch bit thanh ghi `1UL << 0`), và giao tiếp SystemVerilog AXI interface với khẳng định ràng buộc phần cứng `property` / `assert property`.
   - Algebraic Number Theory & Class Field Theory (`test_fuzz_latex_algebraic_number_theory_and_class_field_theory`): Kiểm thử hàm zeta Dedekind $\zeta_K(s)$ và công thức số lớp giải tích, luật tương hỗ Artin trong trường lớp, chặn Minkowski trên các lớp i-đê-an $M_K$, định lý mật độ Chebotarev, và trường lớp Hilbert $\operatorname{Cl}(K) \cong \operatorname{Gal}(H/K)$.
   - Audio DSP & Graphics Shaders GLSL / SuperCollider (`test_fuzz_codeblock_with_audio_shader_dsp_glsl_and_supercollider`): Kiểm thử shader GLSL (`#version 330 core`, uniforms `vec2 u_resolution`, swizzling vector `st.xyx`, biến đầu ra `out vec4 FragColor`) và tổng hợp âm thanh SuperCollider SynthDef (`SinOsc.ar`, `EnvGen.kr`, `Env.adsr`).
-- **Kết quả**: `PASSED` (115/115 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Symplectic Geometry & Canonical Mechanics (`test_fuzz_latex_symplectic_geometry_and_classical_mechanics`): Kiểm thử 2-form symplectic vi phân $\omega = \sum dp_i \wedge dq_i$, trường vector Hamiltonian và tích trong $\iota_{X_H}\omega = -dH$, tọa độ chuẩn Darboux, điều kiện nhóm symplectic $\mathbf{M}^T \mathbf{J} \mathbf{M} = \mathbf{J}$, và định lý bảo toàn thể tích pha Liouville $\mathcal{L}_{X_H}(\omega^n) = 0$.
+  - Text Processing & Stream Editing AWK, Sed, Jq (`test_fuzz_codeblock_with_data_processing_awk_sed_and_jq`): Kiểm thử khối kịch bản AWK mảng kết hợp `count[$2]++`, biểu thức chính quy thay thế Sed (swap dòng bằng hold buffer `1{h;d}`, khử tag XML `s/<[^>]*>//g`), và biểu thức lọc chuyển hóa mảng JSON jq `map(select(...)) | sort_by(.time)`.
+- **Kết quả**: `PASSED` (117/117 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
