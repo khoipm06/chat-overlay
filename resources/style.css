@@ -30,13 +30,13 @@ button {
 }
 
 entry {
-    background-color: #1a191b;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: #eeeef0;
+    background-color: #202226;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #e8e9ed;
 }
 
 entry:focus {
-    border-color: rgba(255, 255, 255, 0.28);
+    border-color: #3b82f6;
 }
 
 checkbutton {
@@ -143,16 +143,16 @@ window {
 /* ── Panel ─────────────────────────────────────────────────────────────── */
 
 #drawer-container {
-    background-color: rgba(18, 17, 19, 0.94);   /* mauve-1, translucent */
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background-color: #18191b;                   /* Antigravity --surface-app */
+    border: 1px solid rgba(255, 255, 255, 0.08); /* --border-subtle */
     border-radius: 12px;
     padding: 14px 16px;
-    color: #eeeef0;                              /* mauve-12 */
+    color: #e8e9ed;                              /* --text-primary */
     font-family: "Inter", "Geist", "Cantarell", "Noto Sans", sans-serif;
 }
 
 #drawer-container.theme-dark-glass {
-    background-color: rgba(18, 17, 19, 0.94);   /* mauve dark 1 */
+    background-color: #18191b;
     border-color: rgba(255, 255, 255, 0.08);
 }
 
@@ -342,16 +342,16 @@ window {
     color: #71717a;                              /* zinc-500 */
 }
 
-/* User prompt — flat full-width command block (Linear style) */
+/* User prompt — flat full-width command block (Antigravity workspace elevated card) */
 .bubble-user-row {
     margin-bottom: 8px;
 }
 
 .chat-bubble-user {
-    background: #1a191b;                         /* mauve dark 2 */
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    padding: 7px 10px;
+    background: #202226;                         /* Antigravity --surface-raised */
+    border: 1px solid rgba(255, 255, 255, 0.08); /* --border-subtle */
+    border-radius: 8px;
+    padding: 8px 12px;
 }
 
 .theme-oled .chat-bubble-user {
@@ -433,9 +433,9 @@ window {
 }
 
 .bubble-user-text {
-    font-size: 12.5px;
-    line-height: 1.45;
-    color: #eeeef0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #e8e9ed;                              /* --text-primary */
 }
 
 .theme-zinc-light .bubble-user-text {
@@ -637,9 +637,9 @@ window {
 .bubble-assistant-text,
 .bubble-assistant-text text {
     background: transparent;
-    color: #d9d8de;
-    font-size: 12.5px;
-    line-height: 1.5;
+    color: #e8e9ed;                              /* Antigravity unboxed text */
+    font-size: 13.5px;
+    line-height: 1.6;
 }
 
 .theme-zinc-light .bubble-assistant-text,
@@ -650,11 +650,12 @@ window {
 /* Inline code — Pango <tt> nodes */
 .chat-bubble-assistant tt {
     font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11.5px;
-    background: #232225;                         /* mauve dark 3 */
+    font-size: 12px;
+    background: #141517;                         /* --surface-code */
+    border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 4px;
-    padding: 1px 4px;
-    color: #d9d8de;
+    padding: 1px 5px;
+    color: #e8e9ed;
 }
 
 .theme-zinc-light .chat-bubble-assistant tt {
@@ -1253,53 +1254,54 @@ checkbutton:checked check {
 .antigravity-parent-expander > title {
     font-size: 12.5px;
     font-weight: 500;
-    color: #a1a1aa;
+    color: #a5aab4;                              /* --text-secondary */
     padding: 2px 0;
 }
 
 .antigravity-parent-content {
     margin-left: 8px;
     padding-left: 8px;
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    border-left: 1px solid rgba(255, 255, 255, 0.08); /* --border-subtle */
 }
 
 .antigravity-steps-expander > title {
     font-size: 11.5px;
     font-weight: 500;
-    color: #71717a;
+    color: #777f8c;                              /* --text-muted */
     padding: 2px 0;
 }
 
 .antigravity-timeline-list {
     margin-left: 12px;
     padding-left: 6px;
-    border-left: 1px dashed rgba(255, 255, 255, 0.06);
+    border-left: 1px dashed rgba(255, 255, 255, 0.08);
 }
 
 .timeline-sub-expander > title {
     font-size: 11px;
-    color: #71717a;
+    color: #777f8c;
     padding: 1px 0;
 }
 
 .timeline-sub-expander:hover > title {
-    color: #e4e4e7;
+    color: #e8e9ed;
 }
 
 .thought-sub-item > title {
-    color: #a1a1aa;
+    color: #a5aab4;
 }
 
 .tool-sub-item > title {
     font-family: monospace;
-    font-size: 10.5px;
-    color: #93c5fd;
+    font-size: 11px;
+    color: #8ab4f8;                              /* Antigravity --accent */
 }
 
 .timeline-item-text {
     font-size: 11px;
     padding: 4px 8px;
-    background: rgba(0, 0, 0, 0.25);
+    background: #141517;                         /* --surface-code */
+    border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: 4px;
     margin: 2px 0 4px 0;
 }

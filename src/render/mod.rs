@@ -37,7 +37,7 @@ pub fn format_markdown_to_pango(markdown: &str) -> String {
                 };
                 let escaped_lang = glib::markup_escape_text(&current_lang);
                 out.push_str(&format!(
-                    "╭── <span font_family=\"monospace\" size=\"small\" foreground=\"#a1a1aa\" weight=\"bold\">{}</span> ──────────────────────────── <span size=\"small\" foreground=\"#71717a\">[copy]</span>\n<span font_family=\"monospace\" background=\"#18181b\" foreground=\"#eeeef0\">",
+                    "╭── <span font_family=\"monospace\" size=\"small\" foreground=\"#8ab4f8\" weight=\"bold\">{}</span> ──────────────────────────── <span size=\"small\" foreground=\"#777f8c\">[artifact]</span>\n<span font_family=\"monospace\" background=\"#141517\" foreground=\"#e8e9ed\">",
                     escaped_lang
                 ));
             } else {

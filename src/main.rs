@@ -105,7 +105,7 @@ struct TrackedPrompt {
     bubble: gtk4::Box,
 }
 
-type ActiveThoughtState = Option<(gtk4::Expander, gtk4::Label, Rc<RefCell<String>>)>;
+type ActiveThoughtState = Option<(gtk4::Expander, gtk4::Label, Rc<RefCell<String>>, std::time::Instant)>;
 
 struct ActiveStreamTarget {
     label: gtk4::Label,
@@ -1297,6 +1297,14 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             match event {
                 StreamEvent::TextDelta(delta) => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
+                        // If there is an active thinking block, close it and freeze its duration
+                        if let Some((ref exp, _, _, thought_start)) = *target.active_thought_expander.borrow() {
+                            let elapsed = thought_start.elapsed().as_secs();
+                            exp.set_label(Some(&format!("Thought for {}s ›", elapsed.max(1))));
+                            exp.set_expanded(false);
+                        }
+                        *target.active_thought_expander.borrow_mut() = None;
+
                         let mut full = target.full_text.borrow_mut();
                         full.push_str(&delta);
                         format::apply_assistant_markup(&target.label, &full);
@@ -1308,7 +1316,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                         target.parent_expander.set_visible(true);
                         target.steps_expander.set_visible(true);
 
-                        // If there is no active thought sub-expander, create one
+                        // If there is no active thought sub-expander, create one with its own start time
                         let mut cur_thought = target.active_thought_expander.borrow_mut();
                         if cur_thought.is_none() {
                             let item_expander = gtk4::Expander::builder()
@@ -1331,14 +1339,15 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                                 item_expander,
                                 item_label,
                                 Rc::new(RefCell::new(String::new())),
+                                std::time::Instant::now(),
                             ));
                         }
 
-                        if let Some((ref exp, ref lbl, ref txt)) = *cur_thought {
+                        if let Some((ref exp, ref lbl, ref txt, thought_start)) = *cur_thought {
                             let mut t = txt.borrow_mut();
                             t.push_str(&delta);
                             lbl.set_text(&t);
-                            let elapsed = target.start_time.elapsed().as_secs();
+                            let elapsed = thought_start.elapsed().as_secs();
                             exp.set_label(Some(&format!("Thought for {}s ›", elapsed.max(1))));
                         }
                     }
@@ -1349,8 +1358,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                         target.parent_expander.set_visible(true);
                         target.steps_expander.set_visible(true);
 
-                        // Close active thinking block on tool execution
-                        if let Some((ref exp, _, _)) = *target.active_thought_expander.borrow() {
+                        // Close active thinking block on tool execution and freeze its duration
+                        if let Some((ref exp, _, _, thought_start)) = *target.active_thought_expander.borrow() {
+                            let elapsed = thought_start.elapsed().as_secs();
+                            exp.set_label(Some(&format!("Thought for {}s ›", elapsed.max(1))));
                             exp.set_expanded(false);
                         }
                         *target.active_thought_expander.borrow_mut() = None;
@@ -1362,8 +1373,9 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                         );
                         target.steps_expander.set_label(Some(&steps_lbl));
 
+                        let tool_label = format::format_tool_call_label(&name, &args);
                         let tool_expander = gtk4::Expander::builder()
-                            .label(format!("Ran tool: {} ›", name))
+                            .label(tool_label)
                             .css_classes(["timeline-sub-expander", "tool-sub-item"])
                             .expanded(false)
                             .build();
@@ -1416,7 +1428,20 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 }
                 StreamEvent::Done => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
-                        // Collapse thought and tool expanders automatically once done (clean Open-WebUI standard)
+                        // Freeze any remaining active thinking block
+                        if let Some((ref exp, _, _, thought_start)) = *target.active_thought_expander.borrow() {
+                            let elapsed = thought_start.elapsed().as_secs();
+                            exp.set_label(Some(&format!("Thought for {}s ›", elapsed.max(1))));
+                            exp.set_expanded(false);
+                        }
+                        *target.active_thought_expander.borrow_mut() = None;
+
+                        // Finalize parent expander label with fixed total duration
+                        let total_secs = target.start_time.elapsed().as_secs();
+                        let worked_label = format!("Worked for {} ▾", format::format_duration_sec(total_secs));
+                        target.parent_expander.set_label(Some(&worked_label));
+
+                        // Collapse thought and tool expanders automatically once done
                         target.parent_expander.set_expanded(false);
                         target.steps_expander.set_expanded(false);
                     }

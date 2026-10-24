@@ -2,6 +2,114 @@ pub use crate::render::apply_assistant_markup;
 #[allow(unused_imports)]
 pub use crate::render::format_markdown_to_pango;
 
+/// Format duration in seconds to human-readable string: "Xs" or "Xm Ys"
+pub fn format_duration_sec(secs: u64) -> String {
+    let s = secs.max(1);
+    if s < 60 {
+        format!("{}s", s)
+    } else {
+        let m = s / 60;
+        let rem_s = s % 60;
+        format!("{}m {}s", m, rem_s)
+    }
+}
+
+/// Truncate and sanitize a single-line summary string for tool call display
+fn truncate_summary(s: &str, max_len: usize) -> String {
+    let flat = s.replace('\n', " ").replace('\r', "");
+    let trimmed = flat.trim();
+    if trimmed.chars().count() > max_len {
+        format!("{}…", trimmed.chars().take(max_len).collect::<String>())
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Format a tool call name and JSON arguments into a standardized human-readable action label.
+pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
+    let parsed: Option<serde_json::Value> = serde_json::from_str(args_json).ok();
+
+    match name {
+        "bash" | "powershell" => {
+            let cmd = parsed
+                .as_ref()
+                .and_then(|v| v.get("command"))
+                .and_then(|c| c.as_str())
+                .unwrap_or(args_json);
+            format!("Ran command: {} ›", truncate_summary(cmd, 36))
+        }
+        "read" => {
+            let path = parsed
+                .as_ref()
+                .and_then(|v| v.get("path").or_else(|| v.get("file")).or_else(|| v.get("filePath")))
+                .and_then(|p| p.as_str())
+                .unwrap_or(args_json);
+            format!("Read file: {} ›", truncate_summary(path, 40))
+        }
+        "edit" => {
+            let path = parsed
+                .as_ref()
+                .and_then(|v| v.get("path").or_else(|| v.get("file")).or_else(|| v.get("filePath")))
+                .and_then(|p| p.as_str())
+                .unwrap_or(args_json);
+            format!("Edited file: {} ›", truncate_summary(path, 40))
+        }
+        "write" => {
+            let path = parsed
+                .as_ref()
+                .and_then(|v| v.get("path").or_else(|| v.get("file")).or_else(|| v.get("filePath")))
+                .and_then(|p| p.as_str())
+                .unwrap_or(args_json);
+            format!("Wrote file: {} ›", truncate_summary(path, 40))
+        }
+        "grep" | "find" => {
+            let query = parsed
+                .as_ref()
+                .and_then(|v| {
+                    v.get("query")
+                        .or_else(|| v.get("pattern"))
+                        .or_else(|| v.get("text"))
+                        .or_else(|| v.get("findText"))
+                })
+                .and_then(|q| q.as_str())
+                .unwrap_or(args_json);
+            format!("Searched: \"{}\" ›", truncate_summary(query, 32))
+        }
+        _ => {
+            // General tools (e.g. web_search, fetch_content, subagent, etc.)
+            let summary = if let Some(ref obj) = parsed {
+                if let Some(cmd) = obj.get("command").and_then(|c| c.as_str()) {
+                    truncate_summary(cmd, 30)
+                } else if let Some(path) = obj.get("path").and_then(|p| p.as_str()) {
+                    truncate_summary(path, 30)
+                } else if let Some(q) = obj.get("query").or_else(|| obj.get("queries")).and_then(|q| {
+                    if let Some(s) = q.as_str() {
+                        Some(s.to_string())
+                    } else {
+                        q.as_array().map(|arr| arr.first().and_then(|v| v.as_str()).unwrap_or("").to_string())
+                    }
+                }) {
+                    truncate_summary(&q, 30)
+                } else if let Some(url) = obj.get("url").and_then(|u| u.as_str()) {
+                    truncate_summary(url, 30)
+                } else if let Some(first_val) = obj.as_object().and_then(|m| m.values().next()).and_then(|v| v.as_str()) {
+                    truncate_summary(first_val, 30)
+                } else {
+                    String::new()
+                }
+            } else {
+                truncate_summary(args_json, 24)
+            };
+
+            if summary.is_empty() {
+                format!("Tool: {} ›", name)
+            } else {
+                format!("Tool {}: {} ›", name, summary)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +198,89 @@ mod tests {
         let text = "Streaming `unclosed inline\n```rust\nfn main() {";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
+    }
+
+    #[test]
+    fn test_pango_fuzz_markup_injection() {
+        let fuzz_cases = [
+            "<script>alert(1)</script>",
+            "& < > \" ' `",
+            "**bold <span color='red'>unsafe</span>**",
+            "`code with <tags> & ampersands`",
+            "```html\n<div class=\"test\">&amp;</div>\n```",
+            "```rust\nfn test<T: Display>(x: &T) -> bool { x < 10 && x > 2 }\n```",
+            "```json\n{\"key\": \"<value> & 123\"}\n```",
+            "```python\n# comment with <tag> & symbols\nx = 'str with <tags> & \" quotes'\n```",
+            "```bash\necho '<div class=\"foo\">' && ls -la | grep '<test>'\n```",
+            "```\nGeneric code block with <tag> & &amp; characters\n```",
+            "| Col 1 & <tag> | Col 2 > |\n| --- | --- |\n| <b>x</b> | a & b |",
+            "> [!NOTE]\n> Note with <unsafe> & markup",
+            "- Item with <tag> & unclosed `code",
+            "H~2<O~ and E=mc^2<3^",
+            "[link <test>](https://example.com?a=1&b=2)",
+            "Text with unmatched tags: <span>",
+            "Math: $x < y && y > z$",
+            "<kbd>Ctrl + <tag></kbd>",
+            "# Header with <tag> & amp",
+            "## H2 with **bold & <tag>**",
+        ];
+
+        for case in fuzz_cases {
+            let markup = format_markdown_to_pango(case);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Pango parse failed on input: {:?}\nGenerated markup: {:?}\nError: {:?}",
+                case,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_table_unicode_alignment() {
+        let text = "| Ký tự | Phiên âm | Mô tả |\n| :--- | :--- | ---: |\n| Tiếng Việt | Chữ Quốc Ngữ | Đầy đủ dấu thanh sắc huyền hỏi ngã nặng |\n| 日本語 | にほんご | Kanji và Kana (toàn giác) |\n| 🦀 Rust | ロスト | Cua lập trình an toàn bộ nhớ |";
+        let markup = format_markdown_to_pango(text);
+        assert!(pango::parse_markup(&markup, '\0').is_ok());
+        assert!(markup.contains("日本語"));
+        assert!(markup.contains("Tiếng Việt"));
+        assert!(markup.contains("🦀 Rust"));
+    }
+
+    #[test]
+    fn test_format_duration_sec() {
+        assert_eq!(format_duration_sec(0), "1s");
+        assert_eq!(format_duration_sec(5), "5s");
+        assert_eq!(format_duration_sec(59), "59s");
+        assert_eq!(format_duration_sec(60), "1m 0s");
+        assert_eq!(format_duration_sec(125), "2m 5s");
+    }
+
+    #[test]
+    fn test_format_tool_call_label() {
+        // bash
+        let b = format_tool_call_label("bash", r#"{"command":"cargo check"}"#);
+        assert_eq!(b, "Ran command: cargo check ›");
+
+        // read
+        let r = format_tool_call_label("read", r#"{"path":"src/main.rs"}"#);
+        assert_eq!(r, "Read file: src/main.rs ›");
+
+        // edit
+        let e = format_tool_call_label("edit", r#"{"path":"src/overlay.rs"}"#);
+        assert_eq!(e, "Edited file: src/overlay.rs ›");
+
+        // write
+        let w = format_tool_call_label("write", r#"{"path":"src/tray.rs"}"#);
+        assert_eq!(w, "Wrote file: src/tray.rs ›");
+
+        // grep / find
+        let g = format_tool_call_label("grep", r#"{"pattern":"refreshToken"}"#);
+        assert_eq!(g, "Searched: \"refreshToken\" ›");
+
+        // fallback generic
+        let f = format_tool_call_label("web_search", r#"{"query":"Rust GUI gtk4"}"#);
+        assert_eq!(f, "Tool web_search: Rust GUI gtk4 ›");
     }
 }

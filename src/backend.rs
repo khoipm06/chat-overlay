@@ -215,16 +215,18 @@ fn parse_and_dispatch_line(
                 "agent_end" | "agent_settled" => {
                     let _ = tx.send((gen, StreamEvent::Done));
                 }
+                // Ignore other internal protocol events (session, agent_start, turn_start, turn_end, etc.)
                 _ => {}
             }
             return Ok(());
         }
     }
 
-    // Fallback: If not standard json event, emit as plain line
-    if tx
-        .send((gen, StreamEvent::Content(raw_line.to_string())))
-        .is_err()
+    // Fallback: If not standard json event, emit as plain line only if non-empty and non-JSON
+    if !trimmed.starts_with('{')
+        && tx
+            .send((gen, StreamEvent::Content(raw_line.to_string())))
+            .is_err()
     {
         return Err(());
     }
@@ -312,5 +314,87 @@ mod tests {
 
         let ev4 = rx.try_recv().unwrap();
         assert_eq!(ev4, (10, StreamEvent::Done));
+    }
+
+    #[test]
+    fn test_parse_jsonl_fuzz_and_edge_cases() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let gen = 42;
+
+        let edge_cases = [
+            // Nested complex tool call args with unicode and escaped json
+            r#"{"type":"tool_execution_start","toolName":"edit","args":{"nested":{"code":"fn main() {\n    println!(\"Xin chào thế giới 🦀\");\n}","diff":"@@ -1 +1 @@\n-old\n+new"},"list":[1,2,3,{"a":"b"}]}}"#,
+            // Tool call with empty args or non-string/object
+            r#"{"type":"tool_execution_start","toolName":"bash"}"#,
+            // Unicode characters in tool call
+            r#"{"type":"tool_execution_start","toolName":"read","args":{"path":"/đường_dẫn/đến/tệp_tin.txt"}}"#,
+            // Malformed JSON (must not crash, must not emit as content if starts with '{')
+            r#"{"type":"message_update", malformed json syntax"#,
+            // Arbitrary protocol events that should be safely ignored
+            r#"{"type":"agent_start","model":"claude-3-7-sonnet"}"#,
+            r#"{"type":"turn_start","turn":1}"#,
+            r#"{"type":"turn_end","turn":1}"#,
+            // Message update with missing fields or unknown sub-event
+            r#"{"type":"message_update"}"#,
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"unknown_future_delta"}}"#,
+            // Metrics with partial/zero usage
+            r#"{"type":"message_end","message":{"usage":{"input":100,"output":50,"totalTokens":150},"durationMs":1200}}"#,
+            // Metrics with empty usage
+            r#"{"type":"message_end","message":{}}"#,
+        ];
+
+        for line in edge_cases {
+            let res = parse_and_dispatch_line(line, gen, &tx);
+            assert!(res.is_ok(), "Failed on edge case: {}", line);
+        }
+
+        // Verify tool call 1
+        let (g1, ev1) = rx.try_recv().unwrap();
+        assert_eq!(g1, 42);
+        match ev1 {
+            StreamEvent::ToolCall { name, args } => {
+                assert_eq!(name, "edit");
+                assert!(args.contains("Xin chào thế giới 🦀"));
+            }
+            other => panic!("Expected ToolCall, got {:?}", other),
+        }
+
+        // Verify tool call 2
+        let (g2, ev2) = rx.try_recv().unwrap();
+        assert_eq!(g2, 42);
+        match ev2 {
+            StreamEvent::ToolCall { name, args } => {
+                assert_eq!(name, "bash");
+                assert_eq!(args, "");
+            }
+            other => panic!("Expected ToolCall, got {:?}", other),
+        }
+
+        // Verify tool call 3
+        let (g3, ev3) = rx.try_recv().unwrap();
+        assert_eq!(g3, 42);
+        match ev3 {
+            StreamEvent::ToolCall { name, args } => {
+                assert_eq!(name, "read");
+                assert!(args.contains("tệp_tin.txt"));
+            }
+            other => panic!("Expected ToolCall, got {:?}", other),
+        }
+
+        // Verify metrics
+        let (g4, ev4) = rx.try_recv().unwrap();
+        assert_eq!(g4, 42);
+        assert_eq!(
+            ev4,
+            StreamEvent::Metrics(UsageMetrics {
+                input_tokens: 100,
+                output_tokens: 50,
+                total_tokens: 150,
+                duration_ms: 1200,
+            })
+        );
+
+        // Ensure no stray events leaked
+        assert!(rx.try_recv().is_err());
     }
 }
