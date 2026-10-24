@@ -3101,4 +3101,56 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_fractal_geometry_and_dynamical_systems() {
+        let fractal_cases = [
+            // Mandelbrot set iteration equation
+            "$$\nz_{n+1} = z_n^2 + c, \\quad z_0 = 0, \\quad M = \\{ c \\in \\mathbb{C} : \\limsup_{n \\to \\infty} |z_n| \\le 2 \\}\n$$",
+            // Hausdorff dimension and box-counting dimension
+            "$$\nd_{\\mathrm{H}}(F) = \\inf \\{ s \\ge 0 : \\mathcal{H}^s(F) = 0 \\} = \\sup \\{ s \\ge 0 : \\mathcal{H}^s(F) = \\infty \\}\n$$",
+            "$$\nd_{\\mathrm{box}}(F) = \\lim_{\\varepsilon \\to 0} \\frac{\\log N(\\varepsilon)}{\\log(1 / \\varepsilon)}\n$$",
+            // Lorenz strange attractor differential system
+            "$$\n\\begin{cases}\n  \\dot{x} = \\sigma(y - x) \\\\\n  \\dot{y} = x(\\rho - z) - y \\\\\n  \\dot{z} = xy - \\beta z\n\\end{cases}\n$$",
+            // Lyapunov exponent for chaotic divergence
+            "$$\n\\lambda = \\lim_{t \\to \\infty} \\frac{1}{t} \\ln \\frac{|\\delta \\mathbf{Z}(t)|}{|\\delta \\mathbf{Z}_0|}\n$$",
+        ];
+
+        for c in fractal_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Fractal dynamical systems LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_compiler_tools_bison_flex_and_antlr() {
+        let compiler_cases = [
+            // Flex scanner definition
+            ("flex", "%{\n#include \"y.tab.h\"\n%}\n\n%%\n[0-9]+      { yylval.num = atoi(yytext); return NUMBER; }\n[a-zA-Z_]+  { yylval.str = strdup(yytext); return IDENT; }\n[ \\t\\n]    ; /* skip whitespace */\n.           return yytext[0];\n%%\n\nint yywrap(void) { return 1; }"),
+            // Bison LALR(1) parser definition
+            ("bison", "%{\n#include <stdio.h>\nvoid yyerror(const char *s);\nint yylex(void);\n%}\n\n%token NUMBER IDENT\n%left '+' '-'\n%left '*' '/'\n\n%%\nexpr: expr '+' expr { $$ = $1 + $3; }\n    | NUMBER        { $$ = $1; }\n    ;\n%%"),
+            // ANTLR v4 grammar specification
+            ("antlr", "grammar MarkdownParser;\n\ndocument: (block)* EOF;\nblock: header | codeblock | table | paragraph;\nheader: HASH+ WS? TEXT NEWLINE;\n\nHASH: '#';\nWS: [ \\t]+ -> skip;\nNEWLINE: '\\r'? '\\n';"),
+        ];
+
+        for (lang, code) in compiler_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Compiler tools codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
