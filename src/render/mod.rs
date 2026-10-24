@@ -24,12 +24,45 @@ fn format_markdown_to_pango_inner(markdown: &str) -> String {
     let mut current_lang = String::new();
     let mut code_accumulator = String::new();
 
+    let mut in_math_block = false;
+    let mut math_accumulator = String::new();
+
     let mut table_accumulator: Vec<&str> = Vec::new();
 
     for line in markdown.lines() {
         let trimmed = line.trim();
 
-        // 1. Code Block start / end
+        // 1. Math Block ($$) multi-line start / end
+        if trimmed == "$$" {
+            // Flush any pending table first
+            if !table_accumulator.is_empty() {
+                out.push_str(&table::render_markdown_table_to_pango(&table_accumulator));
+                out.push('\n');
+                table_accumulator.clear();
+            }
+
+            if !in_math_block {
+                in_math_block = true;
+                math_accumulator.clear();
+            } else {
+                in_math_block = false;
+                let escaped = glib::markup_escape_text(math_accumulator.trim());
+                out.push_str(&format!(
+                    "<span font_family=\"serif\" size=\"large\" style=\"italic\" foreground=\"#a5b4fc\">    {}</span>\n",
+                    escaped
+                ));
+                math_accumulator.clear();
+            }
+            continue;
+        }
+
+        if in_math_block {
+            math_accumulator.push_str(line);
+            math_accumulator.push('\n');
+            continue;
+        }
+
+        // 2. Code Block start / end
         if trimmed.starts_with("```") {
             // Flush any pending table first
             if !table_accumulator.is_empty() {
@@ -191,6 +224,15 @@ fn format_markdown_to_pango_inner(markdown: &str) -> String {
         let highlighted = syntax::highlight_code_to_pango(&current_lang, &code_accumulator);
         out.push_str(&highlighted);
         out.push_str("</span>");
+    }
+
+    // Handle streaming edge-case: unclosed math block
+    if in_math_block {
+        let escaped = glib::markup_escape_text(math_accumulator.trim());
+        out.push_str(&format!(
+            "<span font_family=\"serif\" size=\"large\" style=\"italic\" foreground=\"#a5b4fc\">    {}</span>",
+            escaped
+        ));
     }
 
     out.trim_end().to_string()
