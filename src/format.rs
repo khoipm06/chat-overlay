@@ -2895,4 +2895,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_representation_theory_lie_algebras_and_root_systems() {
+        let lie_cases = [
+            // Lie bracket Jacobi identity
+            "$$\n[X, [Y, Z]] + [Y, [Z, X]] + [Z, [X, Y]] = 0\n$$",
+            // Cartan-Killing metric tensor on Lie algebra
+            "$$\nB(X, Y) = \\operatorname{Tr}(\\operatorname{ad}_X \\circ \\operatorname{ad}_Y) = g_{ab} X^a Y^b\n$$",
+            // Root space decomposition
+            "$$\n\\mathfrak{g} = \\mathfrak{h} \\oplus \\bigoplus_{\\alpha \\in \\Phi} \\mathfrak{g}_\\alpha, \\quad [H, X_\\alpha] = \\alpha(H) X_\\alpha \\quad \\forall H \\in \\mathfrak{h}\n$$",
+            // Weyl character formula
+            "$$\n\\operatorname{ch}(V_\\lambda) = \\frac{\\sum_{w \\in W} (-1)^{\\ell(w)} e^{w(\\lambda + \\rho) - \\rho}}{\\prod_{\\alpha > 0} (1 - e^{-\\alpha})}\n$$",
+            // Casimir invariant operator in universal enveloping algebra
+            "$$\nC = \\sum_{a,b} g^{ab} T_a T_b, \\quad [C, T_c] = 0 \\quad \\forall c\n$$",
+        ];
+
+        for c in lie_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Lie algebra LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_systems_hardware_embedded_c_and_sv() {
+        let hw_cases = [
+            // Embedded C register manipulation and volatile pointers
+            ("c", "#define RCC_BASE      0x40021000UL\n#define RCC_AHB2ENR   (*(volatile uint32_t *)(RCC_BASE + 0x4CUL))\n#define GPIOA_BASE    0x48000000UL\n#define GPIOA_MODER   (*(volatile uint32_t *)(GPIOA_BASE + 0x00UL))\n\nvoid init_led(void) {\n    RCC_AHB2ENR |= (1UL << 0); // Enable GPIOA clock\n    GPIOA_MODER &= ~(3UL << (5 * 2));\n    GPIOA_MODER |= (1UL << (5 * 2)); // Output mode pin 5\n}"),
+            // SystemVerilog testbench interface and assertions
+            ("systemverilog", "interface axi_if #(parameter ADDR_WIDTH = 32, DATA_WIDTH = 32) (input logic clk);\n  logic [ADDR_WIDTH-1:0] awaddr;\n  logic [2:0]            awprot;\n  logic                  awvalid;\n  logic                  awready;\n\n  property p_aw_handshake;\n    @(posedge clk) awvalid && !awready |=> awvalid;\n  endproperty\n  assert property (p_aw_handshake);\nendinterface"),
+        ];
+
+        for (lang, code) in hw_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Embedded/SystemVerilog codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
