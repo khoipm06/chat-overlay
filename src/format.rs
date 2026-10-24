@@ -2534,4 +2534,55 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_fuzz_latex_thermodynamics_and_statistical_mechanics() {
+        let thermo_cases = [
+            // Fundamental thermodynamic relation and Maxwell relations
+            "$$\ndU = T dS - P dV + \\sum_i \\mu_i dN_i, \\quad \\left(\\frac{\\partial T}{\\partial V}\\right)_S = -\\left(\\frac{\\partial P}{\\partial S}\\right)_V\n$$",
+            // Canonical partition function and Helmholtz free energy
+            "$$\nZ = \\sum_i e^{-\\beta E_i} = \\int e^{-\\beta H(p,q)} \\frac{d^{3N}p \\, d^{3N}q}{N! \\, h^{3N}}, \\quad F = -k_B T \\ln Z\n$$",
+            // Grand canonical ensemble and Fermi-Dirac / Bose-Einstein distributions
+            "$$\n\\bar{n}_i = \\frac{1}{e^{(\\epsilon_i - \\mu)/(k_B T)} \\pm 1}\n$$",
+            // Carnot efficiency and Clausius inequality
+            "$$\n\\eta_{\\mathrm{Carnot}} = 1 - \\frac{T_C}{T_H}, \\quad \\oint \\frac{\\delta Q}{T} \\le 0\n$$",
+            // Gibbs-Duhem equation
+            "$$\nS dT - V dP + \\sum_i N_i d\\mu_i = 0\n$$",
+        ];
+
+        for c in thermo_cases {
+            let markup = format_markdown_to_pango(c);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "Thermodynamics LaTeX case failed on:\n{}\nMarkup:\n{}\nError: {:?}",
+                c,
+                markup,
+                res.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_fuzz_codeblock_with_infrastructure_as_code_terraform_and_hcl() {
+        let iac_cases = [
+            // HashiCorp Configuration Language (HCL) Terraform resource
+            ("hcl", "terraform {\n  required_providers {\n    aws = {\n      source  = \"hashicorp/aws\"\n      version = \"~> 5.0\"\n    }\n  }\n}\n\nresource \"aws_instance\" \"pi_overlay_node\" {\n  ami           = \"ami-0c55b159cbfafe1f0\"\n  instance_type = \"t4g.small\"\n\n  tags = {\n    Name        = \"pi-overlay-ampere\"\n    Environment = \"production\"\n  }\n}"),
+            // Nix expression language
+            ("nix", "{ pkgs ? import <nixpkgs> {} }:\n\npkgs.stdenv.mkDerivation {\n  pname = \"pi-overlay\";\n  version = \"0.1.0\";\n  src = ./.;\n  buildInputs = with pkgs; [ gtk4 gtk4-layer-shell pkg-config cargo rustc ];\n}"),
+        ];
+
+        for (lang, code) in iac_cases {
+            let md = format!("```{lang}\n{code}\n```");
+            let markup = format_markdown_to_pango(&md);
+            let res = pango::parse_markup(&markup, '\0');
+            assert!(
+                res.is_ok(),
+                "IaC codeblock case failed for lang {:?}:\nMarkup:\n{}\nError: {:?}",
+                lang,
+                markup,
+                res.err()
+            );
+        }
+    }
 }
