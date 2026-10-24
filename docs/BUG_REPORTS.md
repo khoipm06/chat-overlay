@@ -87,7 +87,8 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Fuzzing tổ hợp ma trận (Combinatorial stress test): Kết hợp ngẫu nhiên 144 cặp thẻ định dạng trên cùng một dòng cùng các ký tự UTF-8 / tiếng Việt / emoji.
   - Fuzzing sinh ngẫu nhiên (300 Generative Pseudo-random streams - `test_fuzz_pseudo_random_generative_markdown_stream`): Phát hiện và sửa lỗi unclosed `<kbd>` tag làm đóng sai thẻ Pango `span`, đồng thời cơ chế bảo vệ placeholder `__CODEPH__` ngăn các thẻ markdown khác đè chéo vào inline code block. Fallback an toàn bảo đảm không bao giờ vỡ giao diện.
   - Multiline math block & Ragged tables (`test_fuzz_multiline_math_and_code_blocks`): Săn tìm và triệt tiêu lỗi panic index out of bounds khi bảng biểu có số cột không đồng đều giữa các hàng, xử lý công thức toán ma trận đa dòng và ký tự LaTeX phức tạp, tích hợp khối math đa dòng `$$ ... $$` với cơ chế unclosed streaming safety.
-- **Kết quả**: `PASSED` (28/28 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Pathological Extreme Inputs (`test_fuzz_extreme_pathological_markdown_inputs`): Săn tìm và triệt tiêu lỗi panic `GStrInteriorNulError` khi stream chứa ký tự `\0`, lồng danh sách 20 bậc, ký tự điều khiển, văn bản RTL / Do Thái / Ả Rập, ký tự độ rộng bằng 0 (`\u{200B}`).
+- **Kết quả**: `PASSED` (29/29 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
