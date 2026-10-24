@@ -109,7 +109,9 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Task List Hierarchy & Unicode Bullets (`test_fuzz_task_list_deep_hierarchy_and_unicode_bullets`): Kiểm thử phân cấp danh sách công việc 4 cấp độ, bullet hỗn hợp (`-` và `*`), thụt lề bằng tab `\t`, danh sách đánh số bước lớn (`999.`).
   - Code Block Language Aliases & Edge Identifiers (`test_fuzz_codeblock_language_aliases_and_edge_identifiers`): Kiểm thử 28 biến thể định danh ngôn ngữ: viết tắt (`rs`, `py`, `js`, `ts`, `sh`), ngôn ngữ hệ thống (`c`, `cpp`, `c++`, `c#`, `dockerfile`, `yaml`, `toml`), tag trống/khoảng trắng, tag viết hoa và định danh có dấu gạch ngang/nối.
   - Blockquotes Nested & Interleaved Markdown (`test_fuzz_blockquotes_nested_and_interleaved_markdown`): Kiểm thử trích dẫn lồng 3 cấp, trích dẫn xen kẽ dòng trống (`> \n >`), toàn bộ 5 biến thể GitHub Alert (`NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`) kết hợp inline code/math/links, và các tiền tố trích dẫn thiếu dấu cách (`>Without space`, `>>Double`).
-- **Kết quả**: `PASSED` (39/39 tests pass, Pango markup parser hợp lệ 100%, không panic).
+  - Header Levels & Inline Markup (`test_fuzz_header_levels_and_inline_markup_combinations`): Kiểm thử tiêu đề H1, H2, H3 kết hợp in đậm, nghiêng, code, liên kết, công thức toán $E=mc^2$, tag gạch đầu dòng trống `#`, `##`, `###` và khoảng cách bất thường.
+  - HTML Details & Summary Elements (`test_fuzz_html_details_summary_variants`): Kiểm thử thẻ mở rộng `<details>` và `<summary>` lồng nhau, summary chứa bảng biểu, thẻ không đóng hoặc xuất hiện trên cùng một dòng.
+- **Kết quả**: `PASSED` (41/41 tests pass, Pango markup parser hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
