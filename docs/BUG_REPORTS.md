@@ -35,15 +35,15 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
 
 ## Biên bản xác nhận nghiệm thu độc lập (Independent Verifier Sign-off)
 
-- **Thời điểm kiểm chứng**: 2026-10-24 13:12:00 +0700
-- **Commit thẩm định**: `781c3bfd60ee0505267602412823883d75c50ec3`
-- **Kết quả test suite**: `cargo test --all-targets` -> **23/23 PASSED** (0 failed, 0 ignored).
-- **Trạng thái working tree**: Clean (`nothing to commit, working tree clean`).
+- **Thời điểm kiểm chứng**: 2026-10-24 13:16:00 +0700
+- **Commit thẩm định**: `d36b856` (HEAD trên branch `feat/antigravity-workspace-and-timeline-standard`)
+- **Kết quả test suite**: `cargo test --all-targets` -> **24/24 PASSED** (0 failed, 0 ignored, 0.00s).
+- **Trạng thái working tree**: Clean sau khi commit biên bản.
 - **Thẩm định 4 tiêu chí cốt lõi**:
   1. `Echo leak / Raw JSON filter`: **PASSED**. Dòng bắt đầu bằng `{` không lọt vào content; event nội bộ được drop.
   2. `Independent thought timer & Worked for Xs`: **PASSED**. Lưu `Instant` độc lập cho từng nhịp suy nghĩ, đóng băng thời lượng chính xác khi chuyển nhịp hoặc done; nhãn tổng kết `Worked for Xs ▾` cố định sau khi kết thúc.
-  3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp các lệnh `bash`, `read`, `edit`, `write`, `grep`, `find` thành action label trực quan (`Ran command: ...`, `Read file: ...`, etc.), dấu ngoặc và raw arguments thu gọn trong expander con.
-  4. `Antigravity agent-workspace layout`: **PASSED**. Chuyển đổi thành công từ giao diện bong bóng messenger sang cấu trúc 3 lớp phẳng (Conversation phẳng, Activity timeline thu gọn, unboxed response text).
+  3. `Adaptive tool calls parsing`: **PASSED**. Phân tích cú pháp đầy đủ cho `bash`, `read`, `edit`, `write`, `grep`, `find`, `web_search`, `fetch_content`, `source_check`, `subagent`.
+  4. `Antigravity agent-workspace layout`: **PASSED**. Unboxed typography hoàn chỉnh cho assistant trên toàn bộ 16 theme, elevated card cho user prompt, collapsible activity timeline chuẩn xác.
 
 **KẾT LUẬN CUỐI CÙNG**: **PASSED (CHẤP THUẬN NGHIỆM THU TOÀN DIỆN)**.
 
@@ -52,7 +52,8 @@ Hệ thống ghi nhận và theo dõi các lỗi biên, regression, rò rỉ b�
   - Pango markup injection: Chuỗi chứa `<`, `>`, `&`, `&amp;`, thẻ HTML chưa đóng, thẻ `<script>`, tag lồng nhau.
   - Streaming safety: Code fence ` ``` ` không đóng, inline code ` ` ` chưa đóng.
   - Bảng biểu Unicode và CJK (Kanji, Kana, tiếng Việt) và emoji: Đảm bảo không vỡ Pango parser.
-- **Kết quả**: `PASSED` (Pango parse hợp lệ 100%, không bị panic, fallback graceful sang plain text qua `apply_assistant_markup` nếu có lỗi parse).
+  - Định dạng inline & Math block phức tạp: Unclosed bold, italic, strikethrough, inline code, subscript, superscript, dollar math (`$x < y && z > 0$`, tiền tệ `$10.99`), HTML entities (`&notanentity;`), 4-5 ticks backtick lồng nhau.
+- **Kết quả**: `PASSED` (24/24 tests pass, Pango parse hợp lệ 100%, không panic).
 
 ### 3. Quản lý tiến trình & Zombie Process
 - **Cơ chế**:
