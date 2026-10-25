@@ -1,3 +1,4 @@
+pub mod artifacts;
 pub mod blocks;
 pub mod inline;
 pub mod syntax;

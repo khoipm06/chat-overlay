@@ -1478,3 +1478,32 @@ dropdown popover listview > row:selected {
     background-color: #e4e4e7;
     color: #09090b;
 }
+
+/* Antigravity artifact deliverable cards (MASTER_SPEC 1.2 layer 3) */
+.artifact-card-list {
+    margin-top: 6px;
+}
+
+.artifact-card {
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 4px 8px;
+}
+
+.artifact-card > title {
+    padding: 2px 0px;
+}
+
+.artifact-card > title > label {
+    color: #a5aab4;
+    font-size: 12px;
+}
+
+.artifact-card-content {
+    background-color: #141517;
+    border-radius: 6px;
+    padding: 8px;
+    color: #e8e9ed;
+    font-size: 12px;
+}

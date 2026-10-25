@@ -28,6 +28,9 @@ fn truncate_summary(s: &str, max_len: usize) -> String {
 /// Format a tool call name and JSON arguments into a standardized human-readable action label.
 pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
     let parsed: Option<serde_json::Value> = serde_json::from_str(args_json).ok();
+    // Generic, JSON-free summary used whenever an arm lacks its dedicated field:
+    // guarantees no raw `{"key": ...}` payload ever reaches a display label (MASTER_SPEC §3.2).
+    let generic = summarize_args(parsed.as_ref(), args_json);
 
     match name {
         "bash" | "powershell" => {
@@ -35,7 +38,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 .as_ref()
                 .and_then(|v| v.get("command"))
                 .and_then(|c| c.as_str())
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Ran command: {} ›", truncate_summary(cmd, 36))
         }
         "read" => {
@@ -43,7 +46,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 .as_ref()
                 .and_then(|v| v.get("path").or_else(|| v.get("file")).or_else(|| v.get("filePath")))
                 .and_then(|p| p.as_str())
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Read file: {} ›", truncate_summary(path, 40))
         }
         "edit" => {
@@ -51,7 +54,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 .as_ref()
                 .and_then(|v| v.get("path").or_else(|| v.get("file")).or_else(|| v.get("filePath")))
                 .and_then(|p| p.as_str())
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Edited file: {} ›", truncate_summary(path, 40))
         }
         "write" => {
@@ -59,7 +62,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 .as_ref()
                 .and_then(|v| v.get("path").or_else(|| v.get("file")).or_else(|| v.get("filePath")))
                 .and_then(|p| p.as_str())
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Wrote file: {} ›", truncate_summary(path, 40))
         }
         "grep" | "find" => {
@@ -72,7 +75,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                         .or_else(|| v.get("findText"))
                 })
                 .and_then(|q| q.as_str())
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Searched: \"{}\" ›", truncate_summary(query, 32))
         }
         "web_search" => {
@@ -87,7 +90,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                         }
                     })
                 })
-                .unwrap_or_else(|| truncate_summary(args_json, 32));
+                .unwrap_or_else(|| truncate_summary(&generic, 32));
             format!("Searched web: \"{}\" ›", truncate_summary(&query, 32))
         }
         "fetch_content" => {
@@ -100,21 +103,21 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                         u.as_array().map(|arr| arr.first().and_then(|v| v.as_str()).unwrap_or("").to_string())
                     }
                 }))
-                .unwrap_or_else(|| truncate_summary(args_json, 32));
+                .unwrap_or_else(|| truncate_summary(&generic, 32));
             format!("Fetched: {} ›", truncate_summary(&target, 36))
         }
         "get_search_content" | "source_check" => {
             let target = parsed
                 .as_ref()
                 .and_then(|v| v.get("query").or_else(|| v.get("url")).or_else(|| v.get("claim")).and_then(|s| s.as_str()))
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Checked source: {} ›", truncate_summary(target, 32))
         }
         "subagent" => {
             let task = parsed
                 .as_ref()
                 .and_then(|v| v.get("task").or_else(|| v.get("agent")).and_then(|s| s.as_str()))
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Delegated: {} ›", truncate_summary(task, 32))
         }
         "todo" => {
@@ -136,7 +139,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
             let prompt = parsed
                 .as_ref()
                 .and_then(|v| v.get("objective").or_else(|| v.get("prompt")).or_else(|| v.get("claim")).and_then(|s| s.as_str()))
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             let action_name = match name {
                 "fusion_reason" => "Reasoned",
                 "fusion_investigate" => "Investigated",
@@ -149,21 +152,21 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
             let target = parsed
                 .as_ref()
                 .and_then(|v| v.get("path").or_else(|| v.get("language")).and_then(|s| s.as_str()))
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Sandbox exec: {} ›", truncate_summary(target, 32))
         }
         "ctx_search" | "ctx_index" | "ctx_fetch_and_index" => {
             let q = parsed
                 .as_ref()
                 .and_then(|v| v.get("query").or_else(|| v.get("source")).or_else(|| v.get("url")).and_then(|s| s.as_str()))
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Context op: {} ›", truncate_summary(q, 32))
         }
         "bg_run" | "bg_status" | "bg_logs" | "bg_result" | "bg_kill" => {
             let target = parsed
                 .as_ref()
                 .and_then(|v| v.get("name").or_else(|| v.get("taskId")).or_else(|| v.get("command")).and_then(|s| s.as_str()))
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Background task: {} ›", truncate_summary(target, 30))
         }
         "mcp" | "mcp__playwright" => {
@@ -185,7 +188,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                             .and_then(|s| s.as_str())
                     })
                 })
-                .unwrap_or(args_json);
+                .unwrap_or(generic.as_str());
             format!("Prompted user: \"{}\" ›", truncate_summary(q, 32))
         }
         _ => {
@@ -211,7 +214,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                     String::new()
                 }
             } else {
-                truncate_summary(args_json, 24)
+                truncate_summary(&generic, 24)
             };
 
             if summary.is_empty() {
@@ -221,6 +224,41 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
             }
         }
     }
+}
+
+/// Sanitize unparseable raw args so JSON punctuation never reaches a display label.
+fn sanitize_raw_args(args_json: &str) -> String {
+    let cleaned: String = args_json
+        .chars()
+        .filter(|c| !matches!(c, '{' | '}' | '[' | ']' | '"' | ':' | ','))
+        .collect();
+    truncate_summary(cleaned.trim(), 24)
+}
+
+/// Best-effort single-line summary of tool args: dedicated keys first, then the first
+/// string value. Unparseable args are sanitized so raw JSON never leaks (MASTER_SPEC §1.2.2, §3).
+fn summarize_args(parsed: Option<&serde_json::Value>, args_json: &str) -> String {
+    if let Some(obj) = parsed.and_then(|v| v.as_object()) {
+        for key in [
+            "command", "path", "file", "filePath", "query", "queries", "url", "urls",
+            "task", "agent", "name", "taskId", "action", "tool", "claim", "objective",
+            "prompt", "source",
+        ] {
+            if let Some(v) = obj.get(key) {
+                if let Some(s) = v.as_str() {
+                    return s.to_string();
+                }
+                if let Some(first) = v.as_array().and_then(|a| a.first()).and_then(|s| s.as_str()) {
+                    return first.to_string();
+                }
+            }
+        }
+        if let Some(first) = obj.values().next().and_then(|v| v.as_str()) {
+            return first.to_string();
+        }
+        return String::new();
+    }
+    sanitize_raw_args(args_json)
 }
 
 #[cfg(test)]
@@ -359,6 +397,50 @@ mod tests {
         assert!(markup.contains("日本語"));
         assert!(markup.contains("Tiếng Việt"));
         assert!(markup.contains("🦀 Rust"));
+    }
+
+    #[test]
+    fn test_format_tool_call_label_exhaustive_no_json_leak() {
+        // Every Pi tool id the overlay can surface (MASTER_SPEC §1.2.2) must produce a
+        // human action label — never a raw `{"key": ...}` payload.
+        const TOOLS: &[&str] = &[
+            "bash", "powershell", "read", "edit", "write", "grep", "find",
+            "web_search", "fetch_content", "get_search_content", "source_check",
+            "subagent", "todo", "ask_user_question", "memory",
+            "fusion_reason", "fusion_investigate", "fusion_research", "fusion_validate",
+            "ctx_execute", "ctx_execute_file", "ctx_search", "ctx_index",
+            "ctx_fetch_and_index", "ctx_batch_execute", "ctx_stats", "ctx_doctor",
+            "ctx_purge", "ctx_upgrade", "ctx_insight",
+            "bg_run", "bg_status", "bg_logs", "bg_result", "bg_kill",
+            "bg_delegate", "bg_run_pi_attested",
+            "mcp", "task", "task_send", "task_cancel", "task_output", "workpool",
+        ];
+        for tool in TOOLS {
+            let label = format_tool_call_label(
+                tool,
+                r#"{"query":"needle","path":"src/x.rs","command":"cargo test","url":"https://x.y"}"#,
+            );
+            assert!(!label.contains("{\""), "raw JSON leak in {tool}: {label}");
+            assert!(!label.contains("\":"), "raw JSON leak in {tool}: {label}");
+            assert!(label.ends_with('›'), "missing action marker in {tool}: {label}");
+        }
+
+        // Unknown tools still get a sane label, not raw args.
+        let unknown = format_tool_call_label("totally_unknown", r#"{"query":"abc"}"#);
+        assert_eq!(unknown, "Tool totally_unknown: abc ›");
+
+        // Malformed / partial JSON args must never leak raw JSON into any label.
+        for tool in ["bash", "read", "edit", "grep", "ask_user_question", "totally_unknown"] {
+            let label = format_tool_call_label(tool, r#"{"command": "brok"#);
+            assert!(!label.contains("{\""), "raw JSON leak in {tool}: {label}");
+            assert!(!label.contains("\":"), "raw JSON leak in {tool}: {label}");
+        }
+
+        // Parseable JSON without the arm's expected field falls back to a JSON-free summary.
+        let missing =
+            format_tool_call_label("ask_user_question", r#"{"query":"needle","path":"a.rs"}"#);
+        assert!(!missing.contains("{\""), "raw JSON leak: {missing}");
+        assert!(!missing.contains("\":"), "raw JSON leak: {missing}");
     }
 
     #[test]

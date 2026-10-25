@@ -117,6 +117,7 @@ struct ActiveStreamTarget {
     metrics_badge: gtk4::Label,
     full_text: Rc<RefCell<String>>,
     tool_count: Rc<Cell<usize>>,
+    deliverables_box: gtk4::Box,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1444,6 +1445,37 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                         // Collapse thought and tool expanders automatically once done
                         target.parent_expander.set_expanded(false);
                         target.steps_expander.set_expanded(false);
+
+                        // Promote structured deliverables to summary cards (MASTER_SPEC §1.2 layer 3)
+                        let full_snapshot = target.full_text.borrow().clone();
+                        let deliverables = render::artifacts::extract_deliverables(&full_snapshot);
+                        if !deliverables.is_empty() {
+                            let stripped =
+                                render::artifacts::strip_deliverables(&full_snapshot, &deliverables);
+                            format::apply_assistant_markup(&target.label, &stripped);
+                            target.deliverables_box.set_visible(true);
+                            for d in &deliverables {
+                                let card = gtk4::Expander::builder()
+                                    .label(render::artifacts::deliverable_card_label(d))
+                                    .css_classes(["artifact-card"])
+                                    .expanded(false)
+                                    .build();
+                                let detail = gtk4::Label::builder()
+                                    .selectable(true)
+                                    .wrap(true)
+                                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                                    .width_chars(10)
+                                    .max_width_chars(0)
+                                    .xalign(0.0)
+                                    .use_markup(true)
+                                    .css_classes(["artifact-card-content"])
+                                    .build();
+                                detail.set_markup(&render::artifacts::render_deliverable_detail(d));
+                                card.set_child(Some(&detail));
+                                target.deliverables_box.append(&card);
+                            }
+                            scroll_fn();
+                        }
                     }
                     status_clone.set_text("ready");
                     status_clone.remove_css_class("working");
@@ -1625,6 +1657,13 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 .css_classes(["bubble-assistant-text"])
                 .build();
             asst_bubble.append(&asst_label);
+
+            // Deliverables (artifact cards): structured outputs as summary cards (MASTER_SPEC §1.2 layer 3)
+            let deliverables_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+            deliverables_box.add_css_class("artifact-card-list");
+            deliverables_box.set_visible(false);
+            asst_bubble.append(&deliverables_box);
+
             asst_row.append(&asst_bubble);
             messages_box.append(&asst_row);
 
@@ -1654,6 +1693,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 metrics_badge: metrics_badge.clone(),
                 full_text: full_text.clone(),
                 tool_count: Rc::new(Cell::new(0)),
+                deliverables_box: deliverables_box.clone(),
             });
 
             scroll_fn();
