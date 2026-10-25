@@ -2,3 +2,6 @@
 Cargo.lock
 *.log
 *.sock
+.omo/
+.pi/
+.pi-intercom/
