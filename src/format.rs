@@ -44,7 +44,11 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
         "read" => {
             let path = parsed
                 .as_ref()
-                .and_then(|v| v.get("path").or_else(|| v.get("file")).or_else(|| v.get("filePath")))
+                .and_then(|v| {
+                    v.get("path")
+                        .or_else(|| v.get("file"))
+                        .or_else(|| v.get("filePath"))
+                })
                 .and_then(|p| p.as_str())
                 .unwrap_or(generic.as_str());
             format!("Read file: {} ›", truncate_summary(path, 40))
@@ -52,7 +56,11 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
         "edit" => {
             let path = parsed
                 .as_ref()
-                .and_then(|v| v.get("path").or_else(|| v.get("file")).or_else(|| v.get("filePath")))
+                .and_then(|v| {
+                    v.get("path")
+                        .or_else(|| v.get("file"))
+                        .or_else(|| v.get("filePath"))
+                })
                 .and_then(|p| p.as_str())
                 .unwrap_or(generic.as_str());
             format!("Edited file: {} ›", truncate_summary(path, 40))
@@ -60,7 +68,11 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
         "write" => {
             let path = parsed
                 .as_ref()
-                .and_then(|v| v.get("path").or_else(|| v.get("file")).or_else(|| v.get("filePath")))
+                .and_then(|v| {
+                    v.get("path")
+                        .or_else(|| v.get("file"))
+                        .or_else(|| v.get("filePath"))
+                })
                 .and_then(|p| p.as_str())
                 .unwrap_or(generic.as_str());
             format!("Wrote file: {} ›", truncate_summary(path, 40))
@@ -86,7 +98,12 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                         if let Some(s) = q.as_str() {
                             Some(s.to_string())
                         } else {
-                            q.as_array().map(|arr| arr.first().and_then(|v| v.as_str()).unwrap_or("").to_string())
+                            q.as_array().map(|arr| {
+                                arr.first()
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string()
+                            })
                         }
                     })
                 })
@@ -96,27 +113,43 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
         "fetch_content" => {
             let target = parsed
                 .as_ref()
-                .and_then(|v| v.get("url").or_else(|| v.get("urls")).and_then(|u| {
-                    if let Some(s) = u.as_str() {
-                        Some(s.to_string())
-                    } else {
-                        u.as_array().map(|arr| arr.first().and_then(|v| v.as_str()).unwrap_or("").to_string())
-                    }
-                }))
+                .and_then(|v| {
+                    v.get("url").or_else(|| v.get("urls")).and_then(|u| {
+                        if let Some(s) = u.as_str() {
+                            Some(s.to_string())
+                        } else {
+                            u.as_array().map(|arr| {
+                                arr.first()
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string()
+                            })
+                        }
+                    })
+                })
                 .unwrap_or_else(|| truncate_summary(&generic, 32));
             format!("Fetched: {} ›", truncate_summary(&target, 36))
         }
         "get_search_content" | "source_check" => {
             let target = parsed
                 .as_ref()
-                .and_then(|v| v.get("query").or_else(|| v.get("url")).or_else(|| v.get("claim")).and_then(|s| s.as_str()))
+                .and_then(|v| {
+                    v.get("query")
+                        .or_else(|| v.get("url"))
+                        .or_else(|| v.get("claim"))
+                        .and_then(|s| s.as_str())
+                })
                 .unwrap_or(generic.as_str());
             format!("Checked source: {} ›", truncate_summary(target, 32))
         }
         "subagent" => {
             let task = parsed
                 .as_ref()
-                .and_then(|v| v.get("task").or_else(|| v.get("agent")).and_then(|s| s.as_str()))
+                .and_then(|v| {
+                    v.get("task")
+                        .or_else(|| v.get("agent"))
+                        .and_then(|s| s.as_str())
+                })
                 .unwrap_or(generic.as_str());
             format!("Delegated: {} ›", truncate_summary(task, 32))
         }
@@ -127,7 +160,11 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 .unwrap_or("manage");
             let subject = parsed
                 .as_ref()
-                .and_then(|v| v.get("subject").or_else(|| v.get("description")).and_then(|s| s.as_str()))
+                .and_then(|v| {
+                    v.get("subject")
+                        .or_else(|| v.get("description"))
+                        .and_then(|s| s.as_str())
+                })
                 .unwrap_or("");
             if subject.is_empty() {
                 format!("Todo: {} ›", action)
@@ -138,7 +175,12 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
         "fusion_reason" | "fusion_investigate" | "fusion_research" | "fusion_validate" => {
             let prompt = parsed
                 .as_ref()
-                .and_then(|v| v.get("objective").or_else(|| v.get("prompt")).or_else(|| v.get("claim")).and_then(|s| s.as_str()))
+                .and_then(|v| {
+                    v.get("objective")
+                        .or_else(|| v.get("prompt"))
+                        .or_else(|| v.get("claim"))
+                        .and_then(|s| s.as_str())
+                })
                 .unwrap_or(generic.as_str());
             let action_name = match name {
                 "fusion_reason" => "Reasoned",
@@ -151,28 +193,46 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
         "ctx_execute" | "ctx_execute_file" => {
             let target = parsed
                 .as_ref()
-                .and_then(|v| v.get("path").or_else(|| v.get("language")).and_then(|s| s.as_str()))
+                .and_then(|v| {
+                    v.get("path")
+                        .or_else(|| v.get("language"))
+                        .and_then(|s| s.as_str())
+                })
                 .unwrap_or(generic.as_str());
             format!("Sandbox exec: {} ›", truncate_summary(target, 32))
         }
         "ctx_search" | "ctx_index" | "ctx_fetch_and_index" => {
             let q = parsed
                 .as_ref()
-                .and_then(|v| v.get("query").or_else(|| v.get("source")).or_else(|| v.get("url")).and_then(|s| s.as_str()))
+                .and_then(|v| {
+                    v.get("query")
+                        .or_else(|| v.get("source"))
+                        .or_else(|| v.get("url"))
+                        .and_then(|s| s.as_str())
+                })
                 .unwrap_or(generic.as_str());
             format!("Context op: {} ›", truncate_summary(q, 32))
         }
         "bg_run" | "bg_status" | "bg_logs" | "bg_result" | "bg_kill" => {
             let target = parsed
                 .as_ref()
-                .and_then(|v| v.get("name").or_else(|| v.get("taskId")).or_else(|| v.get("command")).and_then(|s| s.as_str()))
+                .and_then(|v| {
+                    v.get("name")
+                        .or_else(|| v.get("taskId"))
+                        .or_else(|| v.get("command"))
+                        .and_then(|s| s.as_str())
+                })
                 .unwrap_or(generic.as_str());
             format!("Background task: {} ›", truncate_summary(target, 30))
         }
         "mcp" | "mcp__playwright" => {
             let action = parsed
                 .as_ref()
-                .and_then(|v| v.get("action").or_else(|| v.get("tool")).and_then(|s| s.as_str()))
+                .and_then(|v| {
+                    v.get("action")
+                        .or_else(|| v.get("tool"))
+                        .and_then(|s| s.as_str())
+                })
                 .unwrap_or("call");
             format!("MCP action: {} ›", truncate_summary(action, 30))
         }
@@ -198,17 +258,30 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                     truncate_summary(cmd, 30)
                 } else if let Some(path) = obj.get("path").and_then(|p| p.as_str()) {
                     truncate_summary(path, 30)
-                } else if let Some(q) = obj.get("query").or_else(|| obj.get("queries")).and_then(|q| {
-                    if let Some(s) = q.as_str() {
-                        Some(s.to_string())
-                    } else {
-                        q.as_array().map(|arr| arr.first().and_then(|v| v.as_str()).unwrap_or("").to_string())
-                    }
-                }) {
+                } else if let Some(q) =
+                    obj.get("query")
+                        .or_else(|| obj.get("queries"))
+                        .and_then(|q| {
+                            if let Some(s) = q.as_str() {
+                                Some(s.to_string())
+                            } else {
+                                q.as_array().map(|arr| {
+                                    arr.first()
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string()
+                                })
+                            }
+                        })
+                {
                     truncate_summary(&q, 30)
                 } else if let Some(url) = obj.get("url").and_then(|u| u.as_str()) {
                     truncate_summary(url, 30)
-                } else if let Some(first_val) = obj.as_object().and_then(|m| m.values().next()).and_then(|v| v.as_str()) {
+                } else if let Some(first_val) = obj
+                    .as_object()
+                    .and_then(|m| m.values().next())
+                    .and_then(|v| v.as_str())
+                {
                     truncate_summary(first_val, 30)
                 } else {
                     String::new()
@@ -240,15 +313,34 @@ fn sanitize_raw_args(args_json: &str) -> String {
 fn summarize_args(parsed: Option<&serde_json::Value>, args_json: &str) -> String {
     if let Some(obj) = parsed.and_then(|v| v.as_object()) {
         for key in [
-            "command", "path", "file", "filePath", "query", "queries", "url", "urls",
-            "task", "agent", "name", "taskId", "action", "tool", "claim", "objective",
-            "prompt", "source",
+            "command",
+            "path",
+            "file",
+            "filePath",
+            "query",
+            "queries",
+            "url",
+            "urls",
+            "task",
+            "agent",
+            "name",
+            "taskId",
+            "action",
+            "tool",
+            "claim",
+            "objective",
+            "prompt",
+            "source",
         ] {
             if let Some(v) = obj.get(key) {
                 if let Some(s) = v.as_str() {
                     return s.to_string();
                 }
-                if let Some(first) = v.as_array().and_then(|a| a.first()).and_then(|s| s.as_str()) {
+                if let Some(first) = v
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|s| s.as_str())
+                {
                     return first.to_string();
                 }
             }
@@ -404,16 +496,49 @@ mod tests {
         // Every Pi tool id the overlay can surface (MASTER_SPEC §1.2.2) must produce a
         // human action label — never a raw `{"key": ...}` payload.
         const TOOLS: &[&str] = &[
-            "bash", "powershell", "read", "edit", "write", "grep", "find",
-            "web_search", "fetch_content", "get_search_content", "source_check",
-            "subagent", "todo", "ask_user_question", "memory",
-            "fusion_reason", "fusion_investigate", "fusion_research", "fusion_validate",
-            "ctx_execute", "ctx_execute_file", "ctx_search", "ctx_index",
-            "ctx_fetch_and_index", "ctx_batch_execute", "ctx_stats", "ctx_doctor",
-            "ctx_purge", "ctx_upgrade", "ctx_insight",
-            "bg_run", "bg_status", "bg_logs", "bg_result", "bg_kill",
-            "bg_delegate", "bg_run_pi_attested",
-            "mcp", "task", "task_send", "task_cancel", "task_output", "workpool",
+            "bash",
+            "powershell",
+            "read",
+            "edit",
+            "write",
+            "grep",
+            "find",
+            "web_search",
+            "fetch_content",
+            "get_search_content",
+            "source_check",
+            "subagent",
+            "todo",
+            "ask_user_question",
+            "memory",
+            "fusion_reason",
+            "fusion_investigate",
+            "fusion_research",
+            "fusion_validate",
+            "ctx_execute",
+            "ctx_execute_file",
+            "ctx_search",
+            "ctx_index",
+            "ctx_fetch_and_index",
+            "ctx_batch_execute",
+            "ctx_stats",
+            "ctx_doctor",
+            "ctx_purge",
+            "ctx_upgrade",
+            "ctx_insight",
+            "bg_run",
+            "bg_status",
+            "bg_logs",
+            "bg_result",
+            "bg_kill",
+            "bg_delegate",
+            "bg_run_pi_attested",
+            "mcp",
+            "task",
+            "task_send",
+            "task_cancel",
+            "task_output",
+            "workpool",
         ];
         for tool in TOOLS {
             let label = format_tool_call_label(
@@ -422,7 +547,10 @@ mod tests {
             );
             assert!(!label.contains("{\""), "raw JSON leak in {tool}: {label}");
             assert!(!label.contains("\":"), "raw JSON leak in {tool}: {label}");
-            assert!(label.ends_with('›'), "missing action marker in {tool}: {label}");
+            assert!(
+                label.ends_with('›'),
+                "missing action marker in {tool}: {label}"
+            );
         }
 
         // Unknown tools still get a sane label, not raw args.
@@ -430,7 +558,14 @@ mod tests {
         assert_eq!(unknown, "Tool totally_unknown: abc ›");
 
         // Malformed / partial JSON args must never leak raw JSON into any label.
-        for tool in ["bash", "read", "edit", "grep", "ask_user_question", "totally_unknown"] {
+        for tool in [
+            "bash",
+            "read",
+            "edit",
+            "grep",
+            "ask_user_question",
+            "totally_unknown",
+        ] {
             let label = format_tool_call_label(tool, r#"{"command": "brok"#);
             assert!(!label.contains("{\""), "raw JSON leak in {tool}: {label}");
             assert!(!label.contains("\":"), "raw JSON leak in {tool}: {label}");
@@ -479,7 +614,10 @@ mod tests {
         assert_eq!(ws, "Searched web: \"Rust GUI gtk4\" ›");
 
         // fetch_content
-        let fc = format_tool_call_label("fetch_content", r#"{"url":"https://crates.io/api/v1/crates"}"#);
+        let fc = format_tool_call_label(
+            "fetch_content",
+            r#"{"url":"https://crates.io/api/v1/crates"}"#,
+        );
         assert_eq!(fc, "Fetched: https://crates.io/api/v1/crates ›");
 
         // subagent
@@ -487,11 +625,17 @@ mod tests {
         assert_eq!(sa, "Delegated: run security audit ›");
 
         // todo
-        let td = format_tool_call_label("todo", r#"{"action":"create","subject":"Implement test suite"}"#);
+        let td = format_tool_call_label(
+            "todo",
+            r#"{"action":"create","subject":"Implement test suite"}"#,
+        );
         assert_eq!(td, "Todo create: Implement test suite ›");
 
         // fusion
-        let fr = format_tool_call_label("fusion_reason", r#"{"prompt":"Analyze architectural trade-offs"}"#);
+        let fr = format_tool_call_label(
+            "fusion_reason",
+            r#"{"prompt":"Analyze architectural trade-offs"}"#,
+        );
         assert_eq!(fr, "Reasoned: Analyze architectural trade-offs ›");
 
         // ctx_execute
@@ -503,11 +647,17 @@ mod tests {
         assert_eq!(bg, "Background task: Build Cargo Binary ›");
 
         // mcp
-        let m = format_tool_call_label("mcp", r#"{"action":"install","url":"http://localhost:3000"}"#);
+        let m = format_tool_call_label(
+            "mcp",
+            r#"{"action":"install","url":"http://localhost:3000"}"#,
+        );
         assert_eq!(m, "MCP action: install ›");
 
         // ask_user_question
-        let au = format_tool_call_label("ask_user_question", r#"{"questions":[{"question":"Choose an approach?"}]}"#);
+        let au = format_tool_call_label(
+            "ask_user_question",
+            r#"{"questions":[{"question":"Choose an approach?"}]}"#,
+        );
         assert_eq!(au, "Prompted user: \"Choose an approach?\" ›");
 
         // fallback generic
@@ -640,22 +790,61 @@ mod tests {
     fn test_fuzz_pseudo_random_generative_markdown_stream() {
         // Pseudo-random generative stress test with PRNG LCG algorithm (no external rand crate needed)
         let fragments = [
-            "# ", "## ", "### ", "- ", "* ", "1. ", "- [x] ", "- [ ] ",
-            "> ", "> > ", "> [!NOTE]\n", "> [!WARNING]\n",
-            "```rust\n", "```python\n", "```json\n", "```\n", "```",
-            "**", "*", "***", "~~", "`", "$", "~", "^",
+            "# ",
+            "## ",
+            "### ",
+            "- ",
+            "* ",
+            "1. ",
+            "- [x] ",
+            "- [ ] ",
+            "> ",
+            "> > ",
+            "> [!NOTE]\n",
+            "> [!WARNING]\n",
+            "```rust\n",
+            "```python\n",
+            "```json\n",
+            "```\n",
+            "```",
+            "**",
+            "*",
+            "***",
+            "~~",
+            "`",
+            "$",
+            "~",
+            "^",
             "[Link text](https://example.com/api?a=1&b=2)",
-            "<kbd>", "</kbd>", "<details>", "</details>", "<summary>", "</summary>",
+            "<kbd>",
+            "</kbd>",
+            "<details>",
+            "</details>",
+            "<summary>",
+            "</summary>",
             "| col 1 | col 2 |\n| --- | --- |\n| a | b |\n",
-            "---", "***", "___",
-            "<tag>", "</tag>", "<div attr=\"test\">", "</div>",
-            "&", "<", ">", "\"", "'", "🦀 Tiếng Việt 🚀 漢字",
-            "text with newline\n", "    indented code line\n",
+            "---",
+            "***",
+            "___",
+            "<tag>",
+            "</tag>",
+            "<div attr=\"test\">",
+            "</div>",
+            "&",
+            "<",
+            ">",
+            "\"",
+            "'",
+            "🦀 Tiếng Việt 🚀 漢字",
+            "text with newline\n",
+            "    indented code line\n",
         ];
 
         let mut seed: u64 = 0xDEADBEEFCAFE;
         let mut prng = move || {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (seed >> 32) as usize
         };
 
@@ -785,8 +974,15 @@ mod tests {
         let markup = format_markdown_to_pango(&big_doc);
         let elapsed = start.elapsed();
 
-        assert!(elapsed.as_millis() < 500, "Rendering 500 blocks took too long: {:?}", elapsed);
-        assert!(pango::parse_markup(&markup, '\0').is_ok(), "Pango parse failed on massive payload");
+        assert!(
+            elapsed.as_millis() < 500,
+            "Rendering 500 blocks took too long: {:?}",
+            elapsed
+        );
+        assert!(
+            pango::parse_markup(&markup, '\0').is_ok(),
+            "Pango parse failed on massive payload"
+        );
     }
 
     #[test]
@@ -1247,9 +1443,15 @@ mod tests {
     fn test_fuzz_codeblock_with_nested_backticks_and_fence_collision() {
         let code_cases = [
             // 4 backticks outer fence containing 3 backticks inner fence
-            ("markdown", "````markdown\n```rust\nfn inner() {}\n```\n````"),
+            (
+                "markdown",
+                "````markdown\n```rust\nfn inner() {}\n```\n````",
+            ),
             // 5 backticks outer fence containing 4 backticks inner fence
-            ("markdown", "`````markdown\n````rust\nfn deeper() {}\n````\n`````"),
+            (
+                "markdown",
+                "`````markdown\n````rust\nfn deeper() {}\n````\n`````",
+            ),
             // Code with lines starting with backticks
             ("bash", "```bash\n`whoami` && `hostname`\n```"),
             // Inline code with triple backtick inside
@@ -1257,8 +1459,14 @@ mod tests {
             // Codeblock with trailing spaces after closing fence
             ("python", "```python\nx = 1\n```   "),
             // Codeblock with language containing dot or version
-            ("vue.js", "```vue.js\n<template><div>Hello</div></template>\n```"),
-            ("c++20", "```c++20\nauto concept Integral = std::is_integral_v<T>;\n```"),
+            (
+                "vue.js",
+                "```vue.js\n<template><div>Hello</div></template>\n```",
+            ),
+            (
+                "c++20",
+                "```c++20\nauto concept Integral = std::is_integral_v<T>;\n```",
+            ),
         ];
 
         for (lang, code) in code_cases {
@@ -1304,12 +1512,21 @@ mod tests {
     fn test_fuzz_syntax_highlighter_token_boundaries_and_unterminated_literals() {
         // Test language syntax highlighter on edge-case unterminated strings, comments, and numbers
         let syntax_edge_cases = [
-            ("rust", "let unterminated = \"string without closing quote\nlet x = 10;"),
-            ("rust", "let raw_unterminated = r#\"unterminated raw string;\nlet y = 20;"),
+            (
+                "rust",
+                "let unterminated = \"string without closing quote\nlet x = 10;",
+            ),
+            (
+                "rust",
+                "let raw_unterminated = r#\"unterminated raw string;\nlet y = 20;",
+            ),
             ("rust", "/* block comment without closing\nlet z = 30;"),
             ("python", "s = 'unterminated single quote\nx = 1"),
             ("python", "s = '''unterminated triple quote\ny = 2"),
-            ("typescript", "const str = `unterminated template literal\nconst a = 1;"),
+            (
+                "typescript",
+                "const str = `unterminated template literal\nconst a = 1;",
+            ),
             ("json", "{\"key\": \"unterminated string value"),
             ("bash", "echo \"unterminated double quote"),
             ("bash", "echo 'unterminated single quote"),
@@ -1336,7 +1553,10 @@ mod tests {
         // Simulates rapid accumulation of multi-turn user/assistant conversation
         let mut session = String::new();
         for turn in 1..=50 {
-            session.push_str(&format!("**Turn {} User Query:**\nHow to solve issue #{}?\n\n", turn, turn));
+            session.push_str(&format!(
+                "**Turn {} User Query:**\nHow to solve issue #{}?\n\n",
+                turn, turn
+            ));
             session.push_str(&format!("**Turn {} Assistant Response:**\nHere is the fix:\n```rust\nfn fix_{}() -> bool {{ true }}\n```\nResult: $2^{} = {}$.\n\n", turn, turn, turn, 1u64.wrapping_shl(turn % 32)));
             session.push_str("---\n\n");
         }
@@ -1722,9 +1942,21 @@ mod tests {
                 let color_str = &rest[pos + 12..];
                 if let Some(end_quote) = color_str.find('"') {
                     let hex = &color_str[..end_quote];
-                    assert!(hex.starts_with('#'), "Color code must start with #: {}", hex);
-                    assert!(hex.len() == 7, "Hex color code must be 7 chars (#RRGGBB): {}", hex);
-                    assert!(hex[1..].chars().all(|c| c.is_ascii_hexdigit()), "Invalid hex digits: {}", hex);
+                    assert!(
+                        hex.starts_with('#'),
+                        "Color code must start with #: {}",
+                        hex
+                    );
+                    assert!(
+                        hex.len() == 7,
+                        "Hex color code must be 7 chars (#RRGGBB): {}",
+                        hex
+                    );
+                    assert!(
+                        hex[1..].chars().all(|c| c.is_ascii_hexdigit()),
+                        "Invalid hex digits: {}",
+                        hex
+                    );
                     rest = &color_str[end_quote + 1..];
                 } else {
                     break;

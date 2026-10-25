@@ -355,8 +355,7 @@ mod tests {
         assert!(label.starts_with("Unified diff · 1 file"), "{}", label);
         let detail = render_deliverable_detail(&dels[0]);
         assert!(gtk4::pango::parse_markup(&detail, '\0').is_ok());
-        let prose_dels =
-            extract_deliverables("## Plan\n\n1. Step one\n2. Step two");
+        let prose_dels = extract_deliverables("## Plan\n\n1. Step one\n2. Step two");
         let detail_prose = render_deliverable_detail(&prose_dels[0]);
         assert!(gtk4::pango::parse_markup(&detail_prose, '\0').is_ok());
     }

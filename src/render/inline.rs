@@ -80,7 +80,9 @@ fn format_kbd_tags(s: &str) -> String {
         let after_open = &rest[start_idx + open_tag.len()..];
         if let Some(close_idx) = after_open.find(close_tag) {
             let inner = &after_open[..close_idx];
-            out.push_str("<tt><span background=\"#202226\" foreground=\"#e8e9ed\" size=\"smaller\"> ");
+            out.push_str(
+                "<tt><span background=\"#202226\" foreground=\"#e8e9ed\" size=\"smaller\"> ",
+            );
             out.push_str(inner);
             out.push_str(" </span></tt>");
             rest = &after_open[close_idx + close_tag.len()..];
@@ -258,4 +260,3 @@ fn format_inline_math(s: &str) -> String {
     }
     res
 }
-

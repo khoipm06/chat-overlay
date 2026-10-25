@@ -105,7 +105,12 @@ struct TrackedPrompt {
     bubble: gtk4::Box,
 }
 
-type ActiveThoughtState = Option<(gtk4::Expander, gtk4::Label, Rc<RefCell<String>>, std::time::Instant)>;
+type ActiveThoughtState = Option<(
+    gtk4::Expander,
+    gtk4::Label,
+    Rc<RefCell<String>>,
+    std::time::Instant,
+)>;
 
 struct ActiveStreamTarget {
     label: gtk4::Label,
@@ -1299,7 +1304,9 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 StreamEvent::TextDelta(delta) => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
                         // If there is an active thinking block, close it and freeze its duration
-                        if let Some((ref exp, _, _, thought_start)) = *target.active_thought_expander.borrow() {
+                        if let Some((ref exp, _, _, thought_start)) =
+                            *target.active_thought_expander.borrow()
+                        {
                             let elapsed = thought_start.elapsed().as_secs();
                             exp.set_label(Some(&format!("Thought for {}s ›", elapsed.max(1))));
                             exp.set_expanded(false);
@@ -1360,7 +1367,9 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                         target.steps_expander.set_visible(true);
 
                         // Close active thinking block on tool execution and freeze its duration
-                        if let Some((ref exp, _, _, thought_start)) = *target.active_thought_expander.borrow() {
+                        if let Some((ref exp, _, _, thought_start)) =
+                            *target.active_thought_expander.borrow()
+                        {
                             let elapsed = thought_start.elapsed().as_secs();
                             exp.set_label(Some(&format!("Thought for {}s ›", elapsed.max(1))));
                             exp.set_expanded(false);
@@ -1430,7 +1439,9 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 StreamEvent::Done => {
                     if let Some(ref target) = *active_stream_clone.borrow() {
                         // Freeze any remaining active thinking block
-                        if let Some((ref exp, _, _, thought_start)) = *target.active_thought_expander.borrow() {
+                        if let Some((ref exp, _, _, thought_start)) =
+                            *target.active_thought_expander.borrow()
+                        {
                             let elapsed = thought_start.elapsed().as_secs();
                             exp.set_label(Some(&format!("Thought for {}s ›", elapsed.max(1))));
                             exp.set_expanded(false);
@@ -1439,7 +1450,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
                         // Finalize parent expander label with fixed total duration
                         let total_secs = target.start_time.elapsed().as_secs();
-                        let worked_label = format!("Worked for {} ▾", format::format_duration_sec(total_secs));
+                        let worked_label =
+                            format!("Worked for {} ▾", format::format_duration_sec(total_secs));
                         target.parent_expander.set_label(Some(&worked_label));
 
                         // Collapse thought and tool expanders automatically once done
@@ -1450,8 +1462,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                         let full_snapshot = target.full_text.borrow().clone();
                         let deliverables = render::artifacts::extract_deliverables(&full_snapshot);
                         if !deliverables.is_empty() {
-                            let stripped =
-                                render::artifacts::strip_deliverables(&full_snapshot, &deliverables);
+                            let stripped = render::artifacts::strip_deliverables(
+                                &full_snapshot,
+                                &deliverables,
+                            );
                             format::apply_assistant_markup(&target.label, &stripped);
                             target.deliverables_box.set_visible(true);
                             for d in &deliverables {
