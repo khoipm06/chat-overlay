@@ -251,10 +251,9 @@ pub fn todo_deliverable_from_args(args: &str) -> Option<Deliverable> {
     let value: serde_json::Value = serde_json::from_str(args).ok()?;
     let items = match &value {
         serde_json::Value::Array(items) => items.as_slice(),
-        serde_json::Value::Object(map) => map
-            .get("todos")
-            .or_else(|| map.get("items"))?
-            .as_array()?,
+        serde_json::Value::Object(map) => {
+            map.get("todos").or_else(|| map.get("items"))?.as_array()?
+        }
         _ => return None,
     };
     if items.is_empty() {
@@ -366,10 +365,8 @@ mod tests {
 
     #[test]
     fn test_todo_args_bare_array_and_rejects() {
-        let d = todo_deliverable_from_args(
-            r#"[{"content":"only","status":"completed"}]"#,
-        )
-        .expect("bare array");
+        let d = todo_deliverable_from_args(r#"[{"content":"only","status":"completed"}]"#)
+            .expect("bare array");
         assert_eq!(d.summary, "1 of 1 done");
         assert!(todo_deliverable_from_args("not json").is_none());
         assert!(todo_deliverable_from_args("{\"command\":\"ls\"}").is_none());
