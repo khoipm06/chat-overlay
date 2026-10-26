@@ -1384,6 +1384,32 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                         target.steps_expander.set_label(Some(&steps_lbl));
 
                         let tool_label = format::format_tool_call_label(&name, &args);
+
+                        // Live todo progress as an artifact card (MASTER_SPEC §1.2 layer 3)
+                        if name == "todo" {
+                            if let Some(d) = render::artifacts::todo_deliverable_from_args(&args) {
+                                let card = gtk4::Expander::builder()
+                                    .label(render::artifacts::deliverable_card_label(&d))
+                                    .css_classes(["artifact-card"])
+                                    .expanded(false)
+                                    .build();
+                                let detail = gtk4::Label::builder()
+                                    .selectable(true)
+                                    .wrap(true)
+                                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                                    .width_chars(10)
+                                    .max_width_chars(0)
+                                    .xalign(0.0)
+                                    .use_markup(true)
+                                    .css_classes(["artifact-card-content"])
+                                    .build();
+                                detail
+                                    .set_markup(&render::artifacts::render_deliverable_detail(&d));
+                                card.set_child(Some(&detail));
+                                target.deliverables_box.set_visible(true);
+                                target.deliverables_box.append(&card);
+                            }
+                        }
                         let tool_expander = gtk4::Expander::builder()
                             .label(tool_label)
                             .css_classes(["timeline-sub-expander", "tool-sub-item"])

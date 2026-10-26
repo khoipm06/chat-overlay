@@ -242,6 +242,56 @@ fn is_task_line(t: &str) -> bool {
     (t.starts_with("- [") || t.starts_with("* [") || t.starts_with("+ [")) && t.len() >= 4
 }
 
+/// Build a TaskList deliverable from a Pi `todo` tool call's JSON arguments
+/// (rpiv-todo shape: {"todos":[{"content":..,"status":"completed|in_progress|pending"},..]}
+/// or a bare array of the same items). Returns None when the payload is not
+/// recognisable todo data. MASTER_SPEC §1.2 layer 3: todo progress must surface
+/// as a live artifact card, not stay buried in a timeline tool entry.
+pub fn todo_deliverable_from_args(args: &str) -> Option<Deliverable> {
+    let value: serde_json::Value = serde_json::from_str(args).ok()?;
+    let items = match &value {
+        serde_json::Value::Array(items) => items.as_slice(),
+        serde_json::Value::Object(map) => map
+            .get("todos")
+            .or_else(|| map.get("items"))?
+            .as_array()?,
+        _ => return None,
+    };
+    if items.is_empty() {
+        return None;
+    }
+    let mut lines = Vec::with_capacity(items.len());
+    let mut done = 0usize;
+    for item in items {
+        let content = item
+            .get("content")
+            .or_else(|| item.get("title"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let status = item
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("pending");
+        let is_done = matches!(status, "completed" | "done");
+        if is_done {
+            done += 1;
+        }
+        lines.push(format!(
+            "- [{}] {}",
+            if is_done { "x" } else { " " },
+            content
+        ));
+    }
+    let content = lines.join("\n");
+    Some(Deliverable {
+        kind: DeliverableKind::TaskList,
+        summary: format!("{} of {} done", done, items.len()),
+        content: content.clone(),
+        lang: String::new(),
+        source: content,
+    })
+}
+
 fn is_done_task(t: &str) -> bool {
     t.starts_with("- [x]")
         || t.starts_with("- [X]")
@@ -299,6 +349,31 @@ mod tests {
         assert_eq!(dels[0].summary, "2 of 4 done");
         // A short run stays plain prose.
         assert!(extract_deliverables("- [x] one\n- [ ] two").is_empty());
+    }
+
+    #[test]
+    fn test_todo_args_completed_counts() {
+        let d = todo_deliverable_from_args(
+            r#"{"todos":[{"content":"a","status":"completed"},{"content":"b","status":"pending"},{"content":"c","status":"in_progress"}]}"#,
+        )
+        .expect("todo payload");
+        assert_eq!(d.kind, DeliverableKind::TaskList);
+        assert_eq!(d.summary, "1 of 3 done");
+        assert!(d.content.contains("- [x] a"));
+        assert!(d.content.contains("- [ ] b"));
+        assert!(d.content.contains("- [ ] c"));
+    }
+
+    #[test]
+    fn test_todo_args_bare_array_and_rejects() {
+        let d = todo_deliverable_from_args(
+            r#"[{"content":"only","status":"completed"}]"#,
+        )
+        .expect("bare array");
+        assert_eq!(d.summary, "1 of 1 done");
+        assert!(todo_deliverable_from_args("not json").is_none());
+        assert!(todo_deliverable_from_args("{\"command\":\"ls\"}").is_none());
+        assert!(todo_deliverable_from_args("[]").is_none());
     }
 
     #[test]
