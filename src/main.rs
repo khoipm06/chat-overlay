@@ -305,6 +305,46 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
     overlay::init_layer_shell(&window);
 
+    // Floating Chat Head Window (Messenger-style circular bubble)
+    let chat_head_window = gtk4::ApplicationWindow::builder()
+        .application(app)
+        .title("Pi Chat Head")
+        .css_classes(["chat-head-window"])
+        .build();
+
+    overlay::init_chat_head_layer_shell(
+        &chat_head_window,
+        initial_settings.margin_top,
+        initial_settings.margin_right,
+    );
+    chat_head_window.set_visible(initial_settings.show_chat_head);
+
+    let head_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    head_box.add_css_class("chat-head-box");
+
+    let head_btn = gtk4::Button::builder()
+        .css_classes(["chat-head-btn"])
+        .tooltip_text("Open Pi Overlay (Ctrl+Alt+L)")
+        .build();
+
+    let head_inner = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    head_inner.set_halign(gtk4::Align::Center);
+    head_inner.set_valign(gtk4::Align::Center);
+
+    let head_icon = gtk4::Label::builder()
+        .label("π")
+        .css_classes(["chat-head-icon"])
+        .build();
+    head_inner.append(&head_icon);
+
+    let head_dot = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    head_dot.add_css_class("chat-head-dot");
+    head_inner.append(&head_dot);
+
+    head_btn.set_child(Some(&head_inner));
+    head_box.append(&head_btn);
+    chat_head_window.set_child(Some(&head_box));
+
     // Root overlay container: Drag resize handle + drawer directly in root_box
     let root_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     root_box.set_halign(gtk4::Align::End);
@@ -494,11 +534,19 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
     // Auto-hide Checkbox
     let auto_hide_check = gtk4::CheckButton::builder()
-        .label("Auto-hide on focus loss")
+        .label("Auto-hide on focus loss (Uncheck to Pin)")
         .active(initial_settings.auto_hide_on_blur)
         .css_classes(["settings-checkbox"])
         .build();
     settings_pop_box.append(&auto_hide_check);
+
+    // Floating Chat Head Checkbox
+    let chat_head_check = gtk4::CheckButton::builder()
+        .label("Floating Chat Head bubble")
+        .active(initial_settings.show_chat_head)
+        .css_classes(["settings-checkbox"])
+        .build();
+    settings_pop_box.append(&chat_head_check);
 
     // Ephemeral session Checkbox
     let ephemeral_check = gtk4::CheckButton::builder()
@@ -688,6 +736,20 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             let mut st = state_autohide.borrow_mut();
             st.settings.auto_hide_on_blur = cb.is_active();
             let _ = st.settings.save();
+        });
+
+        let state_chat_head = state.clone();
+        let win_chat_head = chat_head_window.clone();
+        chat_head_check.connect_toggled(move |cb| {
+            let (is_active, is_hidden) = {
+                let mut st = state_chat_head.borrow_mut();
+                st.settings.show_chat_head = cb.is_active();
+                let _ = st.settings.save();
+                (cb.is_active(), st.mode == OverlayMode::Hidden)
+            };
+            if is_hidden {
+                win_chat_head.set_visible(is_active);
+            }
         });
 
         let state_ephemeral = state.clone();
@@ -1100,28 +1162,34 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     // Hide overlay completely: mode = Hidden, unmap Wayland surface (100% click-through)
     let hide_overlay_fn = {
         let window = window.clone();
+        let chat_head_win = chat_head_window.clone();
         let state = state.clone();
         let clear_conversation = clear_conversation.clone();
 
         Rc::new(move || {
-            let is_ephemeral = {
+            let (is_ephemeral, show_head) = {
                 let mut st = state.borrow_mut();
                 if st.mode == OverlayMode::Hidden {
                     return;
                 }
                 st.mode = OverlayMode::Hidden;
-                st.settings.ephemeral
+                (st.settings.ephemeral, st.settings.show_chat_head)
             };
             if is_ephemeral {
                 clear_conversation();
             }
             overlay::hide_overlay(&window);
+            if show_head {
+                chat_head_win.set_visible(true);
+                chat_head_win.present();
+            }
         })
     };
 
     // Expand overlay: mode = Visible, map surface, focus input
     let expand_overlay_fn = {
         let window = window.clone();
+        let chat_head_win = chat_head_window.clone();
         let entry = entry.clone();
         let state = state.clone();
         let just_expanded = just_expanded.clone();
@@ -1141,6 +1209,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             };
             just_expanded.set(true);
 
+            chat_head_win.set_visible(false);
             overlay::expand_overlay(&window, top, bottom, right);
             entry.grab_focus();
 
@@ -1171,6 +1240,46 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     btn_close.connect_clicked(move |_| {
         on_close_click();
     });
+
+    // Chat Head click expands overlay
+    let expand_on_head_click = expand_overlay_fn.clone();
+    head_btn.connect_clicked(move |_| {
+        expand_on_head_click();
+    });
+
+    // Vertical drag on Floating Chat Head
+    {
+        let head_drag = gtk4::GestureDrag::new();
+        let initial_margin_top = Rc::new(Cell::new(initial_settings.margin_top));
+        let cur_top = initial_margin_top.clone();
+        let state_drag = state.clone();
+        head_drag.connect_drag_begin(move |_, _, _| {
+            cur_top.set(state_drag.borrow().settings.margin_top);
+        });
+
+        let head_win_drag = chat_head_window.clone();
+        let main_win_drag = window.clone();
+        let cur_top_update = initial_margin_top.clone();
+        let state_update = state.clone();
+        head_drag.connect_drag_update(move |_, _, offset_y| {
+            let target_top = (cur_top_update.get() + offset_y as i32).clamp(8, 2000);
+            let right = {
+                let mut st = state_update.borrow_mut();
+                st.settings.margin_top = target_top;
+                st.top_margin = target_top;
+                st.settings.margin_right
+            };
+            overlay::update_chat_head_position(&head_win_drag, target_top, right);
+            overlay::update_margins(&main_win_drag, target_top, 54, right);
+        });
+
+        let state_end = state.clone();
+        head_drag.connect_drag_end(move |_, _, _| {
+            let _ = state_end.borrow().settings.save();
+        });
+
+        head_btn.add_controller(head_drag);
+    }
 
     // Clear button
     let on_clear_click = clear_conversation.clone();
@@ -1304,6 +1413,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     // Channel for streamed output from Pi
     let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<(u64, StreamEvent)>();
     let status_clone = status_label.clone();
+    let head_dot_clone = head_dot.clone();
     let state_clone = state.clone();
     let scroll_fn = scroll_to_bottom.clone();
     let active_stream_clone = active_stream.clone();
@@ -1476,6 +1586,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                     }
                     status_clone.set_text("ready");
                     status_clone.remove_css_class("working");
+                    head_dot_clone.remove_css_class("working");
                     scroll_fn();
                 }
             }
@@ -1693,6 +1804,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
             status_label.set_text("thinking...");
             status_label.add_css_class("working");
+            head_dot.add_css_class("working");
 
             let mut st = state.borrow_mut();
             let model_opt = Some(st.settings.model.clone());
@@ -1707,6 +1819,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 parent_expander.set_expanded(false);
                 status_label.set_text("error");
                 status_label.remove_css_class("working");
+                head_dot.remove_css_class("working");
                 scroll_fn();
             }
         })

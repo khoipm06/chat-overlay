@@ -54,6 +54,35 @@ pub fn hide_overlay(window: &gtk4::ApplicationWindow) {
     window.set_visible(false);
 }
 
+/// Initialize the floating Messenger-style circular Chat Head layer window.
+pub fn init_chat_head_layer_shell(window: &gtk4::ApplicationWindow, top: i32, right: i32) {
+    if gtk4_layer_shell::is_supported() {
+        window.init_layer_shell();
+        window.set_namespace("pi-floating-chat-head");
+        window.set_layer(Layer::Top);
+        window.set_exclusive_zone(-1);
+        window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::None);
+        window.set_anchor(Edge::Right, true);
+        window.set_anchor(Edge::Top, true);
+        window.set_anchor(Edge::Left, false);
+        window.set_anchor(Edge::Bottom, false);
+        window.set_margin(Edge::Right, right.max(0));
+        window.set_margin(Edge::Top, top.max(8));
+        window.set_visible(true);
+    } else {
+        window.set_decorated(false);
+        window.set_visible(true);
+    }
+}
+
+/// Update chat head position when dragged vertically or margin changed
+pub fn update_chat_head_position(window: &gtk4::ApplicationWindow, top: i32, right: i32) {
+    if window.is_layer_window() {
+        window.set_margin(Edge::Right, right.max(0));
+        window.set_margin(Edge::Top, top.max(8));
+    }
+}
+
 /// Emit an audible/visual bell notification on prompt completion
 #[allow(dead_code)]
 pub fn ring_completion_bell() {

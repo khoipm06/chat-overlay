@@ -32,6 +32,12 @@ pub struct AppSettings {
     pub margin_right: i32,
     #[serde(default = "default_margin_top")]
     pub margin_top: i32,
+    #[serde(default = "default_show_chat_head")]
+    pub show_chat_head: bool,
+}
+
+fn default_show_chat_head() -> bool {
+    true
 }
 
 fn default_margin_right() -> i32 {
@@ -82,6 +88,7 @@ impl Default for AppSettings {
             width: default_width(),
             height: default_height(),
             auto_hide_on_blur: default_auto_hide(),
+            show_chat_head: default_show_chat_head(),
             thinking_level: default_thinking_level(),
             sound_bell_on_done: default_sound_bell(),
             ephemeral: default_ephemeral(),
@@ -149,6 +156,7 @@ mod tests {
         assert!(s.auto_hide_on_blur);
         assert!(s.sound_bell_on_done);
         assert!(s.ephemeral);
+        assert!(s.show_chat_head);
     }
 
     #[test]
