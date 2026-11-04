@@ -1398,12 +1398,14 @@ dropdown > button.toggle arrow {
 }
 
 /* Dropdown Popup Menu */
-dropdown popover {
+dropdown popover,
+popover.menu {
     background: transparent;
     padding: 0;
 }
 
-dropdown popover > contents {
+dropdown popover > contents,
+popover.menu > contents {
     background-color: #18181b;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
@@ -1411,28 +1413,43 @@ dropdown popover > contents {
     padding: 4px;
 }
 
-dropdown popover listview {
+dropdown popover listview,
+popover.menu listview {
     background: transparent;
 }
 
-dropdown popover listview > row {
+dropdown popover listview > row,
+popover.menu listview > row,
+dropdown popover row,
+popover.menu row {
     padding: 6px 10px;
     border-radius: 5px;
     background-color: transparent;
     background-image: none;
     outline-style: none;
+    box-shadow: none;
     color: #d4d4d8;
     font-size: 12px;
 }
 
-dropdown popover listview > row:hover {
+dropdown popover listview > row:hover,
+popover.menu listview > row:hover,
+dropdown popover row:hover,
+popover.menu row:hover {
     background-color: rgba(255, 255, 255, 0.08);
+    background-image: none;
     color: #ffffff;
 }
 
-dropdown popover listview > row:selected {
-    background-color: rgba(59, 130, 246, 0.25);
-    color: #93c5fd;
+dropdown popover listview > row:selected,
+popover.menu listview > row:selected,
+dropdown popover row:selected,
+popover.menu row:selected,
+dropdown popover listview > row:focus,
+popover.menu listview > row:focus {
+    background-color: rgba(255, 255, 255, 0.12);
+    background-image: none;
+    color: #ffffff;
     font-weight: 600;
 }
 

@@ -210,17 +210,17 @@ fn highlight_generic_keywords(
 fn format_token(token: &str, keywords: &[&str], builtins: &[&str]) -> String {
     let escaped = glib::markup_escape_text(token);
     if keywords.contains(&token) {
-        // Linear/Raycast magenta/violet keyword tone
+        // VS Code / Copilot purple/pink keyword tone
         format!(
-            "<span foreground=\"#c084fc\" weight=\"bold\">{}</span>",
+            "<span foreground=\"#c586c0\" weight=\"bold\">{}</span>",
             escaped
         )
     } else if builtins.contains(&token) {
-        // Cyan/amber tone for types/builtins
-        format!("<span foreground=\"#38bdf8\">{}</span>", escaped)
+        // VS Code / Copilot light-blue tone for types/builtins
+        format!("<span foreground=\"#4fc1ff\">{}</span>", escaped)
     } else if token.chars().all(|c| c.is_ascii_digit() || c == '.') {
-        // Numbers
-        format!("<span foreground=\"#fbbf24\">{}</span>", escaped)
+        // VS Code light green/yellow for numbers
+        format!("<span foreground=\"#b5cea8\">{}</span>", escaped)
     } else {
         escaped.to_string()
     }

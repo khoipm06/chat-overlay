@@ -89,15 +89,16 @@ fn format_markdown_to_pango_inner(markdown: &str) -> String {
                     lang.to_string()
                 };
                 let escaped_lang = glib::markup_escape_text(&current_lang);
+                // Copilot Chat code container header: subtle clean bar without ascii box art
                 out.push_str(&format!(
-                    "╭── <span font_family=\"monospace\" size=\"small\" foreground=\"#8ab4f8\" weight=\"bold\">{}</span> ───────────────────────────────────────────────────\n<span font_family=\"monospace\" background=\"#141517\" foreground=\"#e8e9ed\">",
+                    "<span font_family=\"monospace\" size=\"small\" foreground=\"#858585\" background=\"#1e1e1e\"> {} </span>\n<span font_family=\"monospace\" background=\"#18181b\" foreground=\"#d4d4d4\">",
                     escaped_lang
                 ));
             } else {
                 in_code_block = false;
                 let highlighted = syntax::highlight_code_to_pango(&current_lang, &code_accumulator);
                 out.push_str(&highlighted);
-                out.push_str("</span>╰──────────────────────────────────────────────────\n");
+                out.push_str("</span>\n");
                 code_accumulator.clear();
             }
             continue;

@@ -55,21 +55,9 @@ pub fn render_markdown_table_to_pango(table_lines: &[&str]) -> String {
     }
 
     let mut out = String::new();
-    out.push_str("<span font_family=\"monospace\" size=\"smaller\" foreground=\"#a1a1aa\">");
-
-    // Top border
-    out.push_str("┌─");
-    out.push_str(
-        &col_widths
-            .iter()
-            .map(|w| "─".repeat(*w))
-            .collect::<Vec<_>>()
-            .join("─┬─"),
-    );
-    out.push_str("─┐\n");
+    out.push_str("<span font_family=\"monospace\" size=\"small\">");
 
     for (row_idx, row) in rows.iter().enumerate() {
-        out.push_str("│ ");
         for (c_idx, cell) in row.iter().enumerate() {
             let width = col_widths[c_idx];
             let cell_clean = glib::markup_escape_text(cell);
@@ -77,41 +65,36 @@ pub fn render_markdown_table_to_pango(table_lines: &[&str]) -> String {
 
             if row_idx == 0 {
                 out.push_str(&format!(
-                    "<span weight=\"bold\" foreground=\"#eeeef0\">{}</span>{}",
+                    "<span weight=\"bold\" foreground=\"#ffffff\">{}</span>{}",
                     cell_clean, pad
                 ));
             } else {
-                out.push_str(&format!("{}{}", cell_clean, pad));
+                out.push_str(&format!(
+                    "<span foreground=\"#cccccc\">{}</span>{}",
+                    cell_clean, pad
+                ));
             }
             if c_idx + 1 < num_cols {
-                out.push_str(" │ ");
+                out.push_str("  <span foreground=\"#3c3c3c\">│</span>  ");
             }
         }
-        out.push_str(" │\n");
+        out.push('\n');
 
         if row_idx == 0 {
-            out.push_str("├─");
-            out.push_str(
-                &col_widths
-                    .iter()
-                    .map(|w| "─".repeat(*w))
-                    .collect::<Vec<_>>()
-                    .join("─┼─"),
-            );
-            out.push_str("─┤\n");
+            for (c_idx, width) in col_widths.iter().enumerate() {
+                out.push_str(&format!(
+                    "<span foreground=\"#3c3c3c\">{}</span>",
+                    "─".repeat(*width)
+                ));
+                if c_idx + 1 < num_cols {
+                    out.push_str("<span foreground=\"#3c3c3c\">──┼──</span>");
+                }
+            }
+            out.push('\n');
         }
     }
 
-    // Bottom border
-    out.push_str("└─");
-    out.push_str(
-        &col_widths
-            .iter()
-            .map(|w| "─".repeat(*w))
-            .collect::<Vec<_>>()
-            .join("─┴─"),
-    );
-    out.push_str("─┘</span>");
+    out.push_str("</span>");
 
     out
 }

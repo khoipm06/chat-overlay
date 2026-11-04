@@ -387,10 +387,9 @@ mod tests {
         let text = "| ID | Name | Port |\n| :--- | :--- | ---: |\n| srv-1 | Auth | 8080 |\n| srv-2 | DB | 5432 |";
         let markup = format_markdown_to_pango(text);
         assert!(pango::parse_markup(&markup, '\0').is_ok());
-        assert!(markup.contains('┌'));
-        assert!(markup.contains('┤'));
-        assert!(markup.contains('└'));
         assert!(markup.contains("Auth"));
+        assert!(markup.contains("5432"));
+        assert!(markup.contains("─┼──"));
     }
 
     #[test]
