@@ -122,7 +122,6 @@ struct ActiveStreamTarget {
     metrics_badge: gtk4::Label,
     full_text: Rc<RefCell<String>>,
     tool_count: Rc<Cell<usize>>,
-    deliverables_box: gtk4::Box,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1010,12 +1009,28 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         });
     }
 
+    // Detect user manual scroll up/down: suspend autoscroll when user scrolls up
+    {
+        let autoscroll = autoscroll_enabled.clone();
+        scrolled.vadjustment().connect_value_changed(move |adj| {
+            let max_scroll = (adj.upper() - adj.page_size()).max(0.0);
+            let distance_from_bottom = max_scroll - adj.value();
+            if distance_from_bottom > 30.0 {
+                autoscroll.set(false);
+            } else if distance_from_bottom < 10.0 {
+                autoscroll.set(true);
+            }
+        });
+    }
+
     // Smooth scroll to bottom function
     let scroll_to_bottom = {
         let scrolled = scrolled.clone();
         let autoscroll = autoscroll_enabled.clone();
         Rc::new(move || {
-            autoscroll.set(true);
+            if !autoscroll.get() {
+                return;
+            }
             let scrolled_clone = scrolled.clone();
             glib::idle_add_local_once(move || {
                 let vadj = scrolled_clone.vadjustment();
@@ -1385,31 +1400,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
                         let tool_label = format::format_tool_call_label(&name, &args);
 
-                        // Live todo progress as an artifact card (MASTER_SPEC §1.2 layer 3)
-                        if name == "todo" {
-                            if let Some(d) = render::artifacts::todo_deliverable_from_args(&args) {
-                                let card = gtk4::Expander::builder()
-                                    .label(render::artifacts::deliverable_card_label(&d))
-                                    .css_classes(["artifact-card"])
-                                    .expanded(false)
-                                    .build();
-                                let detail = gtk4::Label::builder()
-                                    .selectable(true)
-                                    .wrap(true)
-                                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                                    .width_chars(10)
-                                    .max_width_chars(0)
-                                    .xalign(0.0)
-                                    .use_markup(true)
-                                    .css_classes(["artifact-card-content"])
-                                    .build();
-                                detail
-                                    .set_markup(&render::artifacts::render_deliverable_detail(&d));
-                                card.set_child(Some(&detail));
-                                target.deliverables_box.set_visible(true);
-                                target.deliverables_box.append(&card);
-                            }
-                        }
                         let tool_expander = gtk4::Expander::builder()
                             .label(tool_label)
                             .css_classes(["timeline-sub-expander", "tool-sub-item"])
@@ -1483,39 +1473,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                         // Collapse thought and tool expanders automatically once done
                         target.parent_expander.set_expanded(false);
                         target.steps_expander.set_expanded(false);
-
-                        // Promote structured deliverables to summary cards (MASTER_SPEC §1.2 layer 3)
-                        let full_snapshot = target.full_text.borrow().clone();
-                        let deliverables = render::artifacts::extract_deliverables(&full_snapshot);
-                        if !deliverables.is_empty() {
-                            let stripped = render::artifacts::strip_deliverables(
-                                &full_snapshot,
-                                &deliverables,
-                            );
-                            format::apply_assistant_markup(&target.label, &stripped);
-                            target.deliverables_box.set_visible(true);
-                            for d in &deliverables {
-                                let card = gtk4::Expander::builder()
-                                    .label(render::artifacts::deliverable_card_label(d))
-                                    .css_classes(["artifact-card"])
-                                    .expanded(false)
-                                    .build();
-                                let detail = gtk4::Label::builder()
-                                    .selectable(true)
-                                    .wrap(true)
-                                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                                    .width_chars(10)
-                                    .max_width_chars(0)
-                                    .xalign(0.0)
-                                    .use_markup(true)
-                                    .css_classes(["artifact-card-content"])
-                                    .build();
-                                detail.set_markup(&render::artifacts::render_deliverable_detail(d));
-                                card.set_child(Some(&detail));
-                                target.deliverables_box.append(&card);
-                            }
-                            scroll_fn();
-                        }
                     }
                     status_clone.set_text("ready");
                     status_clone.remove_css_class("working");
@@ -1540,12 +1497,15 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let stream_tx = stream_tx.clone();
         let scroll_fn = scroll_to_bottom.clone();
         let scroll_to_widget = scroll_to_widget.clone();
+        let autoscroll_enabled = autoscroll_enabled.clone();
 
         Rc::new(move || {
             let prompt = entry.text().to_string();
             if prompt.trim().is_empty() {
                 return;
             }
+
+            autoscroll_enabled.set(true);
 
             entry.set_text("");
             welcome_box.set_visible(false);
@@ -1698,12 +1658,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 .build();
             asst_bubble.append(&asst_label);
 
-            // Deliverables (artifact cards): structured outputs as summary cards (MASTER_SPEC §1.2 layer 3)
-            let deliverables_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-            deliverables_box.add_css_class("artifact-card-list");
-            deliverables_box.set_visible(false);
-            asst_bubble.append(&deliverables_box);
-
             asst_row.append(&asst_bubble);
             messages_box.append(&asst_row);
 
@@ -1733,7 +1687,6 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 metrics_badge: metrics_badge.clone(),
                 full_text: full_text.clone(),
                 tool_count: Rc::new(Cell::new(0)),
-                deliverables_box: deliverables_box.clone(),
             });
 
             scroll_fn();

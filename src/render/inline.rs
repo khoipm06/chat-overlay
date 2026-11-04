@@ -248,6 +248,22 @@ fn format_inline_math(s: &str) -> String {
     if parts.len().is_multiple_of(2) {
         return s.to_string();
     }
+    // Verify that inner segments look like math formulas, not currency ($10, $20.50) or spaces
+    let all_valid = parts.iter().enumerate().all(|(i, p)| {
+        if i % 2 == 1 {
+            !p.is_empty()
+                && !p.starts_with(' ')
+                && !p.ends_with(' ')
+                && !p
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || c == '.' || c == ',')
+        } else {
+            true
+        }
+    });
+    if !all_valid {
+        return s.to_string();
+    }
     let mut res = String::new();
     for (i, p) in parts.iter().enumerate() {
         if i % 2 == 1 {
