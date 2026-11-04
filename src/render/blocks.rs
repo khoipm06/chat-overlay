@@ -1,9 +1,9 @@
 use gtk4::glib;
 
+/// Formats callouts and alerts (GitHub style: [!NOTE], [!TIP], [!WARNING], [!IMPORTANT])
 pub fn format_alerts_and_quotes(line: &str) -> Option<String> {
     let trimmed = line.trim();
 
-    // GitHub / Markdown Callout Alerts
     if trimmed.starts_with("> [!NOTE]") {
         return Some("<span foreground=\"#60a5fa\" weight=\"bold\">ℹ Note</span>".to_string());
     } else if trimmed.starts_with("> [!TIP]") {
@@ -11,12 +11,9 @@ pub fn format_alerts_and_quotes(line: &str) -> Option<String> {
     } else if trimmed.starts_with("> [!WARNING]") || trimmed.starts_with("> [!CAUTION]") {
         return Some("<span foreground=\"#facc15\" weight=\"bold\">⚠ Warning</span>".to_string());
     } else if trimmed.starts_with("> [!IMPORTANT]") {
-        return Some(
-            "<span foreground=\"#c084fc\" weight=\"bold\">❗ Important</span>".to_string(),
-        );
+        return Some("<span foreground=\"#c084fc\" weight=\"bold\">❗ Important</span>".to_string());
     }
 
-    // Nested Blockquotes (level two)
     if let Some(rest) = line.strip_prefix("> > ") {
         let escaped = glib::markup_escape_text(rest);
         return Some(format!(
@@ -25,7 +22,6 @@ pub fn format_alerts_and_quotes(line: &str) -> Option<String> {
         ));
     }
 
-    // Single Blockquote
     if let Some(rest) = line.strip_prefix("> ") {
         let escaped = glib::markup_escape_text(rest);
         return Some(format!(
@@ -34,11 +30,13 @@ pub fn format_alerts_and_quotes(line: &str) -> Option<String> {
         ));
     }
 
-    // Math block equation: $$ ... $$
     if trimmed.starts_with("$$") && trimmed.ends_with("$$") && trimmed.len() > 4 {
         let eq = &trimmed[2..trimmed.len() - 2].trim();
         let escaped = glib::markup_escape_text(eq);
-        return Some(format!("<span font_family=\"serif\" size=\"large\" style=\"italic\" foreground=\"#a5b4fc\">    {}</span>", escaped));
+        return Some(format!(
+            "<span font_family=\"serif\" size=\"large\" style=\"italic\" foreground=\"#a5b4fc\">    {}</span>",
+            escaped
+        ));
     }
 
     None

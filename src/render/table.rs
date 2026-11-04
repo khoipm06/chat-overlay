@@ -1,11 +1,13 @@
 use gtk4::glib;
 
+/// Renders markdown tables cleanly into a monospace table block.
+/// Replaces unwieldy multi-line wrapping with clean alignment and subtle borders.
 pub fn is_table_row(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.len() >= 2 && trimmed.starts_with('|') && trimmed.ends_with('|')
 }
 
-pub fn render_markdown_table_to_pango(table_lines: &[&str]) -> String {
+pub fn render_markdown_table(table_lines: &[&str]) -> String {
     if table_lines.len() < 2 {
         return table_lines.join("\n");
     }
@@ -31,7 +33,6 @@ pub fn render_markdown_table_to_pango(table_lines: &[&str]) -> String {
         return table_lines.join("\n");
     }
 
-    // Determine max columns across all rows to support ragged/uneven tables
     let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
     if num_cols == 0 {
         return table_lines.join("\n");
@@ -49,15 +50,15 @@ pub fn render_markdown_table_to_pango(table_lines: &[&str]) -> String {
             col_widths[c_idx] = col_widths[c_idx].max(cell.chars().count());
         }
     }
-
     for w in &mut col_widths {
         *w = (*w).max(3);
     }
 
     let mut out = String::new();
-    out.push_str("<span font_family=\"monospace\" size=\"small\">");
+    out.push_str("<span font_family=\"monospace\" size=\"small\" foreground=\"#a1a1aa\">");
 
     for (row_idx, row) in rows.iter().enumerate() {
+        out.push_str("  ");
         for (c_idx, cell) in row.iter().enumerate() {
             let width = col_widths[c_idx];
             let cell_clean = glib::markup_escape_text(cell);
@@ -65,37 +66,29 @@ pub fn render_markdown_table_to_pango(table_lines: &[&str]) -> String {
 
             if row_idx == 0 {
                 out.push_str(&format!(
-                    "<span weight=\"bold\" foreground=\"#ffffff\">{}</span>{}",
+                    "<span weight=\"bold\" foreground=\"#f4f4f5\">{}</span>{}",
                     cell_clean, pad
                 ));
             } else {
-                out.push_str(&format!(
-                    "<span foreground=\"#cccccc\">{}</span>{}",
-                    cell_clean, pad
-                ));
+                out.push_str(&format!("{}{}", cell_clean, pad));
             }
             if c_idx + 1 < num_cols {
-                out.push_str("  <span foreground=\"#3c3c3c\">│</span>  ");
+                out.push_str("  <span foreground=\"#3f3f46\">│</span>  ");
             }
         }
         out.push('\n');
 
         if row_idx == 0 {
-            for (c_idx, width) in col_widths.iter().enumerate() {
-                out.push_str(&format!(
-                    "<span foreground=\"#3c3c3c\">{}</span>",
-                    "─".repeat(*width)
-                ));
-                if c_idx + 1 < num_cols {
-                    out.push_str("<span foreground=\"#3c3c3c\">──┼──</span>");
-                }
-            }
-            out.push('\n');
+            out.push_str("  ");
+            let sep_line: Vec<String> = col_widths.iter().map(|w| "─".repeat(*w)).collect();
+            out.push_str(&format!(
+                "<span foreground=\"#3f3f46\">{}</span>\n",
+                sep_line.join("──┼──")
+            ));
         }
     }
 
     out.push_str("</span>");
-
     out
 }
 
