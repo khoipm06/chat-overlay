@@ -37,7 +37,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 .and_then(|v| v.get("command"))
                 .and_then(|c| c.as_str())
                 .unwrap_or(generic.as_str());
-            format!("Ran command: {} ›", truncate_summary(cmd, 36))
+            format!("Terminal: {} ›", truncate_summary(cmd, 36))
         }
         "read" => {
             let path = parsed
@@ -49,7 +49,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 })
                 .and_then(|p| p.as_str())
                 .unwrap_or(generic.as_str());
-            format!("Read file: {} ›", truncate_summary(path, 40))
+            format!("Read {} ›", truncate_summary(path, 40))
         }
         "edit" => {
             let path = parsed
@@ -61,7 +61,7 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 })
                 .and_then(|p| p.as_str())
                 .unwrap_or(generic.as_str());
-            format!("Edited file: {} ›", truncate_summary(path, 40))
+            format!("Edited {} ›", truncate_summary(path, 40))
         }
         "write" => {
             let path = parsed
@@ -73,9 +73,9 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
                 })
                 .and_then(|p| p.as_str())
                 .unwrap_or(generic.as_str());
-            format!("Created file: {} ›", truncate_summary(path, 40))
+            format!("Created {} ›", truncate_summary(path, 40))
         }
-        _ => format!("Used tool {}: {} ›", name, truncate_summary(&generic, 32)),
+        _ => format!("Used 1 reference: {} ›", truncate_summary(&generic, 32)),
     }
 }
 

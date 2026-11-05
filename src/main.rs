@@ -599,14 +599,14 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     welcome_box.set_vexpand(true);
 
     let welcome_title = gtk4::Label::builder()
-        .label("Pi Ephemeral Assistant")
+        .label("GitHub Copilot")
         .css_classes(["welcome-title"])
         .xalign(0.5)
         .build();
     welcome_box.append(&welcome_title);
 
     let welcome_sub = gtk4::Label::builder()
-        .label("Type a query below • Ctrl+Alt+L to toggle • Esc to close")
+        .label("Ask Copilot, ask questions or type / for topics • Ctrl+Alt+L to toggle")
         .css_classes(["welcome-subtitle"])
         .xalign(0.5)
         .build();
@@ -621,7 +621,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     input_box.add_css_class("input-box");
 
     let entry = gtk4::Entry::builder()
-        .placeholder_text("Ask anything... (Enter to send, Esc to close)")
+        .placeholder_text("Ask Copilot or type / for commands...")
         .hexpand(true)
         .css_classes(["prompt-entry"])
         .build();
@@ -1502,10 +1502,12 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                         *target.active_thought_expander.borrow_mut() = None;
 
                         target.tool_count.set(target.tool_count.get() + 1);
-                        let steps_lbl = format!(
-                            "Explored files, ran {} command(s) ▾",
-                            target.tool_count.get()
-                        );
+                        let count = target.tool_count.get();
+                        let steps_lbl = if count == 1 {
+                            "Used 1 reference ▾".to_string()
+                        } else {
+                            format!("Used {} references ▾", count)
+                        };
                         target.steps_expander.set_label(Some(&steps_lbl));
 
                         let tool_label = format::format_tool_call_label(&name, &args);
@@ -1707,7 +1709,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             let asst_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
             asst_header.add_css_class("bubble-assistant-header");
 
-            let asst_badge = gtk4::Label::new(Some("Pi"));
+            let asst_badge = gtk4::Label::new(Some("GitHub Copilot"));
             asst_badge.add_css_class("bubble-assistant-badge");
             asst_header.append(&asst_badge);
 
@@ -1730,7 +1732,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
 
             // Antigravity-Style Nested Timeline Collapsible Box
             let parent_expander = gtk4::Expander::builder()
-                .label("Working... ▾")
+                .label("Thinking... ▾")
                 .css_classes(["antigravity-parent-expander"])
                 .expanded(true)
                 .visible(false)
@@ -1740,7 +1742,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             parent_content_box.add_css_class("antigravity-parent-content");
 
             let steps_expander = gtk4::Expander::builder()
-                .label("Explored files, ran commands ▾")
+                .label("Used references ▾")
                 .css_classes(["antigravity-steps-expander"])
                 .expanded(true)
                 .visible(false)

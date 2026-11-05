@@ -36,9 +36,9 @@ pub fn format_markdown_to_pango(input: &str) -> String {
                     lang.to_string()
                 };
                 let escaped_lang = glib::markup_escape_text(&current_lang);
-                // Clean Copilot header pill
+                // VS Code Copilot Chat Codeblock Header Tile
                 out.push_str(&format!(
-                    "\n<span size=\"small\" weight=\"bold\" foreground=\"#94a3b8\">[ {} ]</span>\n<span font_family=\"monospace\" size=\"small\" foreground=\"#e2e8f0\">",
+                    "\n<span size=\"smaller\" weight=\"bold\" foreground=\"#9cdcfe\">  {}</span>  <span size=\"smaller\" foreground=\"#6e7681\">| Copy</span>\n<span font_family=\"monospace\" size=\"small\" foreground=\"#d4d4d4\">",
                     escaped_lang
                 ));
             } else {
