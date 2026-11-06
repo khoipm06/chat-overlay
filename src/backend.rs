@@ -111,8 +111,8 @@ impl PiRunner {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/var/home/khoipm".to_string());
         let current_path = std::env::var("PATH").unwrap_or_default();
         let augmented_path = format!(
-            "{}/.bun/bin:{}/.local/bin:{}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
-            home, home, home, current_path
+            "{}/.local/share/mise/installs/node/lts/bin:{}/.local/share/mise/shims:{}/.bun/bin:{}/.local/bin:{}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
+            home, home, home, home, home, current_path
         );
         cmd.env("PATH", augmented_path);
 
@@ -235,8 +235,21 @@ fn parse_and_dispatch_line(
                         },
                     ));
                 }
-                "message_end" => {
+                "message_end" | "turn_end" => {
                     if let Some(msg) = v.get("message") {
+                        if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
+                            for item in content_arr {
+                                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                                    let _ = tx.send((gen, StreamEvent::TextDelta(text.to_string())));
+                                }
+                                if let Some(think) = item.get("thinking").and_then(|t| t.as_str()) {
+                                    let _ = tx.send((gen, StreamEvent::ThinkingDelta(think.to_string())));
+                                }
+                            }
+                        } else if let Some(content_str) = msg.get("content").and_then(|c| c.as_str()) {
+                            let _ = tx.send((gen, StreamEvent::TextDelta(content_str.to_string())));
+                        }
+
                         if let Some(usage) = msg.get("usage") {
                             let input_tokens =
                                 usage.get("input").and_then(|n| n.as_u64()).unwrap_or(0);

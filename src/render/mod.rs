@@ -190,8 +190,7 @@ pub fn render_markdown_blocks_into(container: &gtk4::Box, raw: &str) {
                     .selectable(true)
                     .wrap(true)
                     .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                    .width_chars(10)
-                    .max_width_chars(0)
+                    .width_chars(1)
                     .xalign(0.0)
                     .css_classes(["bubble-assistant-text"])
                     .build();
@@ -270,7 +269,7 @@ pub fn render_markdown_blocks_into(container: &gtk4::Box, raw: &str) {
                 let scroll = gtk4::ScrolledWindow::builder()
                     .hscrollbar_policy(gtk4::PolicyType::Automatic)
                     .vscrollbar_policy(gtk4::PolicyType::Never)
-                    .propagate_natural_width(true)
+                    .propagate_natural_width(false)
                     .build();
                 scroll.set_child(Some(&code_label));
                 code_card.append(&scroll);

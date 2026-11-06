@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Built-in Slash Commands matching Raycast & Open-WebUI standards
 pub struct SlashCommand {
     pub name: &'static str,

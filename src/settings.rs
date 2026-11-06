@@ -65,7 +65,7 @@ fn default_height() -> i32 {
 }
 
 fn default_auto_hide() -> bool {
-    true
+    false
 }
 
 fn default_thinking_level() -> String {
@@ -153,7 +153,7 @@ mod tests {
         assert_eq!(s.model, "default");
         assert_eq!(s.width, DEFAULT_WIDTH);
         assert_eq!(s.height, DEFAULT_HEIGHT);
-        assert!(s.auto_hide_on_blur);
+        assert!(!s.auto_hide_on_blur);
         assert!(s.sound_bell_on_done);
         assert!(s.ephemeral);
         assert!(s.show_chat_head);

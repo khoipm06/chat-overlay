@@ -1,10 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Pi Overlay — Figma & VS Code Copilot Chat Standard Design System
-   Source of Truth: Figma file X95ovoO940NdP9NjGSBahv (Nodes 2:2 & 2:28)
-   Palette: Radix Dark / Zinc (#18181b, #27272a, #3f3f46, #f4f4f5, #3b82f6)
+   Agent Canvas — Dark Surface Design System
+   Palette: Radix Dark Zinc (#121316, #18191e, #22232a, #2e303b, #f4f4f5, #3b82f6)
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── Universal Reset & Clean Neutralization ─────────────────────────────── */
+/* ── Universal Reset ────────────────────────────────────────────────────── */
 * {
     background-image: none;
     text-shadow: none;
@@ -18,14 +17,14 @@ window {
     background-color: transparent;
 }
 
-/* ── Main Overlay Window Frame (Figma: 440px width, #18181b, 10px radius) ── */
+/* ── Main Overlay Window Frame ─────────────────────────────────────────── */
 #drawer-container,
 .drawer-container,
 .window-container {
-    background-color: #18181b;
-    border: 1px solid #27272a;
-    border-radius: 10px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255, 255, 255, 0.1);
+    background-color: #121316;
+    border: 1px solid #27282e;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 255, 255, 0.1);
     padding: 0;
 }
 
@@ -49,283 +48,381 @@ window {
     background-color: rgba(255, 255, 255, 0.25);
 }
 
-/* ── Header Bar (Figma: Header, #18181b, 1px bottom border) ─────────────── */
-.header-box {
-    padding: 10px 14px;
-    border-bottom: 1px solid #27272a;
+.resize-corner {
+    min-width: 10px;
+    min-height: 10px;
     background: transparent;
 }
 
-.app-title,
-.title-label {
+.resize-handle-horiz {
+    min-height: 6px;
+    background: transparent;
+}
+
+/* ── Header Bar ─────────────────────────────────────────────────────────── */
+.header-bar {
+    padding: 8px 12px;
+    border-bottom: 1px solid #222329;
+    background-color: #16171b;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+.status-dot {
+    min-width: 8px;
+    min-height: 8px;
+    border-radius: 4px;
+    background-color: #22c55e;
+    margin-right: 6px;
+}
+
+.status-dot.working {
+    background-color: #38bdf8;
+}
+
+.status-dot.error {
+    background-color: #ef4444;
+}
+
+.app-title {
     font-size: 13px;
     font-weight: 700;
     color: #f4f4f5;
     letter-spacing: -0.01em;
 }
 
-.model-badge-btn,
-.model-badge {
+.model-pill-btn {
     font-size: 11px;
     font-weight: 500;
-    color: #a1a1aa;
-    background: #27272a;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
-    padding: 2px 7px;
-    transition: all 120ms ease;
+    color: #94a3b8;
+    background-color: #202127;
+    border: 1px solid #2d2e36;
+    border-radius: 5px;
+    padding: 2px 8px;
 }
 
-.model-badge-btn:hover {
-    background: #3f3f46;
+.model-pill-btn:hover {
+    background-color: #2a2b33;
+    color: #ffffff;
+    border-color: #3f414d;
+}
+
+.context-pill {
+    font-size: 11px;
+    font-weight: 500;
+    color: #94a3b8;
+    background-color: #1a1b20;
+    border: 1px solid #272832;
+    border-radius: 6px;
+    padding: 3px 8px;
+    margin-right: 4px;
+}
+
+.header-btn {
+    padding: 3px 9px;
+    border-radius: 6px;
+    background-color: #202127;
+    border: 1px solid #2d2e38;
+    color: #cbd5e1;
+    font-size: 11.5px;
+    font-weight: 500;
+}
+
+.header-btn:hover {
+    background-color: #2a2c35;
+    border-color: #3b82f6;
     color: #ffffff;
 }
 
-.status-label,
-.status-badge {
-    font-size: 11px;
+.header-btn.close {
+    padding: 3px 8px;
+    color: #94a3b8;
+}
+
+.header-btn.close:hover {
+    background-color: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #fca5a5;
+}
+
+.prompts-count-label {
+    font-size: 11.5px;
     font-weight: 500;
-    color: #71717a;
+    color: #cbd5e1;
+    margin-left: 2px;
 }
 
-.status-label.working,
-.status-badge.working {
-    color: #38bdf8;
-}
-
-.btn-header {
+.header-icon-btn {
     min-width: 26px;
     min-height: 26px;
     padding: 3px;
     border-radius: 5px;
-    color: #a1a1aa;
-    background: transparent;
-    transition: all 120ms ease;
+    background-color: transparent;
+    color: #9ca3af;
+    border: none;
 }
 
-.btn-header:hover {
-    background: rgba(255, 255, 255, 0.08);
+.header-icon-btn:hover {
+    background-color: #26272e;
     color: #f4f4f5;
 }
 
-.btn-header-danger:hover {
-    background: rgba(239, 68, 68, 0.15);
+.header-icon-btn.close:hover {
+    background-color: rgba(239, 68, 68, 0.2);
     color: #f87171;
 }
 
-/* ── Drawer & Sidebar Panel ────────────────────────────────────────────── */
-.drawer-container {
-    background-color: #141416;
-    border-right: 1px solid #27272a;
-    min-width: 220px;
-    padding: 10px;
-}
-
-/* ── Scrollable Message View Area ──────────────────────────────────────── */
-.chat-scroll,
-.messages-scrolled {
+/* ── Chat Messages Scroll Area ─────────────────────────────────────────── */
+.chat-scroll {
     background: transparent;
-    padding: 0;
+    padding: 8px 12px;
 }
 
-.chat-scroll scrolledwindow,
-.chat-scroll viewport,
-.messages-scrolled scrolledwindow,
-.messages-scrolled viewport {
+.chat-scroll viewport {
     background: transparent;
 }
 
-.messages-container,
-.messages-box {
-    padding: 12px 14px;
+.messages-container {
+    background: transparent;
+    padding: 4px;
 }
 
-.welcome-box {
-    padding: 32px 16px;
+/* ── Welcome Hero Widget (When conversation is empty) ──────────────────── */
+.welcome-hero {
+    padding: 36px 16px;
+}
+
+.welcome-glyph {
+    font-size: 32px;
+    color: #38bdf8;
+    margin-bottom: 8px;
 }
 
 .welcome-title {
-    font-size: 14px;
+    font-size: 17px;
     font-weight: 700;
     color: #f4f4f5;
+    letter-spacing: -0.02em;
     margin-bottom: 4px;
 }
 
 .welcome-subtitle {
-    font-size: 11.5px;
-    color: #71717a;
+    font-size: 12.5px;
+    color: #94a3b8;
+    margin-bottom: 20px;
 }
 
-/* ── User Message Row & Bubble (Figma: right-aligned, #27272a, 8px radius) ─ */
-.bubble-user-row {
+.welcome-pill-btn {
+    font-size: 12px;
+    color: #cbd5e1;
+    background-color: #1a1b20;
+    border: 1px solid #282932;
+    border-radius: 8px;
+    padding: 6px 12px;
+    margin: 3px 0;
+}
+
+.welcome-pill-btn:hover {
+    background-color: #24262e;
+    color: #ffffff;
+    border-color: #3b82f6;
+}
+
+/* ── User Message Card ─────────────────────────────────────────────────── */
+.card-user {
+    background-color: #1e2026;
+    border: 1px solid #2d2f38;
+    border-radius: 10px;
+    padding: 10px 14px;
     margin-bottom: 12px;
 }
 
-.chat-bubble-user {
-    background-color: #27272a;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
-    padding: 8px 12px;
-}
-
-.bubble-user-text,
-.bubble-user-text text {
-    color: #f4f4f5;
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-/* ── Assistant Message Row (Figma: Unboxed Copilot Chat style) ───────────── */
-.bubble-assistant-row {
-    margin-bottom: 14px;
-}
-
-.chat-bubble-assistant {
-    background: transparent;
-    padding: 0;
-    border: none;
-}
-
-.bubble-assistant-header {
+.card-user-header {
     margin-bottom: 4px;
 }
 
-.bubble-assistant-badge {
+.card-user-avatar {
     font-size: 11px;
-    font-weight: 600;
-    color: #71717a;
+    color: #3b82f6;
+    margin-right: 4px;
 }
 
-.bubble-metrics-badge {
+.card-user-badge {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #60a5fa;
+}
+
+.card-user-idx {
+    font-size: 10.5px;
+    color: #64748b;
+    font-weight: 500;
+}
+
+.card-user-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #f4f4f5;
+}
+
+/* ── Assistant Message Card ────────────────────────────────────────────── */
+.card-assistant {
+    background-color: #16171b;
+    border: 1px solid #26272e;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+}
+
+.card-assistant-header {
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.card-assistant-avatar {
+    font-size: 12px;
+    color: #34d399;
+    margin-right: 4px;
+}
+
+.card-assistant-badge {
+    font-size: 12px;
+    font-weight: 600;
+    color: #34d399;
+}
+
+.card-metrics-pill {
+    font-size: 10px;
+    font-weight: 500;
+    color: #94a3b8;
+    background-color: #202127;
+    border: 1px solid #2d2e36;
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin-left: 6px;
+}
+
+.card-copy-btn {
     font-size: 10.5px;
     font-weight: 500;
-    color: #71717a;
-    background: rgba(255, 255, 255, 0.04);
-    padding: 1px 5px;
-    border-radius: 4px;
-    margin-left: 6px;
-}
-
-.btn-bubble-copy {
-    background: transparent;
-    border: none;
+    color: #9ca3af;
+    background-color: transparent;
     border-radius: 4px;
     padding: 2px 6px;
-    font-size: 11px;
-    font-weight: 500;
-    color: #71717a;
-    transition: all 120ms ease;
+    border: 1px solid transparent;
 }
 
-.btn-bubble-copy:hover {
-    background: #27272a;
-    color: #f4f4f5;
+.card-copy-btn:hover {
+    background-color: #26272e;
+    color: #ffffff;
+    border-color: #383a45;
 }
 
-.bubble-divider {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    margin-bottom: 6px;
+/* ── Reasoning Disclosure (Thinking Accordion) ─────────────────────────── */
+.thinking-disclosure {
+    margin: 4px 0 8px 0;
 }
 
-.bubble-assistant-text,
-.bubble-assistant-text text {
-    background: transparent;
-    color: #e4e4e7;
-    font-size: 13px;
-    line-height: 1.6;
-}
-
-/* Inline code pill */
-.chat-bubble-assistant tt {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 12px;
-    background: #202226;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 4px;
-    padding: 1px 5px;
-    color: #e4e4e7;
-}
-
-/* ── Thinking Steps Collapsible (Timeline Muted) ─────────────────── */
-.agent-thinking-expander {
-    margin: 4px 0 6px 0;
-}
-
-.agent-thinking-expander > title {
-    font-size: 11px;
-    font-weight: 500;
+.thinking-disclosure > title {
+    font-size: 11.5px;
+    font-style: italic;
     color: #71717a;
     padding: 2px 0;
 }
 
-.agent-thinking-content {
-    margin-left: 6px;
-    padding-left: 8px;
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.agent-steps-expander > title {
-    font-size: 11px;
-    font-weight: 500;
-    color: #71717a;
-    padding: 2px 0;
-}
-
-.agent-timeline-list {
-    margin-left: 8px;
-    padding-left: 6px;
-    border-left: 1px dashed rgba(255, 255, 255, 0.08);
-}
-
-.timeline-sub-expander > title {
-    font-size: 11px;
-    color: #71717a;
-    padding: 1px 0;
-}
-
-.timeline-sub-expander:hover > title {
-    color: #f4f4f5;
-}
-
-.thought-sub-item > title {
+.thinking-disclosure:hover > title {
     color: #a1a1aa;
 }
 
-.tool-sub-item > title {
+.thinking-content-box {
+    margin-top: 4px;
+    padding: 6px 10px;
+    border-left: 2px solid #3b82f6;
+    background-color: rgba(255, 255, 255, 0.02);
+    border-radius: 4px;
+}
+
+.thinking-text {
+    font-size: 11.5px;
     font-family: monospace;
-    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.4;
+}
+
+/* ── Tool Call Card ────────────────────────────────────────────────────── */
+.tool-call-card {
+    background-color: #121316;
+    border: 1px solid #27282f;
+    border-radius: 6px;
+    margin: 4px 0 6px 0;
+    padding: 6px 10px;
+}
+
+.tool-name-label {
+    font-family: monospace;
+    font-size: 11.5px;
+    font-weight: 600;
     color: #38bdf8;
 }
 
-.timeline-item-text {
-    font-size: 11px;
-    padding: 4px 8px;
-    background: #141416;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
-    margin: 2px 0 4px 0;
+.tool-badge-running {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #38bdf8;
+    background-color: rgba(56, 189, 248, 0.15);
+    border-radius: 3px;
+    padding: 1px 4px;
 }
 
-/* ── Code Blocks (Copilot Tile Standard) ─────────────────────────────────── */
+.tool-badge-done {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #34d399;
+    background-color: rgba(52, 211, 153, 0.15);
+    border-radius: 3px;
+    padding: 1px 4px;
+}
+
+.tool-badge-error {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #f87171;
+    background-color: rgba(248, 113, 113, 0.15);
+    border-radius: 3px;
+    padding: 1px 4px;
+}
+
+.tool-args-box {
+    margin-top: 4px;
+    font-family: monospace;
+    font-size: 11px;
+    color: #cbd5e1;
+    background-color: #0d0e11;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+/* ── Code Blocks ───────────────────────────────────────────────────────── */
 .code-block-container {
-    background-color: #121316;
-    border: 1px solid #27272a;
-    border-radius: 6px;
-    margin: 6px 0;
+    background-color: #101114;
+    border: 1px solid #27282f;
+    border-radius: 8px;
+    margin: 8px 0;
 }
 
 .code-block-header {
-    background-color: #18181b;
-    border-bottom: 1px solid #27272a;
+    background-color: #18191e;
+    border-bottom: 1px solid #27282f;
     padding: 5px 10px;
-    border-top-left-radius: 5px;
-    border-top-right-radius: 5px;
+    border-top-left-radius: 7px;
+    border-top-right-radius: 7px;
 }
 
 .code-block-lang {
     font-family: monospace;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 10.5px;
+    font-weight: 600;
     color: #94a3b8;
 }
 
@@ -333,14 +430,16 @@ window {
     font-size: 10.5px;
     font-weight: 500;
     color: #a1a1aa;
-    padding: 1px 5px;
-    border-radius: 3px;
-    background: transparent;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background-color: transparent;
+    border: 1px solid transparent;
 }
 
 .code-block-copy-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background-color: #272830;
     color: #ffffff;
+    border-color: #3a3b47;
 }
 
 .code-block-content {
@@ -351,145 +450,216 @@ window {
     color: #e2e8f0;
 }
 
-/* ── Bottom Input Bar (Figma: #202226, 8px radius, 1px border) ──────────── */
-.input-box,
+/* ── Assistant Text Typography ─────────────────────────────────────────── */
+.bubble-assistant-text {
+    font-size: 13px;
+    line-height: 1.55;
+    color: #e4e4e7;
+}
+
+/* Inline code pill */
+.card-assistant tt {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 12px;
+    background: #202226;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: #e4e4e7;
+}
+
+/* ── Bottom Input Dock ─────────────────────────────────────────────────── */
 .input-dock {
-    padding: 8px 14px 12px 14px;
-    background: transparent;
+    background-color: #1a1b20;
+    border: 1px solid #2d2e38;
+    border-radius: 12px;
+    padding: 8px 12px;
+    margin: 6px 12px 8px 12px;
 }
 
-.input-box,
-.input-container {
-    background-color: #202226;
-    border: 1px solid #2e3036;
-    border-radius: 8px;
-    padding: 8px 10px;
-    transition: border-color 150ms ease;
-}
-
-.input-box:focus-within,
-.input-container:focus-within {
+.input-dock:focus-within {
     border-color: #3b82f6;
 }
 
 .prompt-entry {
-    background: transparent;
+    background-color: transparent;
     border: none;
     color: #f4f4f5;
     font-size: 13px;
-    padding: 2px 0;
+    padding: 4px 0;
 }
 
 .prompt-entry:focus {
-    outline-style: none;
-    border: none;
+    background-color: transparent;
     box-shadow: none;
 }
 
-.input-footer {
-    margin-top: 6px;
-}
-
-.shortcut-label {
-    font-size: 10px;
-    color: #52525b;
-}
-
 .btn-send {
-    background-color: #3b82f6;
+    min-width: 28px;
+    min-height: 28px;
+    border-radius: 14px;
+    background-color: #2563eb;
     color: #ffffff;
-    font-size: 11.5px;
     font-weight: 600;
-    border-radius: 4px;
-    padding: 3px 10px;
+    font-size: 12px;
+    padding: 2px 10px;
     border: none;
-    transition: background-color 120ms ease;
 }
 
 .btn-send:hover {
-    background-color: #2563eb;
-}
-
-.btn-send:active {
     background-color: #1d4ed8;
 }
 
-/* ── Popovers & Dropdowns (Clean Radix Dark Menu) ────────────────────────── */
+.btn-send:active {
+    background-color: #1e40af;
+}
+
+.shortcut-footer {
+    font-size: 10.5px;
+    color: #64748b;
+    margin-bottom: 6px;
+}
+
+/* ── Flyout Popovers (Prompts & Settings) ───────────────────────────────── */
 popover,
-popover.menu,
-dropdown popover {
+popover.menu {
     background: transparent;
     padding: 0;
 }
 
-popover > contents,
-popover.menu > contents,
-dropdown popover > contents,
-.settings-popover > contents {
-    background-color: #18181b;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
-    padding: 8px;
+.flyout-popover > contents,
+popover > contents {
+    background-color: #18191e;
+    border: 1px solid #2c2d36;
+    border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+    padding: 12px;
 }
 
+.flyout-header-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #f4f4f5;
+    margin-bottom: 2px;
+}
+
+.flyout-header-sub {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #26272e;
+}
+
+.flyout-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #64748b;
+    letter-spacing: 0.05em;
+    margin-top: 10px;
+    margin-bottom: 3px;
+}
+
+.prompt-item-btn {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 6px 8px;
+    margin-bottom: 3px;
+}
+
+.prompt-item-btn:hover {
+    background-color: #202127;
+    border-color: #2d2e38;
+}
+
+.prompt-idx-pill {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #38bdf8;
+    background-color: rgba(56, 189, 248, 0.15);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-right: 6px;
+}
+
+.prompt-snippet-text {
+    font-size: 12px;
+    color: #e2e8f0;
+}
+
+.settings-row-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+    margin-top: 8px;
+    margin-bottom: 3px;
+}
+
+/* ── Dropdowns / Combo ─────────────────────────────────────────────────── */
 dropdown,
 dropdown.settings-dropdown {
     background: transparent;
     border: none;
     box-shadow: none;
     outline-style: none;
+    margin-bottom: 4px;
 }
 
 dropdown > button,
 dropdown > button.combo,
 dropdown > button.toggle,
+dropdown > button:focus,
+dropdown > button:focus-within,
+dropdown > button:hover,
+dropdown > button:active,
+dropdown > button:checked,
+dropdown:focus > button,
+dropdown:focus-within > button,
+dropdown:active > button,
+dropdown:checked > button,
 dropdown.settings-dropdown > button,
 dropdown.settings-dropdown > button.combo,
 dropdown.settings-dropdown > button.toggle,
+dropdown.settings-dropdown > button:focus,
+dropdown.settings-dropdown > button:focus-within,
+dropdown.settings-dropdown > button:hover,
+dropdown.settings-dropdown > button:active,
+dropdown.settings-dropdown > button:checked,
+dropdown.settings-dropdown:focus > button,
+dropdown.settings-dropdown:focus-within > button,
+dropdown.settings-dropdown:active > button,
+dropdown.settings-dropdown:checked > button,
 .settings-dropdown > button {
-    background-color: #27272a;
+    background-color: #202127;
     background-image: none;
-    color: #f4f4f5;
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    border: 1px solid #2d2e38;
     border-radius: 6px;
-    padding: 5px 10px;
+    color: #f4f4f5;
+    padding: 5px 8px;
     min-height: 28px;
     box-shadow: none;
     outline-style: none;
 }
 
 dropdown > button:hover,
-dropdown > button.combo:hover,
-dropdown > button.toggle:hover,
-dropdown > button:focus,
-dropdown > button.combo:focus,
-dropdown > button:focus-visible,
-dropdown > button.combo:focus-visible,
-dropdown > button:focus:hover,
-dropdown > button.combo:focus:hover,
-dropdown > button:checked,
-dropdown > button.combo:checked,
-dropdown > button:active,
-dropdown > button.combo:active,
-dropdown:focus > button,
-dropdown:focus-within > button,
-dropdown.settings-dropdown > button:hover,
-dropdown.settings-dropdown > button.combo:hover,
-dropdown.settings-dropdown > button:focus,
-dropdown.settings-dropdown > button.combo:focus,
-dropdown.settings-dropdown > button:focus-visible,
-dropdown.settings-dropdown > button:checked,
-dropdown.settings-dropdown > button:active,
-.settings-dropdown > button:hover,
-.settings-dropdown > button:focus,
-.settings-dropdown > button:checked {
-    background-color: #3f3f46;
-    background-image: none;
+dropdown.settings-dropdown > button:hover {
+    background-color: #2a2c35;
+    border-color: #3d3f4d;
     color: #ffffff;
-    border-color: rgba(255, 255, 255, 0.22);
-    box-shadow: none;
-    outline-style: none;
+}
+
+dropdown > button:checked,
+dropdown:checked > button,
+dropdown.settings-dropdown > button:checked,
+dropdown.settings-dropdown:checked > button,
+dropdown > button:active,
+dropdown:active > button,
+dropdown.settings-dropdown > button:active,
+dropdown.settings-dropdown:active > button {
+    background-color: #2a2c35;
+    border-color: #3b82f6;
+    color: #ffffff;
 }
 
 dropdown > button label,
@@ -501,27 +671,20 @@ dropdown.settings-dropdown label,
     font-weight: 500;
 }
 
-dropdown > button:hover label,
-dropdown > button:focus label,
-dropdown > button.combo:hover label,
-dropdown > button.combo:focus label,
-.settings-dropdown > button:hover label,
-.settings-dropdown > button:focus label {
-    color: #ffffff;
-}
-
 dropdown > button arrow,
 dropdown > button.combo arrow,
 dropdown.settings-dropdown arrow,
 .settings-dropdown > button arrow {
-    color: #a1a1aa;
+    color: #94a3b8;
 }
 
-dropdown > button:hover arrow,
-dropdown > button:focus arrow,
-.settings-dropdown > button:hover arrow,
-.settings-dropdown > button:focus arrow {
-    color: #f4f4f5;
+dropdown popover,
+popover.menu {
+    background-color: #18191e;
+    border: 1px solid #2c2d36;
+    border-radius: 8px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+    padding: 4px;
 }
 
 dropdown popover listview,
@@ -530,8 +693,8 @@ popover.menu listview {
 }
 
 dropdown popover listview > row,
-popover.menu listview > row,
 dropdown popover row,
+popover.menu listview > row,
 popover.menu row {
     padding: 6px 10px;
     border-radius: 5px;
@@ -542,92 +705,117 @@ popover.menu row {
 }
 
 dropdown popover listview > row:hover,
-popover.menu listview > row:hover,
 dropdown popover row:hover,
+popover.menu listview > row:hover,
 popover.menu row:hover {
-    background-color: #27272a;
+    background-color: #272830;
     color: #ffffff;
 }
 
 dropdown popover listview > row:selected,
-popover.menu listview > row:selected,
 dropdown popover row:selected,
+popover.menu listview > row:selected,
 popover.menu row:selected {
-    background-color: #3f3f46;
-    color: #ffffff;
+    background-color: #2e3242;
+    color: #38bdf8;
     font-weight: 600;
 }
 
-/* ── Checkbuttons ──────────────────────────────────────────────────────── */
+/* ── Checkboxes ────────────────────────────────────────────────────────── */
 checkbutton {
-    padding: 3px 4px;
-    font-size: 12px;
-    color: #d4d4d8;
+    padding: 3px 0;
+    font-size: 11.5px;
+    color: #cbd5e1;
+}
+
+checkbutton:hover {
+    color: #ffffff;
 }
 
 checkbutton check {
     min-width: 14px;
     min-height: 14px;
-    border-radius: 3px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background-color: rgba(0, 0, 0, 0.4);
-    margin-right: 6px;
+    border-radius: 4px;
+    background-color: #202127;
+    border: 1px solid #2d2e38;
 }
 
 checkbutton:checked check {
-    background-color: #3b82f6;
+    background-color: #2563eb;
     border-color: #3b82f6;
     color: #ffffff;
 }
 
-/* ── Floating Chat Head (Figma: Node 2:28, 48px circle, #18181b, dot #22c55e) */
+/* ── Floating Chat Head Bubble ─────────────────────────────────────────── */
 .chat-head-window {
     background: transparent;
 }
 
 .chat-head-box {
-    padding: 4px;
     background: transparent;
+    padding: 4px;
 }
 
 .chat-head-btn {
-    min-width: 48px;
-    min-height: 48px;
-    border-radius: 24px;
-    background-color: rgba(24, 24, 27, 0.95);
-    border: 1px solid #3f3f46;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55), 0 0 1px rgba(255, 255, 255, 0.2);
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 22px;
+    background-color: #18191e;
+    border: 1px solid #2d2e38;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
     padding: 0;
-    transition: all 120ms ease;
 }
 
 .chat-head-btn:hover {
-    background-color: #27272a;
-    border-color: rgba(192, 132, 252, 0.6);
-    box-shadow: 0 6px 22px rgba(192, 132, 252, 0.3);
-}
-
-.chat-head-btn:active {
-    background-color: #3b82f6;
+    background-color: #24252d;
+    border-color: #38bdf8;
 }
 
 .chat-head-icon {
-    font-size: 20px;
-    font-weight: 800;
-    color: #c084fc;
-    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #38bdf8;
 }
 
 .chat-head-dot {
-    min-width: 10px;
-    min-height: 10px;
-    border-radius: 5px;
+    min-width: 8px;
+    min-height: 8px;
+    border-radius: 4px;
     background-color: #22c55e;
-    margin-top: 26px;
-    margin-left: -10px;
-    border: 1.5px solid #18181b;
+    margin-left: 2px;
 }
 
 .chat-head-dot.working {
-    background-color: #f59e0b;
+    background-color: #38bdf8;
+}
+
+/* ── Themes ────────────────────────────────────────────────────────────── */
+.theme-oled #drawer-container,
+.theme-oled.drawer-container {
+    background-color: #000000;
+    border-color: #1f1f23;
+}
+
+.theme-slate #drawer-container,
+.theme-slate.drawer-container {
+    background-color: #0f172a;
+    border-color: #1e293b;
+}
+
+.theme-tokyo-night #drawer-container,
+.theme-tokyo-night.drawer-container {
+    background-color: #1a1b26;
+    border-color: #292e42;
+}
+
+.theme-nord #drawer-container,
+.theme-nord.drawer-container {
+    background-color: #242933;
+    border-color: #3b4252;
+}
+
+.theme-catppuccin-mocha #drawer-container,
+.theme-catppuccin-mocha.drawer-container {
+    background-color: #1e1e2e;
+    border-color: #313244;
 }

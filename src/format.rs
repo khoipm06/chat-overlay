@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub use crate::render::apply_assistant_markup;
 #[allow(unused_imports)]
 pub use crate::render::render_markdown_blocks_into;
