@@ -174,3 +174,69 @@ mod tests {
         }
     }
 }
+
+use crate::backend::{StreamEvent, UsageMetrics};
+
+/// Parses an incoming JSON line as an ACP session/update notification, if valid.
+pub fn parse_acp_message(json_str: &str) -> Option<StreamEvent> {
+    let trimmed = json_str.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(notif) = serde_json::from_str::<JsonRpcNotification<SessionUpdateNotification>>(trimmed) {
+        if notif.method == "session/update" {
+            if let Some(params) = notif.params {
+                match params.update {
+                    SessionUpdatePayload::TextDelta { text } => {
+                        return Some(StreamEvent::TextDelta(text));
+                    }
+                    SessionUpdatePayload::ThinkingDelta { text } => {
+                        return Some(StreamEvent::ThinkingDelta(text));
+                    }
+                    SessionUpdatePayload::ToolCall { name, args, .. } => {
+                        return Some(StreamEvent::ToolCall { name, args });
+                    }
+                    SessionUpdatePayload::Usage {
+                        input_tokens,
+                        output_tokens,
+                        total_tokens,
+                        duration_ms,
+                    } => {
+                        return Some(StreamEvent::Metrics(UsageMetrics {
+                            input_tokens,
+                            output_tokens,
+                            total_tokens,
+                            duration_ms,
+                        }));
+                    }
+                    SessionUpdatePayload::Done => {
+                        return Some(StreamEvent::Done);
+                    }
+                    SessionUpdatePayload::Error { message } => {
+                        return Some(StreamEvent::Error(message));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn test_parse_acp_to_stream_event() {
+    let json = r#"{
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+            "session_id": "test_1",
+            "update": {
+                "sessionUpdate": "text_delta",
+                "text": "Hello ACP World!"
+            }
+        }
+    }"#;
+
+    let ev = parse_acp_message(json).expect("Must parse ACP TextDelta");
+    assert_eq!(ev, StreamEvent::TextDelta("Hello ACP World!".to_string()));
+}

@@ -141,6 +141,14 @@ fn parse_and_dispatch_line(
         return Ok(());
     }
 
+    // 1. Check for standard ACP (Agent Client Protocol) JSON-RPC notifications
+    if let Some(acp_event) = crate::acp::parse_acp_message(trimmed) {
+        if tx.send((gen, acp_event)).is_err() {
+            return Err(());
+        }
+        return Ok(());
+    }
+
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
         if let Some(event_type) = v.get("type").and_then(|t| t.as_str()) {
             match event_type {

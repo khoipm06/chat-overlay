@@ -1,0 +1,574 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Pi Overlay — Figma & VS Code Copilot Chat Standard Design System
+   Source of Truth: Figma file X95ovoO940NdP9NjGSBahv (Nodes 2:2 & 2:28)
+   Palette: Radix Dark / Zinc (#18181b, #27272a, #3f3f46, #f4f4f5, #3b82f6)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Universal Reset & Clean Neutralization ─────────────────────────────── */
+*,
+*::before,
+*::after {
+    background-image: none;
+    text-shadow: none;
+    -gtk-icon-shadow: none;
+    outline-style: none;
+    box-shadow: none;
+    -gtk-secondary-caret-color: transparent;
+}
+
+window {
+    background-color: transparent;
+}
+
+/* ── Main Overlay Window Frame (Figma: 440px width, #18181b, 10px radius) ── */
+#drawer-container,
+.drawer-container,
+.window-container {
+    background-color: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 10px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255, 255, 255, 0.1);
+    padding: 0;
+}
+
+/* ── Multi-directional Resize Handles ──────────────────────────────────── */
+.resize-handle {
+    background: transparent;
+    min-width: 10px;
+    min-height: 10px;
+}
+
+.resize-grip {
+    min-width: 3px;
+    min-height: 36px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+    margin: 4px;
+    transition: background-color 150ms ease-out;
+}
+
+.resize-handle:hover .resize-grip {
+    background-color: rgba(255, 255, 255, 0.25);
+}
+
+/* ── Header Bar (Figma: Header, #18181b, 1px bottom border) ─────────────── */
+.header-box {
+    padding: 10px 14px;
+    border-bottom: 1px solid #27272a;
+    background: transparent;
+}
+
+.app-title,
+.title-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #f4f4f5;
+    letter-spacing: -0.01em;
+}
+
+.model-badge-btn,
+.model-badge {
+    font-size: 11px;
+    font-weight: 500;
+    color: #a1a1aa;
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    padding: 2px 7px;
+    transition: all 120ms ease;
+}
+
+.model-badge-btn:hover {
+    background: #3f3f46;
+    color: #ffffff;
+}
+
+.status-label,
+.status-badge {
+    font-size: 11px;
+    font-weight: 500;
+    color: #71717a;
+}
+
+.status-label.working,
+.status-badge.working {
+    color: #38bdf8;
+}
+
+.btn-header {
+    min-width: 26px;
+    min-height: 26px;
+    padding: 3px;
+    border-radius: 5px;
+    color: #a1a1aa;
+    background: transparent;
+    transition: all 120ms ease;
+}
+
+.btn-header:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f4f4f5;
+}
+
+.btn-header-danger:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+}
+
+/* ── Drawer & Sidebar Panel ────────────────────────────────────────────── */
+.drawer-container {
+    background-color: #141416;
+    border-right: 1px solid #27272a;
+    min-width: 220px;
+    padding: 10px;
+}
+
+/* ── Scrollable Message View Area ──────────────────────────────────────── */
+.chat-scroll,
+.messages-scrolled {
+    background: transparent;
+    padding: 0;
+}
+
+.chat-scroll scrolledwindow,
+.chat-scroll viewport,
+.messages-scrolled scrolledwindow,
+.messages-scrolled viewport {
+    background: transparent;
+}
+
+.messages-container,
+.messages-box {
+    padding: 12px 14px;
+}
+
+.welcome-box {
+    padding: 32px 16px;
+}
+
+.welcome-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f4f4f5;
+    margin-bottom: 4px;
+}
+
+.welcome-subtitle {
+    font-size: 11.5px;
+    color: #71717a;
+}
+
+/* ── User Message Row & Bubble (Figma: right-aligned, #27272a, 8px radius) ─ */
+.bubble-user-row {
+    margin-bottom: 12px;
+}
+
+.chat-bubble-user {
+    background-color: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 8px 12px;
+    max-width: 85%;
+}
+
+.bubble-user-text,
+.bubble-user-text text {
+    color: #f4f4f5;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* ── Assistant Message Row (Figma: Unboxed Copilot Chat style) ───────────── */
+.bubble-assistant-row {
+    margin-bottom: 14px;
+}
+
+.chat-bubble-assistant {
+    background: transparent;
+    padding: 0;
+    border: none;
+}
+
+.bubble-assistant-header {
+    margin-bottom: 4px;
+}
+
+.bubble-assistant-badge {
+    font-size: 11px;
+    font-weight: 600;
+    color: #71717a;
+}
+
+.bubble-metrics-badge {
+    font-size: 10.5px;
+    font-weight: 500;
+    color: #71717a;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 6px;
+}
+
+.btn-bubble-copy {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #71717a;
+    transition: all 120ms ease;
+}
+
+.btn-bubble-copy:hover {
+    background: #27272a;
+    color: #f4f4f5;
+}
+
+.bubble-divider {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    margin-bottom: 6px;
+}
+
+.bubble-assistant-text,
+.bubble-assistant-text text {
+    background: transparent;
+    color: #e4e4e7;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+/* Inline code pill */
+.chat-bubble-assistant tt {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 12px;
+    background: #202226;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: #e4e4e7;
+}
+
+/* ── Thinking Steps Collapsible (Timeline Muted) ─────────────────── */
+.agent-thinking-expander {
+    margin: 4px 0 6px 0;
+}
+
+.agent-thinking-expander > title {
+    font-size: 11px;
+    font-weight: 500;
+    color: #71717a;
+    padding: 2px 0;
+}
+
+.agent-thinking-content {
+    margin-left: 6px;
+    padding-left: 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.agent-steps-expander > title {
+    font-size: 11px;
+    font-weight: 500;
+    color: #71717a;
+    padding: 2px 0;
+}
+
+.agent-timeline-list {
+    margin-left: 8px;
+    padding-left: 6px;
+    border-left: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.timeline-sub-expander > title {
+    font-size: 11px;
+    color: #71717a;
+    padding: 1px 0;
+}
+
+.timeline-sub-expander:hover > title {
+    color: #f4f4f5;
+}
+
+.thought-sub-item > title {
+    color: #a1a1aa;
+}
+
+.tool-sub-item > title {
+    font-family: monospace;
+    font-size: 11px;
+    color: #38bdf8;
+}
+
+.timeline-item-text {
+    font-size: 11px;
+    padding: 4px 8px;
+    background: #141416;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    margin: 2px 0 4px 0;
+}
+
+/* ── Code Blocks (Copilot Tile Standard) ─────────────────────────────────── */
+.code-block-container {
+    background-color: #121316;
+    border: 1px solid #27272a;
+    border-radius: 6px;
+    margin: 6px 0;
+}
+
+.code-block-header {
+    background-color: #18181b;
+    border-bottom: 1px solid #27272a;
+    padding: 5px 10px;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+}
+
+.code-block-lang {
+    font-family: monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: #94a3b8;
+}
+
+.code-block-copy-btn {
+    font-size: 10.5px;
+    font-weight: 500;
+    color: #a1a1aa;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: transparent;
+}
+
+.code-block-copy-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+}
+
+.code-block-content {
+    padding: 8px 12px 10px 12px;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #e2e8f0;
+}
+
+/* ── Bottom Input Bar (Figma: #202226, 8px radius, 1px border) ──────────── */
+.input-box,
+.input-dock {
+    padding: 8px 14px 12px 14px;
+    background: transparent;
+}
+
+.input-box,
+.input-container {
+    background-color: #202226;
+    border: 1px solid #2e3036;
+    border-radius: 8px;
+    padding: 8px 10px;
+    transition: border-color 150ms ease;
+}
+
+.input-box:focus-within,
+.input-container:focus-within {
+    border-color: #3b82f6;
+}
+
+.prompt-entry {
+    background: transparent;
+    border: none;
+    color: #f4f4f5;
+    font-size: 13px;
+    padding: 2px 0;
+}
+
+.prompt-entry:focus {
+    outline-style: none;
+    border: none;
+    box-shadow: none;
+}
+
+.input-footer {
+    margin-top: 6px;
+}
+
+.shortcut-label {
+    font-size: 10px;
+    color: #52525b;
+}
+
+.btn-send {
+    background-color: #3b82f6;
+    color: #ffffff;
+    font-size: 11.5px;
+    font-weight: 600;
+    border-radius: 4px;
+    padding: 3px 10px;
+    border: none;
+    transition: background-color 120ms ease;
+}
+
+.btn-send:hover {
+    background-color: #2563eb;
+}
+
+.btn-send:active {
+    background-color: #1d4ed8;
+}
+
+/* ── Popovers & Dropdowns (Clean Radix Dark Menu) ────────────────────────── */
+popover,
+popover.menu,
+dropdown popover {
+    background: transparent;
+    padding: 0;
+}
+
+popover > contents,
+popover.menu > contents,
+dropdown popover > contents {
+    background-color: #18181b;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75);
+    padding: 4px;
+}
+
+dropdown {
+    background: transparent;
+    border: none;
+}
+
+dropdown > button,
+dropdown > button.toggle {
+    background-color: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 5px;
+    padding: 5px 8px;
+    min-height: 26px;
+}
+
+dropdown > button:hover,
+dropdown > button.toggle:hover {
+    background-color: #3f3f46;
+}
+
+dropdown > button label,
+dropdown > button.toggle label {
+    color: #f4f4f5;
+    font-size: 12px;
+}
+
+dropdown > button arrow,
+dropdown > button.toggle arrow {
+    color: #a1a1aa;
+    min-width: 10px;
+}
+
+dropdown popover listview,
+popover.menu listview {
+    background: transparent;
+}
+
+dropdown popover listview > row,
+popover.menu listview > row,
+dropdown popover row,
+popover.menu row {
+    padding: 5px 8px;
+    border-radius: 4px;
+    background-color: transparent;
+    color: #d4d4d8;
+    font-size: 12px;
+}
+
+dropdown popover listview > row:hover,
+popover.menu listview > row:hover,
+dropdown popover row:hover,
+popover.menu row:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+}
+
+dropdown popover listview > row:selected,
+popover.menu listview > row:selected,
+dropdown popover row:selected,
+popover.menu row:selected {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* ── Checkbuttons ──────────────────────────────────────────────────────── */
+checkbutton {
+    padding: 3px 4px;
+    font-size: 12px;
+    color: #d4d4d8;
+}
+
+checkbutton check {
+    min-width: 14px;
+    min-height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: rgba(0, 0, 0, 0.4);
+    margin-right: 6px;
+}
+
+checkbutton:checked check {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+    color: #ffffff;
+}
+
+/* ── Floating Chat Head (Figma: Node 2:28, 48px circle, #18181b, dot #22c55e) */
+.chat-head-window {
+    background: transparent;
+}
+
+.chat-head-box {
+    padding: 4px;
+    background: transparent;
+}
+
+.chat-head-btn {
+    min-width: 48px;
+    min-height: 48px;
+    border-radius: 24px;
+    background-color: rgba(24, 24, 27, 0.95);
+    border: 1px solid #3f3f46;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55), 0 0 1px rgba(255, 255, 255, 0.2);
+    padding: 0;
+    transition: all 120ms ease;
+}
+
+.chat-head-btn:hover {
+    background-color: #27272a;
+    border-color: rgba(192, 132, 252, 0.6);
+    box-shadow: 0 6px 22px rgba(192, 132, 252, 0.3);
+}
+
+.chat-head-btn:active {
+    background-color: #3b82f6;
+}
+
+.chat-head-icon {
+    font-size: 20px;
+    font-weight: 800;
+    color: #c084fc;
+    margin: 0;
+}
+
+.chat-head-dot {
+    min-width: 10px;
+    min-height: 10px;
+    border-radius: 5px;
+    background-color: #22c55e;
+    margin-top: 26px;
+    margin-left: -10px;
+    border: 1.5px solid #18181b;
+}
+
+.chat-head-dot.working {
+    background-color: #f59e0b;
+}
