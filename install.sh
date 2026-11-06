@@ -11,6 +11,10 @@ echo "Building pi-overlay (release)..."
 cd "${SCRIPT_DIR}"
 LIBRARY_PATH=/var/home/khoipm/.local/lib64 cargo build --release
 
+echo "Stopping any existing pi-overlay instance..."
+pkill -x pi-overlay || true
+rm -f "${XDG_RUNTIME_DIR:-/tmp}/pi-ephemeral-overlay.sock" || true
+
 echo "Installing binary to ${BIN_DIR}/pi-overlay..."
 mkdir -p "${BIN_DIR}"
 install -m 755 "${SCRIPT_DIR}/target/release/pi-overlay" "${BIN_DIR}/pi-overlay"

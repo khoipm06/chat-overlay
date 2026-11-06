@@ -24,23 +24,33 @@
 @define-color chat-danger #F48771;
 
 @define-color accent_color #4FC1FF;
-@define-color accent_bg_color #4FC1FF;
-@define-color accent_fg_color #1E1E2A;
+@define-color accent_bg_color #343644;
+@define-color accent_fg_color #D4D4E0;
 @define-color theme_selected_bg_color #343644;
 @define-color theme_selected_fg_color #D4D4E0;
 @define-color destructive_color #F48771;
 @define-color destructive_bg_color #F48771;
 @define-color destructive_fg_color #1E1E2A;
 
+@define-color headerbar_bg_color #1E1E2A;
+@define-color headerbar_fg_color #D4D4E0;
+@define-color popover_bg_color #292936;
+@define-color popover_fg_color #D4D4E0;
+@define-color card_bg_color #292936;
+@define-color card_fg_color #D4D4E0;
+@define-color view_bg_color #1E1E2A;
+@define-color view_fg_color #D4D4E0;
+@define-color window_bg_color #1E1E2A;
+@define-color window_fg_color #D4D4E0;
+
 /* ── Universal Reset & Clean Visual Isolation ──────────────────────────── */
 * {
     background-image: none;
     text-shadow: none;
     -gtk-icon-shadow: none;
-    outline-style: none !important;
-    outline-width: 0 !important;
-    outline-color: transparent !important;
-    -gtk-outline-radius: 0;
+    outline-style: none;
+    outline-width: 0;
+    outline-color: transparent;
     box-shadow: none;
     -gtk-secondary-caret-color: transparent;
 }
@@ -48,9 +58,9 @@
 *:focus,
 *:focus-visible,
 *:focus-within {
-    outline-style: none !important;
-    outline-width: 0 !important;
-    outline-color: transparent !important;
+    outline-style: none;
+    outline-width: 0;
+    outline-color: transparent;
     box-shadow: none;
 }
 
@@ -61,10 +71,9 @@ button:focus-within,
 button:hover,
 button:active,
 button:checked {
-    outline-style: none !important;
-    outline-width: 0 !important;
-    outline-color: transparent !important;
-    -gtk-outline-radius: 0;
+    outline-style: none;
+    outline-width: 0;
+    outline-color: transparent;
     box-shadow: none;
     -gtk-secondary-caret-color: transparent;
 }
@@ -623,7 +632,8 @@ window {
 }
 
 .composer-pill-btn {
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: rgba(255, 255, 255, 0.05);
+    background-image: none;
     border: 1px solid #424252;
     border-radius: 4px;
     padding: 2px 7px;
@@ -631,18 +641,33 @@ window {
     font-size: 11px;
     font-weight: 500;
     margin-right: 4px;
-    transition: background-color 120ms ease, border-color 120ms ease;
+    outline: none;
+    box-shadow: none;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .composer-pill-btn:hover {
     background-color: rgba(255, 255, 255, 0.12);
     border-color: #4FC1FF;
     color: #ffffff;
+    box-shadow: none;
+    outline: none;
 }
 
-.composer-pill-btn:active {
-    background-color: rgba(79, 193, 255, 0.2);
+.composer-pill-btn:active,
+.composer-pill-btn:checked {
+    background-color: rgba(255, 255, 255, 0.16);
+    background-image: none;
     border-color: #4FC1FF;
+    color: #4FC1FF;
+    box-shadow: none;
+    outline: none;
+}
+
+.composer-pill-btn:focus,
+.composer-pill-btn:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 
 .composer-icon-btn {
@@ -651,15 +676,28 @@ window {
     padding: 2px;
     border-radius: 4px;
     background-color: transparent;
+    background-image: none;
     color: #A7A8BA;
     border: none;
     font-size: 13px;
     margin-right: 4px;
+    outline: none;
+    box-shadow: none;
 }
 
 .composer-icon-btn:hover {
     background-color: rgba(255, 255, 255, 0.08);
     color: #D4D4E0;
+    outline: none;
+    box-shadow: none;
+}
+
+.composer-icon-btn:active,
+.composer-icon-btn:checked {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: #4FC1FF;
+    outline: none;
+    box-shadow: none;
 }
 
 .composer-send-btn {
@@ -667,12 +705,15 @@ window {
     min-height: 28px;
     border-radius: 14px;
     background-color: #4FC1FF;
+    background-image: none;
     color: #1E1E2A;
     font-size: 14px;
     font-weight: 700;
     padding: 0;
     border: none;
-    transition: background-color 120ms ease, transform 80ms ease;
+    outline: none;
+    box-shadow: none;
+    transition: background-color 120ms ease, transform 80ms ease, opacity 120ms ease;
 }
 
 .composer-send-btn:hover {
@@ -682,6 +723,12 @@ window {
 .composer-send-btn:active {
     background-color: #38bdf8;
     transform: scale(0.96);
+}
+
+.composer-send-btn:disabled {
+    background-color: rgba(255, 255, 255, 0.06);
+    color: #636375;
+    opacity: 0.6;
 }
 
 .composer-send-btn.stop {
@@ -694,6 +741,11 @@ window {
     background-color: #fca5a5;
 }
 
+.composer-send-btn.stop:disabled {
+    background-color: rgba(244, 135, 113, 0.3);
+    color: #884433;
+}
+
 /* ── 6. Status Footer (Chân Trạng Thái) ─────────────────────────────────── */
 .status-footer {
     padding: 4px 14px 8px 14px;
@@ -704,10 +756,41 @@ window {
     color: #A7A8BA;
 }
 
+.status-footer-btn {
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    border-radius: 4px;
+    padding: 1px 4px;
+    color: #A7A8BA;
+    font-size: 11px;
+    font-weight: 500;
+    outline: none;
+    box-shadow: none;
+    transition: color 120ms ease, background-color 120ms ease;
+}
+
+.status-footer-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #D4D4E0;
+}
+
+.status-footer-btn:active,
+.status-footer-btn:checked {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: #4FC1FF;
+}
+
+.status-footer-dot-sep {
+    font-size: 10px;
+    color: #636375;
+    margin: 0 1px;
+}
+
 .status-footer-icon {
     font-size: 11px;
     color: #A7A8BA;
-    margin-right: 4px;
+    margin-right: 2px;
 }
 
 .status-footer-dot {
@@ -755,11 +838,13 @@ popover.menu {
     padding: 5px 10px;
     border-radius: 5px;
     background-color: transparent;
+    background-image: none;
     border: none;
     color: #D4D4E0;
     font-size: 12px;
-    text-align: left;
     margin-bottom: 2px;
+    outline: none;
+    box-shadow: none;
 }
 
 .clean-popover-item:hover {
@@ -768,9 +853,19 @@ popover.menu {
 }
 
 .clean-popover-item:active,
+.clean-popover-item:checked,
 .clean-popover-item.active {
     background-color: #424252;
+    background-image: none;
     color: #4FC1FF;
+    outline: none;
+    box-shadow: none;
+}
+
+.clean-popover-item:focus,
+.clean-popover-item:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 
 .clean-popover-item-desc {

@@ -153,7 +153,7 @@ fn set_text_view_content(tv: &gtk4::TextView, text: &str) {
     tv.buffer().set_text(text);
 }
 
-fn add_context_chip(chips_box: &gtk4::Box, name: &str) {
+fn add_context_chip(chips_box: &gtk4::Box, name: &str, on_change: Option<Rc<dyn Fn()>>) {
     let chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
     chip.add_css_class("composer-chip");
 
@@ -164,6 +164,9 @@ fn add_context_chip(chips_box: &gtk4::Box, name: &str) {
     let chip_text = gtk4::Label::builder()
         .label(name)
         .css_classes(["composer-chip-text"])
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .max_width_chars(24)
+        .tooltip_text(name)
         .build();
     let chip_del = gtk4::Button::builder()
         .label("✕")
@@ -177,11 +180,18 @@ fn add_context_chip(chips_box: &gtk4::Box, name: &str) {
 
     let chips_box_clone = chips_box.clone();
     let chip_clone = chip.clone();
+    let on_change_clone = on_change.clone();
     chip_del.connect_clicked(move |_| {
         chips_box_clone.remove(&chip_clone);
+        if let Some(ref cb) = on_change_clone {
+            cb();
+        }
     });
 
     chips_box.append(&chip);
+    if let Some(ref cb) = on_change {
+        cb();
+    }
 }
 
 fn main() -> glib::ExitCode {
@@ -577,9 +587,6 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     // Context Chips Row
     let chips_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
     chips_row.add_css_class("composer-chips-row");
-    // Default context chip matching user reference screenshot
-    add_context_chip(&chips_row, "spec.md");
-    composer_box.append(&chips_row);
 
     // Multi-line Text View with Placeholder in Overlay
     let input_overlay = gtk4::Overlay::new();
@@ -612,14 +619,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         .build();
     input_overlay.add_overlay(&placeholder_label);
 
-    {
-        let pl_ref = placeholder_label.clone();
-        text_view.buffer().connect_changed(move |buf| {
-            let empty = buf.char_count() == 0;
-            pl_ref.set_visible(empty);
-        });
-    }
-
+    composer_box.append(&chips_row);
     composer_box.append(&input_overlay);
 
     // Composer Bottom Toolbar (integrated compact controls)
@@ -684,8 +684,53 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     composer_box.append(&composer_toolbar);
     drawer.append(&composer_box);
 
+    let is_streaming = Rc::new(Cell::new(false));
+
+    let update_send_btn_state = {
+        let tv = text_view.clone();
+        let btn = btn_send_stop.clone();
+        let is_str = is_streaming.clone();
+        let chips = chips_row.clone();
+        Rc::new(move || {
+            if is_str.get() {
+                btn.set_sensitive(true);
+                btn.set_label("⏹");
+                btn.add_css_class("stop");
+                btn.set_tooltip_text(Some("Stop Generation"));
+            } else {
+                let has_text = !get_text_view_content(&tv).is_empty();
+                let has_chips = chips.first_child().is_some();
+                let can_send = has_text || has_chips;
+                btn.set_sensitive(can_send);
+                btn.set_label("↑");
+                btn.remove_css_class("stop");
+                btn.set_tooltip_text(Some(if can_send {
+                    "Send (Enter)"
+                } else {
+                    "Type a prompt or attach context to send"
+                }));
+            }
+        })
+    };
+
+    // Default context chip matching user reference screenshot
+    add_context_chip(&chips_row, "spec.md", Some(update_send_btn_state.clone()));
+
+    {
+        let pl_ref = placeholder_label.clone();
+        let update_btn = update_send_btn_state.clone();
+        text_view.buffer().connect_changed(move |buf| {
+            let empty = buf.char_count() == 0;
+            pl_ref.set_visible(empty);
+            update_btn();
+        });
+    }
+
+    // Initial button state calculation
+    update_send_btn_state();
+
     // ── 6. Status Footer (Chân Trạng Thái) ───────────────────────────────────
-    let status_footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    let status_footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
     status_footer.add_css_class("status-footer");
 
     let status_server_icon = gtk4::Label::builder()
@@ -694,11 +739,25 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         .build();
     status_footer.append(&status_server_icon);
 
-    let status_env_label = gtk4::Label::builder()
-        .label("Local  •  Autopilot (Preview)")
-        .css_classes(["status-footer-label"])
+    let btn_env = gtk4::Button::builder()
+        .label("Local ▾")
+        .css_classes(["status-footer-btn"])
+        .tooltip_text("Execution Target (Click to change)")
         .build();
-    status_footer.append(&status_env_label);
+    status_footer.append(&btn_env);
+
+    let status_sep = gtk4::Label::builder()
+        .label("•")
+        .css_classes(["status-footer-dot-sep"])
+        .build();
+    status_footer.append(&status_sep);
+
+    let btn_perm = gtk4::Button::builder()
+        .label("Autopilot (Preview) ▾")
+        .css_classes(["status-footer-btn"])
+        .tooltip_text("Permission Level (Click to change)")
+        .build();
+    status_footer.append(&btn_perm);
 
     let sf_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     sf_spacer.set_hexpand(true);
@@ -724,8 +783,6 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         bottom_margin: initial_settings.margin_top,
         is_window_mode,
     }));
-
-    let is_streaming = Rc::new(Cell::new(false));
 
     // ── Attach Context Popover ──────────────────────────────────────────────
     let popover_attach = gtk4::Popover::builder()
@@ -755,9 +812,10 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let pop_close = popover_attach.clone();
         let chips_ref = chips_row.clone();
         let fname = file.to_string();
+        let update_btn_attach = update_send_btn_state.clone();
         item_btn.connect_clicked(move |_| {
             pop_close.popdown();
-            add_context_chip(&chips_ref, &fname);
+            add_context_chip(&chips_ref, &fname, Some(update_btn_attach.clone()));
         });
         attach_box.append(&item_btn);
     }
@@ -766,6 +824,127 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     {
         let pop_ref = popover_attach.clone();
         btn_attach.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
+
+    // ── Environment Popover ─────────────────────────────────────────────────
+    let popover_env = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_env.set_parent(&btn_env);
+
+    let env_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    env_box.set_width_request(200);
+
+    let env_title = gtk4::Label::builder()
+        .label("EXECUTION TARGET")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    env_box.append(&env_title);
+
+    let env_options = [
+        ("local", "Local (Workstation)", "Local runner environment"),
+        ("remote", "Remote Container", "Isolated docker / devcontainer"),
+        ("ssh", "SSH Remote", "Secure remote workspace host"),
+    ];
+    for (_eid, elabel, edesc) in env_options {
+        let e_btn = gtk4::Button::builder()
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+        let e_inner = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
+        let e_name = gtk4::Label::builder()
+            .label(elabel)
+            .xalign(0.0)
+            .build();
+        let e_desc = gtk4::Label::builder()
+            .label(edesc)
+            .css_classes(["clean-popover-item-desc"])
+            .xalign(0.0)
+            .build();
+        e_inner.append(&e_name);
+        e_inner.append(&e_desc);
+        e_btn.set_child(Some(&e_inner));
+
+        let pop_e_close = popover_env.clone();
+        let btn_e_lbl = btn_env.clone();
+        let lbl_text = if elabel.starts_with("Local") { "Local ▾".to_string() } else { format!("{} ▾", elabel) };
+        e_btn.connect_clicked(move |_| {
+            pop_e_close.popdown();
+            btn_e_lbl.set_label(&lbl_text);
+        });
+        env_box.append(&e_btn);
+    }
+    popover_env.set_child(Some(&env_box));
+
+    {
+        let pop_ref = popover_env.clone();
+        btn_env.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
+
+    // ── Permission Level Popover ────────────────────────────────────────────
+    let popover_perm = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_perm.set_parent(&btn_perm);
+
+    let perm_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    perm_box.set_width_request(220);
+
+    let perm_title = gtk4::Label::builder()
+        .label("PERMISSION LEVEL")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    perm_box.append(&perm_title);
+
+    let perm_options = [
+        ("autopilot", "Autopilot (Preview)", "Autonomous tool calls without prompts"),
+        ("default", "Default permissions", "Prompts on destructive tool actions"),
+        ("bypass", "Bypass approvals", "Executes all shell and filesystem tools"),
+        ("readonly", "Read-only sandbox", "Prohibits file edits and execution"),
+    ];
+    for (_pid, plabel, pdesc) in perm_options {
+        let p_btn = gtk4::Button::builder()
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+        let p_inner = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
+        let p_name = gtk4::Label::builder()
+            .label(plabel)
+            .xalign(0.0)
+            .build();
+        let p_desc = gtk4::Label::builder()
+            .label(pdesc)
+            .css_classes(["clean-popover-item-desc"])
+            .xalign(0.0)
+            .build();
+        p_inner.append(&p_name);
+        p_inner.append(&p_desc);
+        p_btn.set_child(Some(&p_inner));
+
+        let pop_p_close = popover_perm.clone();
+        let btn_p_lbl = btn_perm.clone();
+        let short_lbl = format!("{} ▾", plabel);
+        p_btn.connect_clicked(move |_| {
+            pop_p_close.popdown();
+            btn_p_lbl.set_label(&short_lbl);
+        });
+        perm_box.append(&p_btn);
+    }
+    popover_perm.set_child(Some(&perm_box));
+
+    {
+        let pop_ref = popover_perm.clone();
+        btn_perm.connect_clicked(move |_| {
             pop_ref.popup();
         });
     }
@@ -1017,16 +1196,36 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         .build();
     more_box.append(&theme_section_title);
 
+    let theme_check_labels: Rc<RefCell<Vec<(String, gtk4::Label)>>> = Rc::new(RefCell::new(Vec::new()));
+
     for (t_id, t_name, _) in THEMES {
+        let is_current = *t_id == initial_settings.theme;
         let t_btn = gtk4::Button::builder()
-            .label(*t_name)
             .css_classes(["clean-popover-item"])
             .halign(gtk4::Align::Fill)
             .build();
 
+        let t_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        let check_lbl = gtk4::Label::builder()
+            .label(if is_current { "✓" } else { " " })
+            .css_classes(["theme-check-icon"])
+            .width_chars(2)
+            .build();
+        let name_lbl = gtk4::Label::builder()
+            .label(*t_name)
+            .xalign(0.0)
+            .hexpand(true)
+            .build();
+        t_row.append(&check_lbl);
+        t_row.append(&name_lbl);
+        t_btn.set_child(Some(&t_row));
+
+        theme_check_labels.borrow_mut().push((t_id.to_string(), check_lbl.clone()));
+
         let drawer_theme = drawer.clone();
         let state_theme = state.clone();
         let pop_more_close = popover_more.clone();
+        let checks_ref = theme_check_labels.clone();
         let tid = *t_id;
 
         t_btn.connect_clicked(move |_| {
@@ -1035,6 +1234,9 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 drawer_theme.remove_css_class(other);
             }
             drawer_theme.add_css_class(tid);
+            for (id, lbl) in checks_ref.borrow().iter() {
+                lbl.set_text(if id == tid { "✓" } else { " " });
+            }
             let mut st = state_theme.borrow_mut();
             st.settings.theme = tid.to_string();
             let _ = st.settings.save();
@@ -1241,16 +1443,14 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let status_dot_clear = status_dot.clone();
         let head_dot_clear = head_dot.clone();
         let is_streaming_clear = is_streaming.clone();
-        let btn_send_clear = btn_send_stop.clone();
+        let update_send_btn_clear = update_send_btn_state.clone();
         let session_title_clear = session_title_label.clone();
 
         Rc::new(move || {
             state_clear.borrow_mut().runner.abort();
             *active_stream_clear.borrow_mut() = None;
             is_streaming_clear.set(false);
-            btn_send_clear.set_label("↑");
-            btn_send_clear.remove_css_class("stop");
-            btn_send_clear.set_tooltip_text(Some("Send (Enter)"));
+            update_send_btn_clear();
             status_dot_clear.remove_css_class("working");
             status_dot_clear.remove_css_class("error");
             head_dot_clear.remove_css_class("working");
@@ -1345,13 +1545,90 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         });
     }
 
-    // New Chat Button (+) in panel header
+    // New Chat Confirmation Popover (prompts if unsent draft text exists)
+    let popover_new_chat = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["confirm-popover"])
+        .build();
+    popover_new_chat.set_parent(&btn_new_chat);
+
+    let new_chat_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+    let nc_title = gtk4::Label::builder()
+        .label("Discard Unsent Draft?")
+        .css_classes(["confirm-dialog-title"])
+        .xalign(0.0)
+        .build();
+    new_chat_box.append(&nc_title);
+
+    let nc_desc = gtk4::Label::builder()
+        .label("You have unsent text in the composer. Start a new session and discard it?")
+        .css_classes(["confirm-dialog-desc"])
+        .wrap(true)
+        .wrap_mode(gtk4::pango::WrapMode::WordChar)
+        .width_chars(1)
+        .max_width_chars(30)
+        .xalign(0.0)
+        .build();
+    new_chat_box.append(&nc_desc);
+
+    let nc_btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    nc_btn_row.set_halign(gtk4::Align::End);
+
+    let btn_nc_cancel = gtk4::Button::builder()
+        .label("Keep Draft")
+        .css_classes(["btn-dialog-cancel"])
+        .build();
+    let btn_nc_discard = gtk4::Button::builder()
+        .label("Discard & New")
+        .css_classes(["btn-dialog-destructive"])
+        .build();
+    nc_btn_row.append(&btn_nc_cancel);
+    nc_btn_row.append(&btn_nc_discard);
+    new_chat_box.append(&nc_btn_row);
+    popover_new_chat.set_child(Some(&new_chat_box));
+
     {
+        let pop_ref = popover_new_chat.clone();
+        btn_nc_cancel.connect_clicked(move |_| {
+            pop_ref.popdown();
+        });
+    }
+
+    {
+        let pop_ref = popover_new_chat.clone();
         let do_clear = execute_clear.clone();
         let tv_ref = text_view.clone();
-        btn_new_chat.connect_clicked(move |_| {
+        let update_btn = update_send_btn_state.clone();
+        btn_nc_discard.connect_clicked(move |_| {
+            pop_ref.popdown();
+            set_text_view_content(&tv_ref, "");
+            update_btn();
             do_clear();
             tv_ref.grab_focus();
+        });
+    }
+
+    let request_new_chat = {
+        let pop_ref = popover_new_chat.clone();
+        let do_clear = execute_clear.clone();
+        let tv_ref = text_view.clone();
+        Rc::new(move || {
+            let draft = get_text_view_content(&tv_ref);
+            if !draft.is_empty() {
+                pop_ref.popup();
+            } else {
+                do_clear();
+                tv_ref.grab_focus();
+            }
+        })
+    };
+
+    // New Chat Button (+) in panel header
+    {
+        let req_nc = request_new_chat.clone();
+        btn_new_chat.connect_clicked(move |_| {
+            req_nc();
         });
     }
 
@@ -1409,7 +1686,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let head_dot_clone = head_dot.clone();
         let state_clone = state.clone();
         let scroll_fn = scroll_to_bottom.clone();
-        let btn_send_ref = btn_send_stop.clone();
+        let update_send_btn_stream = update_send_btn_state.clone();
         let is_streaming_ref = is_streaming.clone();
 
         glib::spawn_future_local(async move {
@@ -1707,10 +1984,8 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                         }
                         status_dot_clone.remove_css_class("working");
                         status_dot_clone.add_css_class("error");
-                        btn_send_ref.set_label("↑");
-                        btn_send_ref.remove_css_class("stop");
-                        btn_send_ref.set_tooltip_text(Some("Send prompt (Enter)"));
                         is_streaming_ref.set(false);
+                        update_send_btn_stream();
                         scroll_fn();
                     }
                     StreamEvent::Done => {
@@ -1733,10 +2008,8 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                         status_dot_clone.remove_css_class("working");
                         status_dot_clone.remove_css_class("error");
                         head_dot_clone.remove_css_class("working");
-                        btn_send_ref.set_label("↑");
-                        btn_send_ref.remove_css_class("stop");
-                        btn_send_ref.set_tooltip_text(Some("Send prompt (Enter)"));
                         is_streaming_ref.set(false);
+                        update_send_btn_stream();
                         scroll_fn();
                     }
                 }
@@ -1760,10 +2033,13 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let scroll_fn = scroll_to_bottom.clone();
         let scroll_to_widget = scroll_to_widget.clone();
         let is_streaming_submit = is_streaming.clone();
-        let btn_send_submit = btn_send_stop.clone();
+        let update_btn_submit = update_send_btn_state.clone();
         let session_title_submit = session_title_label.clone();
 
         Rc::new(move || {
+            if is_streaming_submit.get() {
+                return;
+            }
             let raw_prompt = get_text_view_content(&tv);
             if raw_prompt.is_empty() {
                 return;
@@ -1772,6 +2048,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
 
             // Clear draft from buffer on send
             set_text_view_content(&tv, "");
+            update_btn_submit();
             welcome_box.set_visible(false);
 
             let prompt_idx = state.borrow().prompts.len() + 1;
@@ -1982,7 +2259,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 let status_dot_ref = status_dot.clone();
                 let head_dot_ref = head_dot.clone();
                 let is_str_ref = is_streaming_submit.clone();
-                let btn_s_ref = btn_send_submit.clone();
+                let update_btn_ref = update_btn_submit.clone();
                 let this_idx = prompt_idx;
 
                 let item_popover = gtk4::Popover::builder()
@@ -2045,9 +2322,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                         st.runner.abort();
                         *active_stream_ref.borrow_mut() = None;
                         is_str_ref.set(false);
-                        btn_s_ref.set_label("↑");
-                        btn_s_ref.remove_css_class("stop");
-                        btn_s_ref.set_tooltip_text(Some("Send (Enter)"));
+                        update_btn_ref();
                         status_dot_ref.remove_css_class("working");
                         head_dot_ref.remove_css_class("working");
                     }
@@ -2087,9 +2362,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
 
             // Switch Send button to Stop button during active stream
             is_streaming_submit.set(true);
-            btn_send_submit.set_label("⏹");
-            btn_send_submit.add_css_class("stop");
-            btn_send_submit.set_tooltip_text(Some("Stop Generation"));
+            update_btn_submit();
 
             let mut st = state.borrow_mut();
             let model_opt = Some(st.settings.model.clone());
@@ -2109,9 +2382,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 status_dot.add_css_class("error");
                 head_dot.remove_css_class("working");
                 is_streaming_submit.set(false);
-                btn_send_submit.set_label("↑");
-                btn_send_submit.remove_css_class("stop");
-                btn_send_submit.set_tooltip_text(Some("Send (Enter)"));
+                update_btn_submit();
                 scroll_fn();
             }
         })
@@ -2158,17 +2429,32 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let active_stream_stop = active_stream.clone();
         let status_dot_stop = status_dot.clone();
         let head_dot_stop = head_dot.clone();
-        let btn_send_ref = btn_send_stop.clone();
+        let update_btn_stop = update_send_btn_state.clone();
 
         btn_send_stop.connect_clicked(move |_| {
             if is_str_btn.get() {
                 // Active streaming: Stop request
                 state_stop.borrow_mut().runner.abort();
+                if let Some(ref target) = *active_stream_stop.borrow() {
+                    if let Some(ref p) = *target.progress.borrow() {
+                        let total_elapsed = p.start_time.elapsed().as_secs();
+                        p.expander.set_label(Some(&format!(
+                            "Stopped after {} steps ({}) ▾",
+                            p.steps_count,
+                            format::format_duration_sec(total_elapsed)
+                        )));
+                        for entry in p.items.values() {
+                            if entry.badge.has_css_class("running") {
+                                entry.badge.remove_css_class("running");
+                                entry.badge.add_css_class("error");
+                                entry.badge.set_text("STOPPED");
+                            }
+                        }
+                    }
+                }
                 *active_stream_stop.borrow_mut() = None;
                 is_str_btn.set(false);
-                btn_send_ref.set_label("↑");
-                btn_send_ref.remove_css_class("stop");
-                btn_send_ref.set_tooltip_text(Some("Send (Enter)"));
+                update_btn_stop();
                 status_dot_stop.remove_css_class("working");
                 head_dot_stop.remove_css_class("working");
             } else {
@@ -2181,8 +2467,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     {
         let key_controller = gtk4::EventControllerKey::new();
         let hide_fn = hide_overlay_fn.clone();
-        let do_clear = execute_clear.clone();
-        let tv_ref = text_view.clone();
+        let req_nc_key = request_new_chat.clone();
 
         key_controller.connect_key_pressed(move |_, key, _, modifier| {
             if key == gdk::Key::Escape {
@@ -2190,8 +2475,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 return glib::Propagation::Stop;
             }
             if modifier.contains(gdk::ModifierType::CONTROL_MASK) && key == gdk::Key::n {
-                do_clear();
-                tv_ref.grab_focus();
+                req_nc_key();
                 return glib::Propagation::Stop;
             }
             glib::Propagation::Proceed
