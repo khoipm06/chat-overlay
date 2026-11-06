@@ -150,6 +150,15 @@ struct AppContext {
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
 
+    // Prepend user toolchain paths so CLI tools like bun, cargo, node are always discoverable
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/var/home/khoipm".to_string());
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let augmented = format!(
+        "{}/.bun/bin:{}/.local/bin:{}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
+        home, home, home, current_path
+    );
+    std::env::set_var("PATH", augmented);
+
     // Fast path: if an instance is already running, toggle it and exit immediately (< 2ms)
     if ipc::try_send_toggle() {
         return glib::ExitCode::SUCCESS;
@@ -505,6 +514,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             .map(|(_, name)| *name)
             .collect::<Vec<&str>>(),
     );
+    model_dropdown.add_css_class("settings-dropdown");
     // Find current index
     let current_model_idx = POPULAR_MODELS
         .iter()
@@ -527,6 +537,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             .map(|(_, name, _)| *name)
             .collect::<Vec<&str>>(),
     );
+    theme_dropdown.add_css_class("settings-dropdown");
     let current_theme_idx = THEMES
         .iter()
         .position(|(id, _, _)| *id == initial_settings.theme)

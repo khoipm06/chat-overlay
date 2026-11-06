@@ -5,9 +5,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Universal Reset & Clean Neutralization ─────────────────────────────── */
-*,
-*::before,
-*::after {
+* {
     background-image: none;
     text-shadow: none;
     -gtk-icon-shadow: none;
@@ -168,7 +166,6 @@ window {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 8px;
     padding: 8px 12px;
-    max-width: 85%;
 }
 
 .bubble-user-text,
@@ -427,43 +424,104 @@ dropdown popover {
 
 popover > contents,
 popover.menu > contents,
-dropdown popover > contents {
+dropdown popover > contents,
+.settings-popover > contents {
     background-color: #18181b;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75);
-    padding: 4px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
+    padding: 8px;
 }
 
-dropdown {
+dropdown,
+dropdown.settings-dropdown {
     background: transparent;
     border: none;
+    box-shadow: none;
+    outline-style: none;
 }
 
 dropdown > button,
-dropdown > button.toggle {
+dropdown > button.combo,
+dropdown > button.toggle,
+dropdown.settings-dropdown > button,
+dropdown.settings-dropdown > button.combo,
+dropdown.settings-dropdown > button.toggle,
+.settings-dropdown > button {
     background-color: #27272a;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 5px;
-    padding: 5px 8px;
-    min-height: 26px;
+    background-image: none;
+    color: #f4f4f5;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 6px;
+    padding: 5px 10px;
+    min-height: 28px;
+    box-shadow: none;
+    outline-style: none;
 }
 
 dropdown > button:hover,
-dropdown > button.toggle:hover {
+dropdown > button.combo:hover,
+dropdown > button.toggle:hover,
+dropdown > button:focus,
+dropdown > button.combo:focus,
+dropdown > button:focus-visible,
+dropdown > button.combo:focus-visible,
+dropdown > button:focus:hover,
+dropdown > button.combo:focus:hover,
+dropdown > button:checked,
+dropdown > button.combo:checked,
+dropdown > button:active,
+dropdown > button.combo:active,
+dropdown:focus > button,
+dropdown:focus-within > button,
+dropdown.settings-dropdown > button:hover,
+dropdown.settings-dropdown > button.combo:hover,
+dropdown.settings-dropdown > button:focus,
+dropdown.settings-dropdown > button.combo:focus,
+dropdown.settings-dropdown > button:focus-visible,
+dropdown.settings-dropdown > button:checked,
+dropdown.settings-dropdown > button:active,
+.settings-dropdown > button:hover,
+.settings-dropdown > button:focus,
+.settings-dropdown > button:checked {
     background-color: #3f3f46;
+    background-image: none;
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.22);
+    box-shadow: none;
+    outline-style: none;
 }
 
 dropdown > button label,
-dropdown > button.toggle label {
+dropdown > button.combo label,
+dropdown.settings-dropdown label,
+.settings-dropdown > button label {
     color: #f4f4f5;
     font-size: 12px;
+    font-weight: 500;
+}
+
+dropdown > button:hover label,
+dropdown > button:focus label,
+dropdown > button.combo:hover label,
+dropdown > button.combo:focus label,
+.settings-dropdown > button:hover label,
+.settings-dropdown > button:focus label {
+    color: #ffffff;
 }
 
 dropdown > button arrow,
-dropdown > button.toggle arrow {
+dropdown > button.combo arrow,
+dropdown.settings-dropdown arrow,
+.settings-dropdown > button arrow {
     color: #a1a1aa;
-    min-width: 10px;
+}
+
+dropdown > button:hover arrow,
+dropdown > button:focus arrow,
+.settings-dropdown > button:hover arrow,
+.settings-dropdown > button:focus arrow {
+    color: #f4f4f5;
 }
 
 dropdown popover listview,
@@ -475,18 +533,19 @@ dropdown popover listview > row,
 popover.menu listview > row,
 dropdown popover row,
 popover.menu row {
-    padding: 5px 8px;
-    border-radius: 4px;
+    padding: 6px 10px;
+    border-radius: 5px;
     background-color: transparent;
     color: #d4d4d8;
     font-size: 12px;
+    min-height: 24px;
 }
 
 dropdown popover listview > row:hover,
 popover.menu listview > row:hover,
 dropdown popover row:hover,
 popover.menu row:hover {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: #27272a;
     color: #ffffff;
 }
 
@@ -494,7 +553,7 @@ dropdown popover listview > row:selected,
 popover.menu listview > row:selected,
 dropdown popover row:selected,
 popover.menu row:selected {
-    background-color: rgba(255, 255, 255, 0.12);
+    background-color: #3f3f46;
     color: #ffffff;
     font-weight: 600;
 }

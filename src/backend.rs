@@ -34,6 +34,37 @@ pub struct PiRunner {
     generation: u64,
 }
 
+pub fn resolve_pi_binary() -> std::path::PathBuf {
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in path.split(':') {
+            let candidate = std::path::Path::new(dir).join("pi");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/var/home/khoipm".to_string());
+    let candidates = [
+        format!("{}/.bun/bin/pi", home),
+        format!("{}/.local/bin/pi", home),
+        format!("{}/.cargo/bin/pi", home),
+        "/var/home/khoipm/.bun/bin/pi".to_string(),
+        "/home/linuxbrew/.linuxbrew/bin/pi".to_string(),
+        "/usr/local/bin/pi".to_string(),
+        "/usr/bin/pi".to_string(),
+    ];
+
+    for candidate in candidates {
+        let p = std::path::PathBuf::from(&candidate);
+        if p.is_file() {
+            return p;
+        }
+    }
+
+    std::path::PathBuf::from("pi")
+}
+
 impl PiRunner {
     pub fn new() -> Self {
         Self {
@@ -73,7 +104,18 @@ impl PiRunner {
         let session_dir = std::env::temp_dir().join("pi-overlay-sessions");
         let _ = std::fs::create_dir_all(&session_dir);
 
-        let mut cmd = Command::new("pi");
+        let pi_bin = resolve_pi_binary();
+        let mut cmd = Command::new(&pi_bin);
+
+        // Prepend user toolchain directories to PATH for pi and its tool executions
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/var/home/khoipm".to_string());
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let augmented_path = format!(
+            "{}/.bun/bin:{}/.local/bin:{}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
+            home, home, home, current_path
+        );
+        cmd.env("PATH", augmented_path);
+
         cmd.arg("-p")
             .arg("--mode")
             .arg("json")
@@ -250,6 +292,12 @@ mod tests {
         let runner = PiRunner::new();
         assert_eq!(runner.generation(), 1);
         assert!(runner.child.is_none());
+    }
+
+    #[test]
+    fn test_resolve_pi_binary() {
+        let bin = resolve_pi_binary();
+        assert!(bin.exists(), "Resolved pi binary at {:?} should exist", bin);
     }
 
     #[test]
