@@ -31,7 +31,7 @@ pub const AVAILABLE_THEMES: &[(&str, &str, &str)] = &[
 const THEMES: &[(&str, &str, &str)] = AVAILABLE_THEMES;
 
 pub const POPULAR_MODELS: &[(&str, &str)] = &[
-    ("default", "Default (System Preset)"),
+    ("default", "Auto"),
     ("claude-3-7-sonnet", "Claude 3.7 Sonnet"),
     ("claude-3-5-sonnet", "Claude 3.5 Sonnet"),
     ("claude-3-5-haiku", "Claude 3.5 Haiku"),
@@ -44,35 +44,75 @@ pub const POPULAR_MODELS: &[(&str, &str)] = &[
 ];
 
 pub const THINKING_LEVELS: &[(&str, &str)] = &[
-    ("off", "Off (No reasoning)"),
+    ("off", "Off"),
     ("low", "Low"),
-    ("medium", "Medium (Recommended)"),
-    ("high", "High (Deep reasoning)"),
+    ("medium", "Balance"),
+    ("high", "Deep"),
 ];
+
+pub const AGENT_MODES: &[(&str, &str, &str)] = &[
+    ("agent", "Agent", "Autonomous workspace execution"),
+    ("ask", "Ask", "Answers questions without file edits"),
+    ("edit", "Edit", "Direct focused code modifications"),
+    ("plan", "Plan", "Architectural plans and breakdowns"),
+];
+
+pub fn model_display_name(model_id: &str) -> String {
+    for (id, name) in POPULAR_MODELS {
+        if *id == model_id {
+            if *id == "default" {
+                return "Auto".to_string();
+            }
+            if let Some(short) = name.strip_suffix(" Sonnet") {
+                return short.to_string();
+            }
+            return (*name).to_string();
+        }
+    }
+    model_id.to_string()
+}
+
+pub fn thinking_display_name(th_id: &str) -> String {
+    for (id, name) in THINKING_LEVELS {
+        if *id == th_id {
+            return (*name).to_string();
+        }
+    }
+    "Balance".to_string()
+}
+
+pub fn mode_display_name(mode_id: &str) -> String {
+    for (id, name, _) in AGENT_MODES {
+        if *id == mode_id {
+            return (*name).to_string();
+        }
+    }
+    "Agent".to_string()
+}
 
 struct TrackedPrompt {
     index: usize,
+    user_card: gtk4::Box,
 }
 
-type ActiveThoughtState = Option<(
-    gtk4::Expander,
-    gtk4::Label,
-    Rc<RefCell<String>>,
-    std::time::Instant,
-)>;
-
-struct ToolCardEntry {
-    card: gtk4::Box,
+struct StepItemEntry {
     badge: gtk4::Label,
     start_time: std::time::Instant,
+}
+
+struct ProgressDisclosureState {
+    expander: gtk4::Expander,
+    steps_box: gtk4::Box,
+    steps_count: usize,
+    start_time: std::time::Instant,
+    items: HashMap<String, StepItemEntry>,
 }
 
 struct ActiveStreamTarget {
     turn_body: gtk4::Box,
     full_text: Rc<RefCell<String>>,
-    active_thought_expander: Rc<RefCell<ActiveThoughtState>>,
+    progress: Rc<RefCell<Option<ProgressDisclosureState>>>,
     active_markdown: Rc<RefCell<Option<(gtk4::Box, String)>>>,
-    tools: Rc<RefCell<HashMap<String, ToolCardEntry>>>,
     metrics_badge: gtk4::Label,
 }
 
@@ -87,6 +127,7 @@ struct AppState {
     runner: PiRunner,
     prompts: Vec<TrackedPrompt>,
     settings: AppSettings,
+    current_mode: String,
     top_margin: i32,
     bottom_margin: i32,
     is_window_mode: bool,
@@ -99,6 +140,48 @@ struct AppContext {
     state: Rc<RefCell<AppState>>,
     #[allow(dead_code)]
     _hold_guard: gtk4::gio::ApplicationHoldGuard,
+}
+
+fn get_text_view_content(tv: &gtk4::TextView) -> String {
+    let buffer = tv.buffer();
+    let start = buffer.start_iter();
+    let end = buffer.end_iter();
+    buffer.text(&start, &end, false).trim().to_string()
+}
+
+fn set_text_view_content(tv: &gtk4::TextView, text: &str) {
+    tv.buffer().set_text(text);
+}
+
+fn add_context_chip(chips_box: &gtk4::Box, name: &str) {
+    let chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    chip.add_css_class("composer-chip");
+
+    let chip_icon = gtk4::Label::builder()
+        .label("+")
+        .css_classes(["composer-chip-icon"])
+        .build();
+    let chip_text = gtk4::Label::builder()
+        .label(name)
+        .css_classes(["composer-chip-text"])
+        .build();
+    let chip_del = gtk4::Button::builder()
+        .label("✕")
+        .css_classes(["composer-chip-del"])
+        .tooltip_text("Remove context chip")
+        .build();
+
+    chip.append(&chip_icon);
+    chip.append(&chip_text);
+    chip.append(&chip_del);
+
+    let chips_box_clone = chips_box.clone();
+    let chip_clone = chip.clone();
+    chip_del.connect_clicked(move |_| {
+        chips_box_clone.remove(&chip_clone);
+    });
+
+    chips_box.append(&chip);
 }
 
 fn main() -> glib::ExitCode {
@@ -236,14 +319,12 @@ fn load_css() {
 }
 
 fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> AppContext {
-    // Hold reference so daemon does not terminate when overlay window is hidden
     let hold_guard = app.hold();
-
     let initial_settings = AppSettings::load();
 
     let window = gtk4::ApplicationWindow::builder()
         .application(app)
-        .title("Agent Canvas")
+        .title("Chat")
         .default_width(initial_settings.width)
         .build();
 
@@ -271,7 +352,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
 
     let head_btn = gtk4::Button::builder()
         .css_classes(["chat-head-btn"])
-        .tooltip_text("Toggle Agent Canvas (Ctrl+Alt+L)")
+        .tooltip_text("Toggle Chat Sidebar (Ctrl+Alt+L)")
         .build();
 
     let head_inner = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
@@ -316,7 +397,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     left_col.append(&resize_handle_w);
     root_box.append(&left_col);
 
-    // Main Drawer Card Container
+    // Main Drawer Card Container (Sidebar)
     let drawer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     drawer.set_widget_name("drawer-container");
     drawer.add_css_class("drawer-container");
@@ -325,230 +406,94 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     drawer.set_vexpand(true);
     drawer.set_hexpand(false);
 
-    // ── Header Bar ──────────────────────────────────────────────────────────
-    let header_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    header_bar.add_css_class("header-bar");
-    header_bar.set_hexpand(false);
+    // ── 1. Panel Header (Thanh Panel) ───────────────────────────────────────
+    let panel_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    panel_header.add_css_class("panel-header");
+    panel_header.set_hexpand(false);
 
-    // Status Dot
-    let status_dot = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-    status_dot.add_css_class("status-dot");
-    status_dot.set_valign(gtk4::Align::Center);
-    header_bar.append(&status_dot);
-
-    // App Title
-    let title_label = gtk4::Label::builder()
-        .label("Agent Canvas")
-        .css_classes(["app-title"])
+    let panel_title = gtk4::Label::builder()
+        .label("Chat")
+        .css_classes(["panel-title"])
         .halign(gtk4::Align::Start)
         .build();
-    header_bar.append(&title_label);
-
-    // Model Pill Button (opens settings)
-    let model_pill = gtk4::Button::builder()
-        .label(format!("{} ▾", initial_settings.model))
-        .css_classes(["model-pill-btn"])
-        .tooltip_text("Active Model (Click to change)")
-        .build();
-    header_bar.append(&model_pill);
+    panel_header.append(&panel_title);
 
     let header_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     header_spacer.set_hexpand(true);
-    header_bar.append(&header_spacer);
+    panel_header.append(&header_spacer);
 
-    // ── Session Flyout Button & Popover ─────────────────────────────────────
-    let btn_session = gtk4::Button::builder()
-        .label("📋 Session (0)")
-        .css_classes(["header-btn"])
-        .tooltip_text("Session Prompts")
+    // Panel Actions (Right side)
+    let btn_new_chat = gtk4::Button::builder()
+        .label("+")
+        .css_classes(["header-icon-btn"])
+        .tooltip_text("New Chat (Ctrl+N)")
         .build();
+    panel_header.append(&btn_new_chat);
 
-    let prompts_popover = gtk4::Popover::new();
-    prompts_popover.set_parent(&btn_session);
-    prompts_popover.add_css_class("flyout-popover");
-
-    let prompts_pop_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
-    prompts_pop_box.set_width_request(280);
-
-    let prompts_pop_title = gtk4::Label::builder()
-        .label("Session History")
-        .css_classes(["flyout-header-title"])
-        .xalign(0.0)
+    let btn_session_list = gtk4::Button::builder()
+        .label("⌄")
+        .css_classes(["header-icon-btn"])
+        .tooltip_text("Session History")
         .build();
-    prompts_pop_box.append(&prompts_pop_title);
+    panel_header.append(&btn_session_list);
 
-    let prompts_pop_sub = gtk4::Label::builder()
-        .label("Click any prompt to jump to it in chat")
-        .css_classes(["flyout-header-sub"])
-        .xalign(0.0)
+    let btn_more = gtk4::Button::builder()
+        .label("···")
+        .css_classes(["header-icon-btn"])
+        .tooltip_text("More Actions")
         .build();
-    prompts_pop_box.append(&prompts_pop_sub);
+    panel_header.append(&btn_more);
 
-    let prompts_scroll = gtk4::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk4::PolicyType::Never)
-        .vscrollbar_policy(gtk4::PolicyType::Automatic)
-        .max_content_height(280)
-        .propagate_natural_height(true)
+    let btn_layout = gtk4::Button::builder()
+        .label("◫")
+        .css_classes(["header-icon-btn"])
+        .tooltip_text("Toggle Layout / Window Mode")
         .build();
+    panel_header.append(&btn_layout);
 
-    let prompts_list_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-    let prompt_empty_label = gtk4::Label::builder()
-        .label("No prompts in this session yet.")
-        .css_classes(["prompt-snippet-text"])
-        .margin_top(16)
-        .margin_bottom(16)
-        .xalign(0.5)
-        .build();
-    prompts_list_box.append(&prompt_empty_label);
-    prompts_scroll.set_child(Some(&prompts_list_box));
-    prompts_pop_box.append(&prompts_scroll);
-    prompts_popover.set_child(Some(&prompts_pop_box));
-
-    let prompts_pop_toggle = prompts_popover.clone();
-    btn_session.connect_clicked(move |_| {
-        prompts_pop_toggle.popup();
-    });
-    header_bar.append(&btn_session);
-
-    // ── Settings Flyout Button & Popover ────────────────────────────────────
-    let btn_settings = gtk4::Button::builder()
-        .label("⚙ Settings")
-        .css_classes(["header-btn"])
-        .tooltip_text("Preferences")
-        .build();
-
-    let settings_popover = gtk4::Popover::new();
-    settings_popover.set_parent(&btn_settings);
-    settings_popover.add_css_class("flyout-popover");
-
-    let settings_pop_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-    settings_pop_box.set_width_request(260);
-
-    let settings_pop_title = gtk4::Label::builder()
-        .label("Preferences")
-        .css_classes(["flyout-header-title"])
-        .xalign(0.0)
-        .build();
-    settings_pop_box.append(&settings_pop_title);
-
-    // Model Selector
-    let model_lbl = gtk4::Label::builder()
-        .label("MODEL")
-        .css_classes(["flyout-section-title"])
-        .xalign(0.0)
-        .build();
-    settings_pop_box.append(&model_lbl);
-
-    let model_dropdown = gtk4::DropDown::from_strings(
-        &POPULAR_MODELS.iter().map(|(_, n)| *n).collect::<Vec<&str>>(),
-    );
-    model_dropdown.add_css_class("settings-dropdown");
-    let cur_model_idx = POPULAR_MODELS
-        .iter()
-        .position(|(id, _)| *id == initial_settings.model)
-        .unwrap_or(0);
-    model_dropdown.set_selected(cur_model_idx as u32);
-    settings_pop_box.append(&model_dropdown);
-
-    // Thinking / Reasoning Depth
-    let think_lbl = gtk4::Label::builder()
-        .label("REASONING DEPTH")
-        .css_classes(["flyout-section-title"])
-        .xalign(0.0)
-        .build();
-    settings_pop_box.append(&think_lbl);
-
-    let think_dropdown = gtk4::DropDown::from_strings(
-        &THINKING_LEVELS.iter().map(|(_, n)| *n).collect::<Vec<&str>>(),
-    );
-    think_dropdown.add_css_class("settings-dropdown");
-    let cur_think_idx = THINKING_LEVELS
-        .iter()
-        .position(|(id, _)| *id == initial_settings.thinking_level)
-        .unwrap_or(2);
-    think_dropdown.set_selected(cur_think_idx as u32);
-    settings_pop_box.append(&think_dropdown);
-
-    // Theme Selector
-    let theme_lbl = gtk4::Label::builder()
-        .label("APPEARANCE THEME")
-        .css_classes(["flyout-section-title"])
-        .xalign(0.0)
-        .build();
-    settings_pop_box.append(&theme_lbl);
-
-    let theme_dropdown = gtk4::DropDown::from_strings(
-        &THEMES.iter().map(|(_, n, _)| *n).collect::<Vec<&str>>(),
-    );
-    theme_dropdown.add_css_class("settings-dropdown");
-    let cur_theme_idx = THEMES
-        .iter()
-        .position(|(id, _, _)| *id == initial_settings.theme)
-        .unwrap_or(0);
-    theme_dropdown.set_selected(cur_theme_idx as u32);
-    settings_pop_box.append(&theme_dropdown);
-
-    // Window Behavior Toggles
-    let behavior_lbl = gtk4::Label::builder()
-        .label("BEHAVIOR")
-        .css_classes(["flyout-section-title"])
-        .xalign(0.0)
-        .build();
-    settings_pop_box.append(&behavior_lbl);
-
-    let pin_check = gtk4::CheckButton::builder()
-        .label("Pin overlay (Keep open on blur)")
-        .active(!initial_settings.auto_hide_on_blur)
-        .css_classes(["settings-check"])
-        .build();
-    settings_pop_box.append(&pin_check);
-
-    let chathead_check = gtk4::CheckButton::builder()
-        .label("Floating chat head bubble")
-        .active(initial_settings.show_chat_head)
-        .css_classes(["settings-check"])
-        .build();
-    settings_pop_box.append(&chathead_check);
-
-    let ephemeral_check = gtk4::CheckButton::builder()
-        .label("Clear session on hide (Ephemeral)")
-        .active(initial_settings.ephemeral)
-        .css_classes(["settings-check"])
-        .build();
-    settings_pop_box.append(&ephemeral_check);
-
-    settings_popover.set_child(Some(&settings_pop_box));
-    let settings_pop_toggle = settings_popover.clone();
-    btn_settings.connect_clicked(move |_| {
-        settings_pop_toggle.popup();
-    });
-    header_bar.append(&btn_settings);
-
-    // Model pill button connects to settings popover
-    let settings_pop_ref = settings_popover.clone();
-    model_pill.connect_clicked(move |_| {
-        settings_pop_ref.popup();
-    });
-
-    // Clear Button
-    let btn_clear = gtk4::Button::builder()
-        .label("🗑 Clear")
-        .css_classes(["header-btn"])
-        .tooltip_text("Clear conversation (Ctrl+L)")
-        .build();
-    header_bar.append(&btn_clear);
-
-    // Close Button
     let btn_close = gtk4::Button::builder()
         .label("✕")
-        .css_classes(["header-btn", "close"])
-        .tooltip_text("Close overlay (Esc)")
+        .css_classes(["header-icon-btn", "close"])
+        .tooltip_text("Close Overlay (Esc)")
         .build();
-    header_bar.append(&btn_close);
+    panel_header.append(&btn_close);
 
-    drawer.append(&header_bar);
+    drawer.append(&panel_header);
 
-    // ── Chat Messages Scrollable Area ───────────────────────────────────────
+    // ── 2. Session Sub-Header (Thanh Phiên) ──────────────────────────────────
+    let session_subheader = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    session_subheader.add_css_class("session-subheader");
+
+    let btn_back = gtk4::Button::builder()
+        .label("←")
+        .css_classes(["session-back-btn"])
+        .tooltip_text("Previous Turn / Session")
+        .build();
+    session_subheader.append(&btn_back);
+
+    let session_title_label = gtk4::Label::builder()
+        .label("Local  •  Tạo giao diện chat giống copilot")
+        .css_classes(["session-title-label"])
+        .halign(gtk4::Align::Start)
+        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .max_width_chars(36)
+        .build();
+    session_subheader.append(&session_title_label);
+
+    let subheader_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    subheader_spacer.set_hexpand(true);
+    session_subheader.append(&subheader_spacer);
+
+    let btn_side = gtk4::Button::builder()
+        .label("◫")
+        .css_classes(["session-side-btn"])
+        .tooltip_text("Open to the Side")
+        .build();
+    session_subheader.append(&btn_side);
+
+    drawer.append(&session_subheader);
+
+    // ── 3. Chat Messages Scrollable Area (Vùng Hội Thoại) ────────────────────
     let scrolled = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
@@ -577,13 +522,13 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     welcome_box.append(&glyph);
 
     let w_title = gtk4::Label::builder()
-        .label("Agent Canvas")
+        .label("Copilot Chat")
         .css_classes(["welcome-title"])
         .build();
     welcome_box.append(&w_title);
 
     let w_sub = gtk4::Label::builder()
-        .label("Ask questions, inspect files, or execute terminal workflows")
+        .label("Describe what to build, ask questions, or execute workflows")
         .css_classes(["welcome-subtitle"])
         .build();
     welcome_box.append(&w_sub);
@@ -606,36 +551,165 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     welcome_box.append(&pill3);
     messages_box.append(&welcome_box);
     scrolled.set_child(Some(&messages_box));
-    drawer.append(&scrolled);
 
-    // ── Bottom Floating Input Dock ──────────────────────────────────────────
-    let input_dock = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    input_dock.add_css_class("input-dock");
-    input_dock.set_hexpand(false);
+    // Scrolled window overlay with Floating Scroll-to-Bottom button
+    let scrolled_overlay = gtk4::Overlay::new();
+    scrolled_overlay.set_child(Some(&scrolled));
+    scrolled_overlay.set_vexpand(true);
 
-    let entry = gtk4::Entry::builder()
-        .placeholder_text("Ask agent or type / for commands...")
+    let btn_scroll_bottom = gtk4::Button::builder()
+        .label("↓")
+        .css_classes(["btn-scroll-bottom"])
+        .tooltip_text("Scroll to bottom")
+        .halign(gtk4::Align::End)
+        .valign(gtk4::Align::End)
+        .margin_end(16)
+        .margin_bottom(12)
+        .visible(false)
+        .build();
+    scrolled_overlay.add_overlay(&btn_scroll_bottom);
+    drawer.append(&scrolled_overlay);
+
+    // ── 5. Pinned Composer (pinned at bottom) ────────────────────────────────
+    let composer_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    composer_box.add_css_class("composer-container");
+
+    // Context Chips Row
+    let chips_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    chips_row.add_css_class("composer-chips-row");
+    // Default context chip matching user reference screenshot
+    add_context_chip(&chips_row, "spec.md");
+    composer_box.append(&chips_row);
+
+    // Multi-line Text View with Placeholder in Overlay
+    let input_overlay = gtk4::Overlay::new();
+    let text_view = gtk4::TextView::builder()
+        .wrap_mode(gtk4::WrapMode::WordChar)
+        .css_classes(["composer-text-view"])
+        .vexpand(false)
         .hexpand(true)
-        .width_chars(1)
-        .css_classes(["prompt-entry"])
+        .accepts_tab(false)
         .build();
-    input_dock.append(&entry);
 
-    let btn_send = gtk4::Button::builder()
-        .label("↑ Send")
-        .css_classes(["btn-send"])
-        .tooltip_text("Send prompt (Enter)")
+    let input_scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .min_content_height(38)
+        .max_content_height(120)
+        .propagate_natural_height(true)
+        .child(&text_view)
         .build();
-    input_dock.append(&btn_send);
-    drawer.append(&input_dock);
+    input_overlay.set_child(Some(&input_scroll));
 
-    // Footer shortcut hint
-    let shortcut_hint = gtk4::Label::builder()
-        .label("Ctrl+Alt+L: Toggle  •  Enter: Send  •  Esc: Close")
-        .css_classes(["shortcut-footer"])
-        .halign(gtk4::Align::Center)
+    let placeholder_label = gtk4::Label::builder()
+        .label("Describe what to build")
+        .css_classes(["composer-placeholder"])
+        .halign(gtk4::Align::Start)
+        .valign(gtk4::Align::Start)
+        .margin_start(4)
+        .margin_top(2)
+        .can_target(false)
         .build();
-    drawer.append(&shortcut_hint);
+    input_overlay.add_overlay(&placeholder_label);
+
+    {
+        let pl_ref = placeholder_label.clone();
+        text_view.buffer().connect_changed(move |buf| {
+            let empty = buf.char_count() == 0;
+            pl_ref.set_visible(empty);
+        });
+    }
+
+    composer_box.append(&input_overlay);
+
+    // Composer Bottom Toolbar (integrated compact controls)
+    let composer_toolbar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    composer_toolbar.add_css_class("composer-toolbar");
+
+    let btn_attach = gtk4::Button::builder()
+        .label("+")
+        .css_classes(["composer-pill-btn"])
+        .tooltip_text("Attach context chip")
+        .build();
+    composer_toolbar.append(&btn_attach);
+
+    let btn_mode_pill = gtk4::Button::builder()
+        .label("@ Agent")
+        .css_classes(["composer-pill-btn"])
+        .tooltip_text("Agent Mode")
+        .build();
+    composer_toolbar.append(&btn_mode_pill);
+
+    let initial_model_name = model_display_name(&initial_settings.model);
+    let btn_model_pill = gtk4::Button::builder()
+        .label(&initial_model_name)
+        .css_classes(["composer-pill-btn"])
+        .tooltip_text("Active Model")
+        .build();
+    composer_toolbar.append(&btn_model_pill);
+
+    let initial_think_name = thinking_display_name(&initial_settings.thinking_level);
+    let btn_think_pill = gtk4::Button::builder()
+        .label(&initial_think_name)
+        .css_classes(["composer-pill-btn"])
+        .tooltip_text("Reasoning Depth")
+        .build();
+    composer_toolbar.append(&btn_think_pill);
+
+    let btn_swap = gtk4::Button::builder()
+        .label("⇄")
+        .css_classes(["composer-icon-btn"])
+        .tooltip_text("Toggle Agent / Ask Mode")
+        .build();
+    composer_toolbar.append(&btn_swap);
+
+    let tb_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    tb_spacer.set_hexpand(true);
+    composer_toolbar.append(&tb_spacer);
+
+    let btn_voice = gtk4::Button::builder()
+        .label("🎙")
+        .css_classes(["composer-icon-btn"])
+        .tooltip_text("Voice Input")
+        .build();
+    composer_toolbar.append(&btn_voice);
+
+    let btn_send_stop = gtk4::Button::builder()
+        .label("↑")
+        .css_classes(["composer-send-btn"])
+        .tooltip_text("Send (Enter)")
+        .build();
+    composer_toolbar.append(&btn_send_stop);
+
+    composer_box.append(&composer_toolbar);
+    drawer.append(&composer_box);
+
+    // ── 6. Status Footer (Chân Trạng Thái) ───────────────────────────────────
+    let status_footer = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    status_footer.add_css_class("status-footer");
+
+    let status_server_icon = gtk4::Label::builder()
+        .label("🖧")
+        .css_classes(["status-footer-icon"])
+        .build();
+    status_footer.append(&status_server_icon);
+
+    let status_env_label = gtk4::Label::builder()
+        .label("Local  •  Autopilot (Preview)")
+        .css_classes(["status-footer-label"])
+        .build();
+    status_footer.append(&status_env_label);
+
+    let sf_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    sf_spacer.set_hexpand(true);
+    status_footer.append(&sf_spacer);
+
+    let status_dot = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    status_dot.add_css_class("status-footer-dot");
+    status_dot.set_valign(gtk4::Align::Center);
+    status_footer.append(&status_dot);
+
+    drawer.append(&status_footer);
 
     root_box.append(&drawer);
     window.set_child(Some(&root_box));
@@ -645,72 +719,371 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         runner: PiRunner::new(),
         prompts: Vec::new(),
         settings: initial_settings.clone(),
+        current_mode: "agent".to_string(),
         top_margin: initial_settings.margin_top,
         bottom_margin: initial_settings.margin_top,
         is_window_mode,
     }));
 
-    // Connect Welcome Pill Buttons to populate prompt
+    let is_streaming = Rc::new(Cell::new(false));
+
+    // ── Attach Context Popover ──────────────────────────────────────────────
+    let popover_attach = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_attach.set_parent(&btn_attach);
+
+    let attach_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    attach_box.set_width_request(190);
+
+    let attach_title = gtk4::Label::builder()
+        .label("ATTACH CONTEXT")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    attach_box.append(&attach_title);
+
+    let sample_files = ["spec.md", "chatViewPane.ts", "chatInputPart.ts", "style.css", "Cargo.toml"];
+    for file in sample_files {
+        let item_btn = gtk4::Button::builder()
+            .label(file)
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+        let pop_close = popover_attach.clone();
+        let chips_ref = chips_row.clone();
+        let fname = file.to_string();
+        item_btn.connect_clicked(move |_| {
+            pop_close.popdown();
+            add_context_chip(&chips_ref, &fname);
+        });
+        attach_box.append(&item_btn);
+    }
+    popover_attach.set_child(Some(&attach_box));
+
     {
-        let entry_ref = entry.clone();
-        pill1.connect_clicked(move |_| {
-            entry_ref.set_text("Please explain the architecture of this workspace.");
-            entry_ref.grab_focus();
-        });
-        let entry_ref2 = entry.clone();
-        pill2.connect_clicked(move |_| {
-            entry_ref2.set_text("Run the test suite and report any errors.");
-            entry_ref2.grab_focus();
-        });
-        let entry_ref3 = entry.clone();
-        pill3.connect_clicked(move |_| {
-            entry_ref3.set_text("Review recent git commits and pending changes.");
-            entry_ref3.grab_focus();
+        let pop_ref = popover_attach.clone();
+        btn_attach.connect_clicked(move |_| {
+            pop_ref.popup();
         });
     }
 
-    // Connect Settings Callbacks
+    // ── Mode Popover ────────────────────────────────────────────────────────
+    let popover_mode = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_mode.set_parent(&btn_mode_pill);
+
+    let mode_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    mode_box.set_width_request(220);
+
+    let mode_title = gtk4::Label::builder()
+        .label("SELECT AGENT MODE")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    mode_box.append(&mode_title);
+
+    for (m_id, m_name, m_desc) in AGENT_MODES {
+        let m_btn = gtk4::Button::builder()
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let inner_m = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
+        let lbl_name = gtk4::Label::builder()
+            .label(format!("@ {}", m_name))
+            .xalign(0.0)
+            .build();
+        let lbl_desc = gtk4::Label::builder()
+            .label(*m_desc)
+            .css_classes(["clean-popover-item-desc"])
+            .xalign(0.0)
+            .build();
+        inner_m.append(&lbl_name);
+        inner_m.append(&lbl_desc);
+        m_btn.set_child(Some(&inner_m));
+
+        let pop_m_close = popover_mode.clone();
+        let btn_mode_lbl = btn_mode_pill.clone();
+        let state_m = state.clone();
+        let mode_key = m_id.to_string();
+        let mode_label_str = format!("@ {}", m_name);
+
+        m_btn.connect_clicked(move |_| {
+            pop_m_close.popdown();
+            btn_mode_lbl.set_label(&mode_label_str);
+            state_m.borrow_mut().current_mode = mode_key.clone();
+        });
+        mode_box.append(&m_btn);
+    }
+    popover_mode.set_child(Some(&mode_box));
+
     {
-        let state_model = state.clone();
-        let model_pill_clone = model_pill.clone();
-        model_dropdown.connect_selected_notify(move |dd| {
-            let idx = dd.selected() as usize;
-            if idx < POPULAR_MODELS.len() {
-                let model_id = POPULAR_MODELS[idx].0.to_string();
-                model_pill_clone.set_label(&format!("{} ▾", model_id));
-                let mut st = state_model.borrow_mut();
-                st.settings.model = model_id;
-                let _ = st.settings.save();
+        let pop_ref = popover_mode.clone();
+        btn_mode_pill.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
+
+    // Toggle swap button between Agent and Ask
+    {
+        let btn_mode_lbl = btn_mode_pill.clone();
+        let state_m = state.clone();
+        btn_swap.connect_clicked(move |_| {
+            let mut st = state_m.borrow_mut();
+            if st.current_mode == "agent" {
+                st.current_mode = "ask".to_string();
+                btn_mode_lbl.set_label("@ Ask");
+            } else {
+                st.current_mode = "agent".to_string();
+                btn_mode_lbl.set_label("@ Agent");
             }
         });
+    }
 
-        let state_think = state.clone();
-        think_dropdown.connect_selected_notify(move |dd| {
-            let idx = dd.selected() as usize;
-            if idx < THINKING_LEVELS.len() {
-                let th_id = THINKING_LEVELS[idx].0.to_string();
-                let mut st = state_think.borrow_mut();
-                st.settings.thinking_level = th_id;
-                let _ = st.settings.save();
-            }
+    // ── Model Popover ───────────────────────────────────────────────────────
+    let popover_model = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_model.set_parent(&btn_model_pill);
+
+    let model_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    model_box.set_width_request(240);
+
+    let model_title = gtk4::Label::builder()
+        .label("SELECT MODEL")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    model_box.append(&model_title);
+
+    for (m_id, m_name) in POPULAR_MODELS {
+        let m_btn = gtk4::Button::builder()
+            .label(*m_name)
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let pop_mdl_close = popover_model.clone();
+        let btn_mdl_lbl = btn_model_pill.clone();
+        let state_mdl = state.clone();
+        let model_key = m_id.to_string();
+        let short_name = model_display_name(m_id);
+
+        m_btn.connect_clicked(move |_| {
+            pop_mdl_close.popdown();
+            btn_mdl_lbl.set_label(&short_name);
+            let mut st = state_mdl.borrow_mut();
+            st.settings.model = model_key.clone();
+            let _ = st.settings.save();
         });
+        model_box.append(&m_btn);
+    }
+    popover_model.set_child(Some(&model_box));
 
-        let state_theme = state.clone();
+    {
+        let pop_ref = popover_model.clone();
+        btn_model_pill.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
+
+    // ── Thinking Depth Popover ──────────────────────────────────────────────
+    let popover_think = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_think.set_parent(&btn_think_pill);
+
+    let think_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    think_box.set_width_request(180);
+
+    let think_title = gtk4::Label::builder()
+        .label("REASONING DEPTH")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    think_box.append(&think_title);
+
+    for (th_id, th_name) in THINKING_LEVELS {
+        let th_btn = gtk4::Button::builder()
+            .label(*th_name)
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let pop_th_close = popover_think.clone();
+        let btn_th_lbl = btn_think_pill.clone();
+        let state_th = state.clone();
+        let think_key = th_id.to_string();
+        let label_name = th_name.to_string();
+
+        th_btn.connect_clicked(move |_| {
+            pop_th_close.popdown();
+            btn_th_lbl.set_label(&label_name);
+            let mut st = state_th.borrow_mut();
+            st.settings.thinking_level = think_key.clone();
+            let _ = st.settings.save();
+        });
+        think_box.append(&th_btn);
+    }
+    popover_think.set_child(Some(&think_box));
+
+    {
+        let pop_ref = popover_think.clone();
+        btn_think_pill.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
+
+    // ── Session History Popover (⌄) ─────────────────────────────────────────
+    let popover_session = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_session.set_parent(&btn_session_list);
+
+    let session_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    session_box.set_width_request(280);
+
+    let session_pop_title = gtk4::Label::builder()
+        .label("SESSION HISTORY")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    session_box.append(&session_pop_title);
+
+    let prompts_scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .max_content_height(260)
+        .propagate_natural_height(true)
+        .build();
+
+    let prompts_list_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    let prompt_empty_label = gtk4::Label::builder()
+        .label("No prompts in this session yet.")
+        .css_classes(["prompt-snippet-text"])
+        .margin_top(12)
+        .margin_bottom(12)
+        .xalign(0.5)
+        .build();
+    prompts_list_box.append(&prompt_empty_label);
+    prompts_scroll.set_child(Some(&prompts_list_box));
+    session_box.append(&prompts_scroll);
+    popover_session.set_child(Some(&session_box));
+
+    {
+        let pop_ref = popover_session.clone();
+        btn_session_list.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
+
+    // ── More Actions Menu Popover (···) ──────────────────────────────────────
+    let popover_more = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_more.set_parent(&btn_more);
+
+    let more_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    more_box.set_width_request(220);
+
+    let more_title = gtk4::Label::builder()
+        .label("MORE ACTIONS")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    more_box.append(&more_title);
+
+    // Appearance Theme Section
+    let theme_section_title = gtk4::Label::builder()
+        .label("THEME")
+        .css_classes(["clean-popover-item-desc"])
+        .margin_start(8)
+        .margin_top(4)
+        .xalign(0.0)
+        .build();
+    more_box.append(&theme_section_title);
+
+    for (t_id, t_name, _) in THEMES {
+        let t_btn = gtk4::Button::builder()
+            .label(*t_name)
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
         let drawer_theme = drawer.clone();
-        theme_dropdown.connect_selected_notify(move |dd| {
-            let idx = dd.selected() as usize;
-            if idx < THEMES.len() {
-                let theme_id = THEMES[idx].0;
-                for (other, _, _) in THEMES {
-                    drawer_theme.remove_css_class(other);
-                }
-                drawer_theme.add_css_class(theme_id);
-                let mut st = state_theme.borrow_mut();
-                st.settings.theme = theme_id.to_string();
-                let _ = st.settings.save();
-            }
-        });
+        let state_theme = state.clone();
+        let pop_more_close = popover_more.clone();
+        let tid = *t_id;
 
+        t_btn.connect_clicked(move |_| {
+            pop_more_close.popdown();
+            for (other, _, _) in THEMES {
+                drawer_theme.remove_css_class(other);
+            }
+            drawer_theme.add_css_class(tid);
+            let mut st = state_theme.borrow_mut();
+            st.settings.theme = tid.to_string();
+            let _ = st.settings.save();
+        });
+        more_box.append(&t_btn);
+    }
+
+    // Clear Chat Option
+    let btn_clear_chat = gtk4::Button::builder()
+        .label("🗑 Clear Chat History")
+        .css_classes(["clean-popover-item"])
+        .margin_top(6)
+        .halign(gtk4::Align::Fill)
+        .build();
+    more_box.append(&btn_clear_chat);
+
+    // Window Toggles
+    let pin_check = gtk4::CheckButton::builder()
+        .label("Pin sidebar on blur")
+        .active(!initial_settings.auto_hide_on_blur)
+        .css_classes(["clean-popover-check"])
+        .build();
+    more_box.append(&pin_check);
+
+    let chathead_check = gtk4::CheckButton::builder()
+        .label("Floating chat head bubble")
+        .active(initial_settings.show_chat_head)
+        .css_classes(["clean-popover-check"])
+        .build();
+    more_box.append(&chathead_check);
+
+    let ephemeral_check = gtk4::CheckButton::builder()
+        .label("Ephemeral (Clear on hide)")
+        .active(initial_settings.ephemeral)
+        .css_classes(["clean-popover-check"])
+        .build();
+    more_box.append(&ephemeral_check);
+
+    popover_more.set_child(Some(&more_box));
+
+    {
+        let pop_ref = popover_more.clone();
+        btn_more.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
+
+    // Connect Settings Checkbox Callbacks
+    {
         let state_pin = state.clone();
         pin_check.connect_toggled(move |cb| {
             let mut st = state_pin.borrow_mut();
@@ -762,6 +1135,20 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         })
     };
 
+    // Scroll button visibility based on vertical adjustment
+    {
+        let btn_scroll_ref = btn_scroll_bottom.clone();
+        scrolled.vadjustment().connect_value_changed(move |adj| {
+            let at_bottom = adj.value() >= adj.upper() - adj.page_size() - 40.0;
+            btn_scroll_ref.set_visible(!at_bottom);
+        });
+
+        let scroll_fn = scroll_to_bottom.clone();
+        btn_scroll_bottom.connect_clicked(move |_| {
+            scroll_fn();
+        });
+    }
+
     // Overlay Show/Hide logic
     let hide_overlay_fn = {
         let win = window.clone();
@@ -784,7 +1171,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     let expand_overlay_fn = {
         let win = window.clone();
         let state = state.clone();
-        let entry = entry.clone();
+        let tv = text_view.clone();
         Rc::new(move || {
             let (top, bot, right, is_win) = {
                 let st = state.borrow();
@@ -797,7 +1184,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 win.present();
             }
             state.borrow_mut().mode = OverlayMode::Visible;
-            entry.grab_focus();
+            tv.grab_focus();
         })
     };
 
@@ -849,15 +1236,21 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let welcome_box = welcome_box.clone();
         let prompts_list_box = prompts_list_box.clone();
         let prompt_empty_label = prompt_empty_label.clone();
-        let btn_session_clear = btn_session.clone();
         let state_clear = state.clone();
         let active_stream_clear = active_stream.clone();
         let status_dot_clear = status_dot.clone();
         let head_dot_clear = head_dot.clone();
+        let is_streaming_clear = is_streaming.clone();
+        let btn_send_clear = btn_send_stop.clone();
+        let session_title_clear = session_title_label.clone();
 
         Rc::new(move || {
             state_clear.borrow_mut().runner.abort();
             *active_stream_clear.borrow_mut() = None;
+            is_streaming_clear.set(false);
+            btn_send_clear.set_label("↑");
+            btn_send_clear.remove_css_class("stop");
+            btn_send_clear.set_tooltip_text(Some("Send (Enter)"));
             status_dot_clear.remove_css_class("working");
             status_dot_clear.remove_css_class("error");
             head_dot_clear.remove_css_class("working");
@@ -873,7 +1266,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             }
             prompt_empty_label.set_visible(true);
             prompts_list_box.append(&prompt_empty_label);
-            btn_session_clear.set_label("📋 Session (0)");
+            session_title_clear.set_label("Local  •  New Session");
             state_clear.borrow_mut().prompts.clear();
         })
     };
@@ -884,10 +1277,9 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         .has_arrow(true)
         .css_classes(["confirm-popover"])
         .build();
-    confirm_popover.set_parent(&btn_clear);
+    confirm_popover.set_parent(&btn_clear_chat);
 
     let confirm_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
-
     let confirm_title = gtk4::Label::builder()
         .label("Clear Conversation?")
         .css_classes(["confirm-dialog-title"])
@@ -934,66 +1326,80 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     {
         let pop_ref = confirm_popover.clone();
         let do_clear = execute_clear.clone();
+        let pop_more_ref = popover_more.clone();
         btn_confirm.connect_clicked(move |_| {
             pop_ref.popdown();
+            pop_more_ref.popdown();
             do_clear();
         });
     }
 
-    // Clear Button shows confirmation popover
+    // Clear Button in more menu shows confirmation popover
     {
         let pop_ref = confirm_popover.clone();
         let state_check = state.clone();
-        btn_clear.connect_clicked(move |_| {
+        btn_clear_chat.connect_clicked(move |_| {
             if !state_check.borrow().prompts.is_empty() {
                 pop_ref.popup();
             }
         });
     }
 
-    // Keyboard Shortcuts (Esc to close, Ctrl+L to confirm clear)
+    // New Chat Button (+) in panel header
     {
-        let key_controller = gtk4::EventControllerKey::new();
-        let hide_fn = hide_overlay_fn.clone();
-        let pop_ref = confirm_popover.clone();
-        let state_check = state.clone();
-
-        key_controller.connect_key_pressed(move |_, key, _, modifier| {
-            if key == gdk::Key::Escape {
-                hide_fn();
-                return glib::Propagation::Stop;
-            }
-            if modifier.contains(gdk::ModifierType::CONTROL_MASK) && key == gdk::Key::l {
-                if !state_check.borrow().prompts.is_empty() {
-                    pop_ref.popup();
-                }
-                return glib::Propagation::Stop;
-            }
-            glib::Propagation::Proceed
+        let do_clear = execute_clear.clone();
+        let tv_ref = text_view.clone();
+        btn_new_chat.connect_clicked(move |_| {
+            do_clear();
+            tv_ref.grab_focus();
         });
-        window.add_controller(key_controller);
     }
 
-    // Auto-hide on blur (focus loss) if enabled
+    // Layout Button (◫) in panel header and subheader
     {
-        let focus_controller = gtk4::EventControllerFocus::new();
-        let hide_fn = hide_overlay_fn.clone();
-        let state_focus = state.clone();
-        let had_focus = Rc::new(Cell::new(false));
-
-        focus_controller.connect_contains_focus_notify(move |controller| {
-            let has_focus = controller.contains_focus();
-            let prev = had_focus.get();
-            had_focus.set(has_focus);
-
-            if prev && !has_focus {
-                let auto_hide = state_focus.borrow().settings.auto_hide_on_blur;
-                if auto_hide {
-                    hide_fn();
-                }
+        let win = window.clone();
+        let state_layout = state.clone();
+        let on_toggle_layout = move || {
+            let is_win = {
+                let mut st = state_layout.borrow_mut();
+                st.is_window_mode = !st.is_window_mode;
+                st.is_window_mode
+            };
+            if is_win {
+                win.set_decorated(true);
+            } else {
+                win.set_decorated(false);
             }
+        };
+
+        let fn_clone1 = on_toggle_layout.clone();
+        btn_layout.connect_clicked(move |_| {
+            fn_clone1();
         });
-        window.add_controller(focus_controller);
+
+        let fn_clone2 = on_toggle_layout;
+        btn_side.connect_clicked(move |_| {
+            fn_clone2();
+        });
+    }
+
+    // Connect Welcome Pill Buttons to populate prompt
+    {
+        let tv = text_view.clone();
+        pill1.connect_clicked(move |_| {
+            set_text_view_content(&tv, "Please explain the architecture of this workspace.");
+            tv.grab_focus();
+        });
+        let tv2 = text_view.clone();
+        pill2.connect_clicked(move |_| {
+            set_text_view_content(&tv2, "Run the test suite and report any errors.");
+            tv2.grab_focus();
+        });
+        let tv3 = text_view.clone();
+        pill3.connect_clicked(move |_| {
+            set_text_view_content(&tv3, "Review recent git commits and pending changes.");
+            tv3.grab_focus();
+        });
     }
 
     // Stream consumer loop
@@ -1003,6 +1409,8 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let head_dot_clone = head_dot.clone();
         let state_clone = state.clone();
         let scroll_fn = scroll_to_bottom.clone();
+        let btn_send_ref = btn_send_stop.clone();
+        let is_streaming_ref = is_streaming.clone();
 
         glib::spawn_future_local(async move {
             while let Some((gen, event)) = stream_rx.recv().await {
@@ -1014,250 +1422,200 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 match event {
                     StreamEvent::ThinkingDelta(delta) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            let mut cur_thought = target.active_thought_expander.borrow_mut();
-                            if cur_thought.is_none() {
-                                let item_expander = gtk4::Expander::builder()
+                            let mut p_opt = target.progress.borrow_mut();
+                            if p_opt.is_none() {
+                                let expander = gtk4::Expander::builder()
                                     .label("Thinking... ▾")
-                                    .css_classes(["thinking-disclosure"])
+                                    .css_classes(["progress-steps-disclosure"])
                                     .expanded(true)
                                     .build();
-                                let inner_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-                                inner_box.add_css_class("thinking-content-box");
+                                let steps_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+                                steps_box.add_css_class("steps-list-box");
+                                expander.set_child(Some(&steps_box));
+                                target.turn_body.append(&expander);
 
-                                let item_label = gtk4::Label::builder()
-                                    .selectable(true)
-                                    .wrap(true)
-                                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                                    .width_chars(1)
-                                    .max_width_chars(50)
-                                    .xalign(0.0)
-                                    .css_classes(["thinking-text"])
-                                    .build();
-                                inner_box.append(&item_label);
-                                item_expander.set_child(Some(&inner_box));
-                                target.turn_body.append(&item_expander);
-                                *cur_thought = Some((
-                                    item_expander,
-                                    item_label,
-                                    Rc::new(RefCell::new(String::new())),
-                                    std::time::Instant::now(),
-                                ));
+                                *p_opt = Some(ProgressDisclosureState {
+                                    expander,
+                                    steps_box,
+                                    steps_count: 0,
+                                    start_time: std::time::Instant::now(),
+                                    items: HashMap::new(),
+                                });
                             }
-
-                            if let Some((ref exp, ref lbl, ref txt, thought_start)) = *cur_thought {
-                                let mut t = txt.borrow_mut();
-                                t.push_str(&delta);
-                                lbl.set_text(&t);
-                                let elapsed = thought_start.elapsed().as_secs();
-                                exp.set_label(Some(&format!("Thinking... ({}s) ▾", elapsed.max(1))));
+                            if let Some(ref mut p) = *p_opt {
+                                let elapsed = p.start_time.elapsed().as_secs();
+                                p.expander.set_label(Some(&format!("Thinking... ({}s) ▾", elapsed.max(1))));
                             }
+                            target.full_text.borrow_mut().push_str(&delta);
                         }
                         scroll_fn();
                     }
                     StreamEvent::ToolStart { id, name, args } => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            if let Some((ref exp, _, _, thought_start)) =
-                                *target.active_thought_expander.borrow()
-                            {
-                                let elapsed = thought_start.elapsed().as_secs();
-                                exp.set_label(Some(&format!("Thought for {}s ▾", elapsed.max(1))));
-                                exp.set_expanded(false);
-                            }
-                            *target.active_thought_expander.borrow_mut() = None;
-                            *target.active_markdown.borrow_mut() = None;
-
-                            let tool_card = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-                            tool_card.add_css_class("tool-call-card");
-                            tool_card.set_hexpand(false);
-                            tool_card.set_halign(gtk4::Align::Fill);
-
-                            let card_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-                            card_hdr.set_hexpand(false);
-                            let action_label = format::format_tool_call_label(&name, &args);
-                            let name_lbl = gtk4::Label::builder()
-                                .label(format!("⚙ {}", action_label))
-                                .css_classes(["tool-name-label"])
-                                .halign(gtk4::Align::Start)
-                                .ellipsize(gtk4::pango::EllipsizeMode::End)
-                                .max_width_chars(32)
-                                .hexpand(false)
-                                .build();
-                            card_hdr.append(&name_lbl);
-
-                            let hdr_sp = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-                            hdr_sp.set_hexpand(true);
-                            card_hdr.append(&hdr_sp);
-
-                            let badge = gtk4::Label::builder()
-                                .label("RUNNING")
-                                .css_classes(["tool-badge-running"])
-                                .build();
-                            card_hdr.append(&badge);
-                            tool_card.append(&card_hdr);
-
-                            let trimmed_args = args.trim();
-                            if !trimmed_args.is_empty() && trimmed_args != "{}" {
-                                let args_lbl = gtk4::Label::builder()
-                                    .label(trimmed_args)
-                                    .selectable(true)
-                                    .wrap(true)
-                                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                                    .width_chars(1)
-                                    .max_width_chars(48)
-                                    .xalign(0.0)
-                                    .css_classes(["tool-args-box"])
+                            let mut p_opt = target.progress.borrow_mut();
+                            if p_opt.is_none() {
+                                let expander = gtk4::Expander::builder()
+                                    .label("Running steps... ▾")
+                                    .css_classes(["progress-steps-disclosure"])
+                                    .expanded(true)
                                     .build();
-                                tool_card.append(&args_lbl);
+                                let steps_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+                                steps_box.add_css_class("steps-list-box");
+                                expander.set_child(Some(&steps_box));
+                                target.turn_body.append(&expander);
+
+                                *p_opt = Some(ProgressDisclosureState {
+                                    expander,
+                                    steps_box,
+                                    steps_count: 0,
+                                    start_time: std::time::Instant::now(),
+                                    items: HashMap::new(),
+                                });
                             }
 
-                            target.turn_body.append(&tool_card);
-                            target.tools.borrow_mut().insert(
-                                id,
-                                ToolCardEntry {
-                                    card: tool_card,
-                                    badge,
-                                    start_time: std::time::Instant::now(),
-                                },
-                            );
+                            if let Some(ref mut p) = *p_opt {
+                                p.steps_count += 1;
+                                let elapsed = p.start_time.elapsed().as_secs();
+                                p.expander.set_label(Some(&format!(
+                                    "Running step {} ({}s) ▾",
+                                    p.steps_count,
+                                    format::format_duration_sec(elapsed)
+                                )));
+
+                                let item_card = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                                item_card.add_css_class("step-item-card");
+
+                                let icon_str = match name.as_str() {
+                                    "bash" | "powershell" => "⚙",
+                                    "read" => "📄",
+                                    "edit" | "write" => "✏",
+                                    _ => "⚡",
+                                };
+                                let icon_lbl = gtk4::Label::builder()
+                                    .label(icon_str)
+                                    .css_classes(["step-item-icon"])
+                                    .build();
+                                item_card.append(&icon_lbl);
+
+                                let action_lbl = format::format_tool_call_label(&name, &args);
+                                let name_lbl = gtk4::Label::builder()
+                                    .label(&action_lbl)
+                                    .css_classes(["step-item-label"])
+                                    .ellipsize(gtk4::pango::EllipsizeMode::End)
+                                    .max_width_chars(36)
+                                    .hexpand(true)
+                                    .halign(gtk4::Align::Start)
+                                    .build();
+                                item_card.append(&name_lbl);
+
+                                let badge = gtk4::Label::builder()
+                                    .label("RUNNING")
+                                    .css_classes(["step-item-status", "running"])
+                                    .build();
+                                item_card.append(&badge);
+
+                                p.steps_box.append(&item_card);
+                                p.items.insert(
+                                    id,
+                                    StepItemEntry {
+                                        badge,
+                                        start_time: std::time::Instant::now(),
+                                    },
+                                );
+                            }
                         }
                         scroll_fn();
                     }
                     StreamEvent::ToolEnd {
                         id,
                         name: _,
-                        result,
+                        result: _,
                         is_error,
                         duration_ms,
                     } => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            let mut tools_map = target.tools.borrow_mut();
-                            if let Some(entry) = tools_map.get_mut(&id) {
-                                let dur_s = if duration_ms > 0 {
-                                    duration_ms / 1000
-                                } else {
-                                    entry.start_time.elapsed().as_secs()
-                                };
-                                entry.badge.remove_css_class("tool-badge-running");
-                                if is_error {
-                                    entry.badge.set_text(&format!(
-                                        "ERROR ({})",
-                                        format::format_duration_sec(dur_s)
-                                    ));
-                                    entry.badge.add_css_class("tool-badge-error");
-                                } else {
-                                    entry.badge.set_text(&format!(
-                                        "DONE ({})",
-                                        format::format_duration_sec(dur_s)
-                                    ));
-                                    entry.badge.add_css_class("tool-badge-done");
+                            let mut p_opt = target.progress.borrow_mut();
+                            if let Some(ref mut p) = *p_opt {
+                                if let Some(item) = p.items.get_mut(&id) {
+                                    let dur_s = if duration_ms > 0 {
+                                        duration_ms / 1000
+                                    } else {
+                                        item.start_time.elapsed().as_secs()
+                                    };
+                                    item.badge.remove_css_class("running");
+                                    if is_error {
+                                        item.badge.add_css_class("error");
+                                        item.badge.set_text(&format!(
+                                            "ERROR ({})",
+                                            format::format_duration_sec(dur_s)
+                                        ));
+                                    } else {
+                                        item.badge.set_text(&format!(
+                                            "DONE ({})",
+                                            format::format_duration_sec(dur_s)
+                                        ));
+                                    }
                                 }
-
-                                let trimmed_res = result.trim();
-                                if !trimmed_res.is_empty() {
-                                    let output_expander = gtk4::Expander::builder()
-                                        .label("Output ▾")
-                                        .css_classes(["tool-output-expander"])
-                                        .expanded(false)
-                                        .build();
-
-                                    let out_scroll = gtk4::ScrolledWindow::builder()
-                                        .hscrollbar_policy(gtk4::PolicyType::Automatic)
-                                        .vscrollbar_policy(gtk4::PolicyType::Automatic)
-                                        .max_content_height(200)
-                                        .propagate_natural_height(true)
-                                        .build();
-
-                                    let out_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-                                    out_box.add_css_class("tool-output-box");
-                                    let out_lbl = gtk4::Label::builder()
-                                        .label(trimmed_res)
-                                        .selectable(true)
-                                        .wrap(true)
-                                        .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                                        .width_chars(1)
-                                        .max_width_chars(48)
-                                        .xalign(0.0)
-                                        .build();
-                                    out_box.append(&out_lbl);
-                                    out_scroll.set_child(Some(&out_box));
-                                    output_expander.set_child(Some(&out_scroll));
-                                    entry.card.append(&output_expander);
-                                }
+                                let total_elapsed = p.start_time.elapsed().as_secs();
+                                p.expander.set_label(Some(&format!(
+                                    "Completed {} steps in {} ▾",
+                                    p.steps_count,
+                                    format::format_duration_sec(total_elapsed)
+                                )));
                             }
                         }
                         scroll_fn();
                     }
                     StreamEvent::ToolCall { name, args } => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            if let Some((ref exp, _, _, thought_start)) =
-                                *target.active_thought_expander.borrow()
-                            {
-                                let elapsed = thought_start.elapsed().as_secs();
-                                exp.set_label(Some(&format!("Thought for {}s ▾", elapsed.max(1))));
-                                exp.set_expanded(false);
-                            }
-                            *target.active_thought_expander.borrow_mut() = None;
-                            *target.active_markdown.borrow_mut() = None;
-
-                            let tool_card = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-                            tool_card.add_css_class("tool-call-card");
-                            tool_card.set_hexpand(false);
-                            tool_card.set_halign(gtk4::Align::Fill);
-
-                            let card_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-                            card_hdr.set_hexpand(false);
-                            let action_label = format::format_tool_call_label(&name, &args);
-                            let name_lbl = gtk4::Label::builder()
-                                .label(format!("⚙ {}", action_label))
-                                .css_classes(["tool-name-label"])
-                                .halign(gtk4::Align::Start)
-                                .ellipsize(gtk4::pango::EllipsizeMode::End)
-                                .max_width_chars(32)
-                                .hexpand(false)
-                                .build();
-                            card_hdr.append(&name_lbl);
-
-                            let hdr_sp = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-                            hdr_sp.set_hexpand(true);
-                            card_hdr.append(&hdr_sp);
-
-                            let badge = gtk4::Label::builder()
-                                .label("DONE")
-                                .css_classes(["tool-badge-done"])
-                                .build();
-                            card_hdr.append(&badge);
-                            tool_card.append(&card_hdr);
-
-                            let trimmed_args = args.trim();
-                            if !trimmed_args.is_empty() && trimmed_args != "{}" {
-                                let args_lbl = gtk4::Label::builder()
-                                    .label(trimmed_args)
-                                    .selectable(true)
-                                    .wrap(true)
-                                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                                    .width_chars(1)
-                                    .max_width_chars(48)
-                                    .xalign(0.0)
-                                    .css_classes(["tool-args-box"])
+                            let mut p_opt = target.progress.borrow_mut();
+                            if p_opt.is_none() {
+                                let expander = gtk4::Expander::builder()
+                                    .label("Steps ▾")
+                                    .css_classes(["progress-steps-disclosure"])
+                                    .expanded(true)
                                     .build();
-                                tool_card.append(&args_lbl);
-                            }
+                                let steps_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+                                steps_box.add_css_class("steps-list-box");
+                                expander.set_child(Some(&steps_box));
+                                target.turn_body.append(&expander);
 
-                            target.turn_body.append(&tool_card);
+                                *p_opt = Some(ProgressDisclosureState {
+                                    expander,
+                                    steps_box,
+                                    steps_count: 0,
+                                    start_time: std::time::Instant::now(),
+                                    items: HashMap::new(),
+                                });
+                            }
+                            if let Some(ref mut p) = *p_opt {
+                                p.steps_count += 1;
+                                let item_card = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                                item_card.add_css_class("step-item-card");
+
+                                let action_lbl = format::format_tool_call_label(&name, &args);
+                                let name_lbl = gtk4::Label::builder()
+                                    .label(&action_lbl)
+                                    .css_classes(["step-item-label"])
+                                    .ellipsize(gtk4::pango::EllipsizeMode::End)
+                                    .max_width_chars(36)
+                                    .hexpand(true)
+                                    .halign(gtk4::Align::Start)
+                                    .build();
+                                item_card.append(&name_lbl);
+
+                                let badge = gtk4::Label::builder()
+                                    .label("DONE")
+                                    .css_classes(["step-item-status"])
+                                    .build();
+                                item_card.append(&badge);
+                                p.steps_box.append(&item_card);
+                            }
                         }
                         scroll_fn();
                     }
                     StreamEvent::TextDelta(delta) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            if let Some((ref exp, _, _, thought_start)) =
-                                *target.active_thought_expander.borrow()
-                            {
-                                let elapsed = thought_start.elapsed().as_secs();
-                                exp.set_label(Some(&format!("Thought for {}s ▾", elapsed.max(1))));
-                                exp.set_expanded(false);
-                            }
-                            *target.active_thought_expander.borrow_mut() = None;
-
                             target.full_text.borrow_mut().push_str(&delta);
 
                             let mut md_opt = target.active_markdown.borrow_mut();
@@ -1349,19 +1707,22 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                         }
                         status_dot_clone.remove_css_class("working");
                         status_dot_clone.add_css_class("error");
+                        btn_send_ref.set_label("↑");
+                        btn_send_ref.remove_css_class("stop");
+                        btn_send_ref.set_tooltip_text(Some("Send prompt (Enter)"));
+                        is_streaming_ref.set(false);
                         scroll_fn();
                     }
                     StreamEvent::Done => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            if let Some((ref exp, _, _, thought_start)) =
-                                *target.active_thought_expander.borrow()
-                            {
-                                let elapsed = thought_start.elapsed().as_secs();
-                                exp.set_label(Some(&format!("Thought for {}s ▾", elapsed.max(1))));
-                                exp.set_expanded(false);
+                            if let Some(ref p) = *target.progress.borrow() {
+                                let total_elapsed = p.start_time.elapsed().as_secs();
+                                p.expander.set_label(Some(&format!(
+                                    "Completed {} steps in {} ▾",
+                                    p.steps_count,
+                                    format::format_duration_sec(total_elapsed)
+                                )));
                             }
-                            *target.active_thought_expander.borrow_mut() = None;
-
                             if let Some((ref md_box, ref md_text)) = *target.active_markdown.borrow() {
                                 crate::render::render_markdown_blocks_into(md_box, md_text);
                             }
@@ -1372,6 +1733,10 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                         status_dot_clone.remove_css_class("working");
                         status_dot_clone.remove_css_class("error");
                         head_dot_clone.remove_css_class("working");
+                        btn_send_ref.set_label("↑");
+                        btn_send_ref.remove_css_class("stop");
+                        btn_send_ref.set_tooltip_text(Some("Send prompt (Enter)"));
+                        is_streaming_ref.set(false);
                         scroll_fn();
                     }
                 }
@@ -1381,12 +1746,12 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
 
     // Submit Prompt handler
     let submit_prompt = {
-        let entry = entry.clone();
+        let tv = text_view.clone();
         let messages_box = messages_box.clone();
         let welcome_box = welcome_box.clone();
         let prompts_list_box = prompts_list_box.clone();
         let prompt_empty_label = prompt_empty_label.clone();
-        let prompts_popover = prompts_popover.clone();
+        let popover_session = popover_session.clone();
         let state = state.clone();
         let active_stream = active_stream.clone();
         let status_dot = status_dot.clone();
@@ -1394,49 +1759,35 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let stream_tx = stream_tx.clone();
         let scroll_fn = scroll_to_bottom.clone();
         let scroll_to_widget = scroll_to_widget.clone();
-        let btn_session_submit = btn_session.clone();
+        let is_streaming_submit = is_streaming.clone();
+        let btn_send_submit = btn_send_stop.clone();
+        let session_title_submit = session_title_label.clone();
 
         Rc::new(move || {
-            let raw_prompt = entry.text().trim().to_string();
+            let raw_prompt = get_text_view_content(&tv);
             if raw_prompt.is_empty() {
                 return;
             }
-            let prompt = commands::expand_slash_command(&raw_prompt).unwrap_or(raw_prompt);
+            let prompt = commands::expand_slash_command(&raw_prompt).unwrap_or(raw_prompt.clone());
 
-            entry.set_text("");
+            // Clear draft from buffer on send
+            set_text_view_content(&tv, "");
             welcome_box.set_visible(false);
 
             let prompt_idx = state.borrow().prompts.len() + 1;
-            btn_session_submit.set_label(&format!("📋 Session ({})", prompt_idx));
 
-            // 1. User Message Card
+            // Update session title in subheader
+            let snippet = if prompt.chars().count() > 32 {
+                format!("{}…", prompt.chars().take(32).collect::<String>())
+            } else {
+                prompt.clone()
+            };
+            session_title_submit.set_label(&format!("Local  •  {}", snippet));
+
+            // 1. User Message Card (Right-aligned bubble)
             let user_card = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
             user_card.add_css_class("card-user");
-
-            let u_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-            u_hdr.add_css_class("card-user-header");
-
-            let u_avatar = gtk4::Label::builder()
-                .label("●")
-                .css_classes(["card-user-avatar"])
-                .build();
-            let u_badge = gtk4::Label::builder()
-                .label("You")
-                .css_classes(["card-user-badge"])
-                .build();
-            u_hdr.append(&u_avatar);
-            u_hdr.append(&u_badge);
-
-            let u_sp = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-            u_sp.set_hexpand(true);
-            u_hdr.append(&u_sp);
-
-            let u_idx = gtk4::Label::builder()
-                .label(format!("#{}", prompt_idx))
-                .css_classes(["card-user-idx"])
-                .build();
-            u_hdr.append(&u_idx);
-            user_card.append(&u_hdr);
+            user_card.set_halign(gtk4::Align::End);
 
             let user_label = gtk4::Label::builder()
                 .label(&prompt)
@@ -1454,6 +1805,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             // 2. Assistant Message Card
             let asst_card = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
             asst_card.add_css_class("card-assistant");
+            asst_card.set_halign(gtk4::Align::Fill);
 
             let asst_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
             asst_header.add_css_class("card-assistant-header");
@@ -1474,39 +1826,102 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             metrics_badge.set_visible(false);
             asst_header.append(&metrics_badge);
 
-            let asst_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-            asst_spacer.set_hexpand(true);
-            asst_header.append(&asst_spacer);
-
-            let btn_copy = gtk4::Button::builder()
-                .label("Copy")
-                .css_classes(["card-copy-btn"])
-                .tooltip_text("Copy entire response")
-                .build();
-            asst_header.append(&btn_copy);
             asst_card.append(&asst_header);
 
             let turn_body = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
             asst_card.append(&turn_body);
 
+            // Assistant Feedback & Action Bar
+            let feedback_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+            feedback_bar.add_css_class("card-feedback-bar");
+
+            let btn_retry = gtk4::Button::builder()
+                .label("↻")
+                .css_classes(["feedback-btn"])
+                .tooltip_text("Retry prompt")
+                .build();
+
+            let btn_copy = gtk4::Button::builder()
+                .label("📋")
+                .css_classes(["feedback-btn"])
+                .tooltip_text("Copy response")
+                .build();
+
+            let btn_thumb_up = gtk4::Button::builder()
+                .label("👍")
+                .css_classes(["feedback-btn"])
+                .tooltip_text("Helpful")
+                .build();
+
+            let btn_thumb_down = gtk4::Button::builder()
+                .label("👎")
+                .css_classes(["feedback-btn"])
+                .tooltip_text("Not helpful")
+                .build();
+
+            feedback_bar.append(&btn_retry);
+            feedback_bar.append(&btn_copy);
+            feedback_bar.append(&btn_thumb_up);
+            feedback_bar.append(&btn_thumb_down);
+            asst_card.append(&feedback_bar);
+
             messages_box.append(&asst_card);
 
             let full_text = Rc::new(RefCell::new(String::new()));
-            let copy_text_ref = full_text.clone();
-            let copy_btn_clone = btn_copy.clone();
-            btn_copy.connect_clicked(move |_| {
-                let content = copy_text_ref.borrow().clone();
-                if let Some(display) = gdk::Display::default() {
-                    display.clipboard().set_text(&content);
-                }
-                copy_btn_clone.set_label("Copied ✓");
-                let reset_btn = copy_btn_clone.clone();
-                glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
-                    reset_btn.set_label("Copy");
-                });
-            });
 
-            // 3. Track in Prompts Flyout with per-item Delete button
+            // Copy button feedback
+            {
+                let copy_text_ref = full_text.clone();
+                let copy_btn_clone = btn_copy.clone();
+                btn_copy.connect_clicked(move |_| {
+                    let content = copy_text_ref.borrow().clone();
+                    if let Some(display) = gdk::Display::default() {
+                        display.clipboard().set_text(&content);
+                    }
+                    copy_btn_clone.set_label("✓");
+                    copy_btn_clone.add_css_class("copied");
+                    let reset_btn = copy_btn_clone.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
+                        reset_btn.set_label("📋");
+                        reset_btn.remove_css_class("copied");
+                    });
+                });
+            }
+
+            // Retry button
+            {
+                let retry_prompt = prompt.clone();
+                let tv_retry = tv.clone();
+                btn_retry.connect_clicked(move |_| {
+                    set_text_view_content(&tv_retry, &retry_prompt);
+                    tv_retry.grab_focus();
+                });
+            }
+
+            // Thumbs up / down interaction
+            {
+                let down_clone = btn_thumb_down.clone();
+                btn_thumb_up.connect_clicked(move |btn| {
+                    if btn.has_css_class("active") {
+                        btn.remove_css_class("active");
+                    } else {
+                        btn.add_css_class("active");
+                        down_clone.remove_css_class("active");
+                    }
+                });
+
+                let up_clone = btn_thumb_up.clone();
+                btn_thumb_down.connect_clicked(move |btn| {
+                    if btn.has_css_class("active") {
+                        btn.remove_css_class("active");
+                    } else {
+                        btn.add_css_class("active");
+                        up_clone.remove_css_class("active");
+                    }
+                });
+            }
+
+            // 3. Track in Session History Popover
             prompt_empty_label.set_visible(false);
 
             let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
@@ -1524,11 +1939,6 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 .build();
             nav_row.append(&nav_pill);
 
-            let snippet = if prompt.chars().count() > 24 {
-                format!("{}…", prompt.chars().take(24).collect::<String>())
-            } else {
-                prompt.clone()
-            };
             let nav_txt = gtk4::Label::builder()
                 .label(&snippet)
                 .css_classes(["prompt-snippet-text"])
@@ -1540,7 +1950,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             nav_btn.set_child(Some(&nav_row));
 
             let target_widget = user_card.clone();
-            let pop_ref = prompts_popover.clone();
+            let pop_ref = popover_session.clone();
             let scroll_fn_widget = scroll_to_widget.clone();
 
             nav_btn.connect_clicked(move |_| {
@@ -1558,7 +1968,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
 
             prompts_list_box.append(&row_box);
 
-            // Per-item prompt deletion connection with safety confirmation
+            // Per-item prompt deletion with safety confirmation
             {
                 let row_ref = row_box.clone();
                 let u_card = user_card.clone();
@@ -1568,10 +1978,11 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 let p_empty_lbl = prompt_empty_label.clone();
                 let wel_box = welcome_box.clone();
                 let st_ref = state.clone();
-                let btn_sess_ref = btn_session_submit.clone();
                 let active_stream_ref = active_stream.clone();
                 let status_dot_ref = status_dot.clone();
                 let head_dot_ref = head_dot.clone();
+                let is_str_ref = is_streaming_submit.clone();
+                let btn_s_ref = btn_send_submit.clone();
                 let this_idx = prompt_idx;
 
                 let item_popover = gtk4::Popover::builder()
@@ -1633,12 +2044,15 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                     if st.prompts.last().map(|p| p.index == this_idx).unwrap_or(false) {
                         st.runner.abort();
                         *active_stream_ref.borrow_mut() = None;
+                        is_str_ref.set(false);
+                        btn_s_ref.set_label("↑");
+                        btn_s_ref.remove_css_class("stop");
+                        btn_s_ref.set_tooltip_text(Some("Send (Enter)"));
                         status_dot_ref.remove_css_class("working");
                         head_dot_ref.remove_css_class("working");
                     }
                     st.prompts.retain(|p| p.index != this_idx);
                     let remaining = st.prompts.len();
-                    btn_sess_ref.set_label(&format!("📋 Session ({})", remaining));
 
                     if remaining == 0 {
                         p_empty_lbl.set_visible(true);
@@ -1655,14 +2069,14 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
 
             state.borrow_mut().prompts.push(TrackedPrompt {
                 index: prompt_idx,
+                user_card: user_card.clone(),
             });
 
             *active_stream.borrow_mut() = Some(ActiveStreamTarget {
                 turn_body: turn_body.clone(),
                 full_text: full_text.clone(),
-                active_thought_expander: Rc::new(RefCell::new(None)),
+                progress: Rc::new(RefCell::new(None)),
                 active_markdown: Rc::new(RefCell::new(None)),
-                tools: Rc::new(RefCell::new(HashMap::new())),
                 metrics_badge: metrics_badge.clone(),
             });
 
@@ -1671,13 +2085,21 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             status_dot.add_css_class("working");
             head_dot.add_css_class("working");
 
+            // Switch Send button to Stop button during active stream
+            is_streaming_submit.set(true);
+            btn_send_submit.set_label("⏹");
+            btn_send_submit.add_css_class("stop");
+            btn_send_submit.set_tooltip_text(Some("Stop Generation"));
+
             let mut st = state.borrow_mut();
             let model_opt = Some(st.settings.model.clone());
             let thinking_opt = Some(st.settings.thinking_level.clone());
             if let Err(e) =
                 st.runner
-                    .spawn_prompt(prompt, model_opt, thinking_opt, stream_tx.clone())
+                    .spawn_prompt(prompt.clone(), model_opt, thinking_opt, stream_tx.clone())
             {
+                // On failure, restore prompt to buffer so user doesn't lose draft
+                set_text_view_content(&tv, &prompt);
                 let err_str = format!("[Error] Failed to spawn agent: {}", e);
                 full_text.borrow_mut().push_str(&err_str);
                 let err_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
@@ -1686,20 +2108,118 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 status_dot.remove_css_class("working");
                 status_dot.add_css_class("error");
                 head_dot.remove_css_class("working");
+                is_streaming_submit.set(false);
+                btn_send_submit.set_label("↑");
+                btn_send_submit.remove_css_class("stop");
+                btn_send_submit.set_tooltip_text(Some("Send (Enter)"));
                 scroll_fn();
             }
         })
     };
 
-    let submit_on_enter = submit_prompt.clone();
-    entry.connect_activate(move |_| {
-        submit_on_enter();
-    });
+    // Connect Subheader Back Button to scroll to previous turn
+    {
+        let state_back = state.clone();
+        let scroll_widget_back = scroll_to_widget.clone();
+        btn_back.connect_clicked(move |_| {
+            let st = state_back.borrow();
+            if let Some(prev) = st.prompts.iter().rev().nth(1) {
+                scroll_widget_back(&prev.user_card);
+            } else if let Some(first) = st.prompts.first() {
+                scroll_widget_back(&first.user_card);
+            }
+        });
+    }
 
-    let submit_on_click = submit_prompt.clone();
-    btn_send.connect_clicked(move |_| {
-        submit_on_click();
-    });
+    // Keyboard Controller on Multi-line TextView: Enter sends, Shift+Enter new line
+    {
+        let key_controller = gtk4::EventControllerKey::new();
+        let submit_on_enter = submit_prompt.clone();
+        key_controller.connect_key_pressed(move |_, keyval, _, modifier| {
+            if keyval == gdk::Key::Return || keyval == gdk::Key::KP_Enter {
+                if modifier.contains(gdk::ModifierType::SHIFT_MASK) {
+                    glib::Propagation::Proceed
+                } else {
+                    submit_on_enter();
+                    glib::Propagation::Stop
+                }
+            } else {
+                glib::Propagation::Proceed
+            }
+        });
+        text_view.add_controller(key_controller);
+    }
+
+    // Connect Send / Stop Button
+    {
+        let is_str_btn = is_streaming.clone();
+        let state_stop = state.clone();
+        let submit_btn = submit_prompt.clone();
+        let active_stream_stop = active_stream.clone();
+        let status_dot_stop = status_dot.clone();
+        let head_dot_stop = head_dot.clone();
+        let btn_send_ref = btn_send_stop.clone();
+
+        btn_send_stop.connect_clicked(move |_| {
+            if is_str_btn.get() {
+                // Active streaming: Stop request
+                state_stop.borrow_mut().runner.abort();
+                *active_stream_stop.borrow_mut() = None;
+                is_str_btn.set(false);
+                btn_send_ref.set_label("↑");
+                btn_send_ref.remove_css_class("stop");
+                btn_send_ref.set_tooltip_text(Some("Send (Enter)"));
+                status_dot_stop.remove_css_class("working");
+                head_dot_stop.remove_css_class("working");
+            } else {
+                submit_btn();
+            }
+        });
+    }
+
+    // Global Window Keyboard Shortcuts (Esc to close, Ctrl+N for new chat)
+    {
+        let key_controller = gtk4::EventControllerKey::new();
+        let hide_fn = hide_overlay_fn.clone();
+        let do_clear = execute_clear.clone();
+        let tv_ref = text_view.clone();
+
+        key_controller.connect_key_pressed(move |_, key, _, modifier| {
+            if key == gdk::Key::Escape {
+                hide_fn();
+                return glib::Propagation::Stop;
+            }
+            if modifier.contains(gdk::ModifierType::CONTROL_MASK) && key == gdk::Key::n {
+                do_clear();
+                tv_ref.grab_focus();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        window.add_controller(key_controller);
+    }
+
+    // Auto-hide on blur (focus loss) if enabled
+    {
+        let focus_controller = gtk4::EventControllerFocus::new();
+        let hide_fn = hide_overlay_fn.clone();
+        let state_focus = state.clone();
+        let had_focus = Rc::new(Cell::new(false));
+
+        focus_controller.connect_contains_focus_notify(move |controller| {
+            let has_focus = controller.contains_focus();
+            let prev = had_focus.get();
+            had_focus.set(has_focus);
+
+            if prev && !has_focus {
+                let auto_hide = state_focus.borrow().settings.auto_hide_on_blur;
+                if auto_hide {
+                    hide_fn();
+                }
+            }
+        });
+        window.add_controller(focus_controller);
+    }
 
     // Start IPC socket listener
     let (ipc_tx, mut ipc_rx) = mpsc::unbounded_channel::<ipc::IpcCommand>();
@@ -1708,7 +2228,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     let expand_fn_ipc = expand_overlay_fn.clone();
     let hide_fn_ipc = hide_overlay_fn.clone();
     let state_ipc = state.clone();
-    let entry_ipc = entry.clone();
+    let tv_ipc = text_view.clone();
     let submit_ipc = submit_prompt.clone();
 
     glib::spawn_future_local(async move {
@@ -1724,7 +2244,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 }
                 ipc::IpcCommand::Prompt(text) => {
                     expand_fn_ipc();
-                    entry_ipc.set_text(&text);
+                    set_text_view_content(&tv_ipc, &text);
                     submit_ipc();
                 }
             }
@@ -1761,5 +2281,22 @@ mod tests {
             assert!(!label.is_empty());
             assert!(!desc.is_empty());
         }
+    }
+
+    #[test]
+    fn test_agent_modes_list() {
+        assert!(!AGENT_MODES.is_empty());
+        for (id, label, desc) in AGENT_MODES {
+            assert!(!id.is_empty());
+            assert!(!label.is_empty());
+            assert!(!desc.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_model_and_thinking_helpers() {
+        assert_eq!(model_display_name("default"), "Auto");
+        assert_eq!(thinking_display_name("medium"), "Balance");
+        assert_eq!(mode_display_name("agent"), "Agent");
     }
 }

@@ -1,19 +1,38 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Agent Canvas — Dark Surface Design System
-   Palette: Radix Dark Zinc (#121316, #18191e, #22232a, #2e303b, #f4f4f5, #3b82f6)
+   Copilot Chat Sidebar Design System
+   Exact VS Code Chat Sidebar Spec & Palette:
+   --chat-bg:       #1E1E2A (Main sidebar canvas)
+   --chat-surface:  #292936 (User message bubble, subtle surface)
+   --chat-composer: #343644 (Composer background and select controls)
+   --chat-border:   #424252 (Borders and dividers)
+   --chat-text:     #D4D4E0 (Primary text)
+   --chat-muted:    #A7A8BA (Secondary labels and placeholders)
+   --chat-accent:   #4FC1FF (Icons, focus, links, primary actions)
+   --chat-success:  #89D185 (Completion state)
+   --chat-danger:   #F48771 (Errors and warnings)
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── Global Theme & Accent Color Isolation (No System Accent Bleed) ────── */
-@define-color accent_color #3b82f6;
-@define-color accent_bg_color #2563eb;
-@define-color accent_fg_color #ffffff;
-@define-color theme_selected_bg_color #2563eb;
-@define-color theme_selected_fg_color #ffffff;
-@define-color destructive_color #ef4444;
-@define-color destructive_bg_color #dc2626;
-@define-color destructive_fg_color #ffffff;
+/* ── GTK4 Adwaita Color Override (Prevents System Accent Bleed) ───────── */
+@define-color chat-bg #1E1E2A;
+@define-color chat-surface #292936;
+@define-color chat-composer #343644;
+@define-color chat-border #424252;
+@define-color chat-text #D4D4E0;
+@define-color chat-muted #A7A8BA;
+@define-color chat-accent #4FC1FF;
+@define-color chat-success #89D185;
+@define-color chat-danger #F48771;
 
-/* ── Universal Reset ────────────────────────────────────────────────────── */
+@define-color accent_color #4FC1FF;
+@define-color accent_bg_color #4FC1FF;
+@define-color accent_fg_color #1E1E2A;
+@define-color theme_selected_bg_color #343644;
+@define-color theme_selected_fg_color #D4D4E0;
+@define-color destructive_color #F48771;
+@define-color destructive_bg_color #F48771;
+@define-color destructive_fg_color #1E1E2A;
+
+/* ── Universal Reset & Clean Visual Isolation ──────────────────────────── */
 * {
     background-image: none;
     text-shadow: none;
@@ -54,18 +73,20 @@ window {
     background-color: transparent;
 }
 
-/* ── Main Overlay Window Frame ─────────────────────────────────────────── */
+/* ── Main Sidebar Frame ────────────────────────────────────────────────── */
 #drawer-container,
 .drawer-container,
 .window-container {
-    background-color: #121316;
-    border: 1px solid #27282e;
-    border-radius: 12px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 255, 255, 0.1);
+    background-color: #1E1E2A;
+    border: 1px solid #424252;
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), 0 0 1px rgba(255, 255, 255, 0.08);
+    color: #D4D4E0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     padding: 0;
 }
 
-/* ── Multi-directional Resize Handles ──────────────────────────────────── */
+/* ── Resize Handles ────────────────────────────────────────────────────── */
 .resize-handle {
     background: transparent;
     min-width: 10px;
@@ -82,402 +103,359 @@ window {
 }
 
 .resize-handle:hover .resize-grip {
-    background-color: rgba(255, 255, 255, 0.25);
+    background-color: rgba(79, 193, 255, 0.4);
 }
 
-.resize-corner {
-    min-width: 10px;
-    min-height: 10px;
-    background: transparent;
+/* ── 1. Panel Header (Thanh Panel) ─────────────────────────────────────── */
+.panel-header {
+    background-color: #1E1E2A;
+    border-bottom: 1px solid #424252;
+    padding: 6px 12px;
+    min-height: 36px;
 }
 
-.resize-handle-horiz {
-    min-height: 6px;
-    background: transparent;
-}
-
-/* ── Header Bar ─────────────────────────────────────────────────────────── */
-.header-bar {
-    padding: 8px 12px;
-    border-bottom: 1px solid #222329;
-    background-color: #16171b;
-    border-top-left-radius: 12px;
-    border-top-right-radius: 12px;
-}
-
-.status-dot {
-    min-width: 8px;
-    min-height: 8px;
-    border-radius: 4px;
-    background-color: #22c55e;
-    margin-right: 6px;
-}
-
-.status-dot.working {
-    background-color: #38bdf8;
-}
-
-.status-dot.error {
-    background-color: #ef4444;
-}
-
-.app-title {
+.panel-title {
     font-size: 13px;
-    font-weight: 700;
-    color: #f4f4f5;
+    font-weight: 600;
+    color: #D4D4E0;
     letter-spacing: -0.01em;
-}
-
-.model-pill-btn {
-    font-size: 11px;
-    font-weight: 500;
-    color: #94a3b8;
-    background-color: #202127;
-    border: 1px solid #2d2e36;
-    border-radius: 5px;
-    padding: 2px 8px;
-    outline: none;
-    -gtk-outline-radius: 0;
-}
-
-.model-pill-btn:hover {
-    background-color: #2a2b33;
-    color: #ffffff;
-    border-color: #3f414d;
-}
-
-.model-pill-btn:focus,
-.model-pill-btn:focus-visible {
-    background-color: #202127;
-    border-color: #3b82f6;
-    color: #ffffff;
-    outline: none;
-    box-shadow: none;
-}
-
-button.header-btn,
-.header-btn {
-    padding: 3px 9px;
-    border-radius: 6px;
-    background-color: #202127;
-    background-image: none;
-    border: 1px solid #2d2e38;
-    color: #cbd5e1;
-    font-size: 11.5px;
-    font-weight: 500;
-    box-shadow: none;
-    outline: none;
-    outline-width: 0;
-    -gtk-outline-radius: 0;
-}
-
-button.header-btn:hover,
-.header-btn:hover {
-    background-color: #2a2c35;
-    background-image: none;
-    border-color: #3f414d;
-    color: #ffffff;
-    box-shadow: none;
-    outline: none;
-}
-
-button.header-btn:focus,
-button.header-btn:focus-visible,
-button.header-btn:focus-within,
-.header-btn:focus,
-.header-btn:focus-visible,
-.header-btn:focus-within {
-    background-color: #202127;
-    border-color: #3f414d;
-    color: #ffffff;
-    box-shadow: none;
-    outline: none;
-}
-
-button.header-btn:active,
-button.header-btn:checked,
-.header-btn:active,
-.header-btn:checked {
-    background-color: #282a33;
-    background-image: none;
-    border-color: #4b4d5c;
-    color: #ffffff;
-    box-shadow: none;
-    outline: none;
-}
-
-button.header-btn:checked:hover,
-.header-btn:checked:hover {
-    background-color: #2e303c;
-    border-color: #585a6b;
-    color: #ffffff;
-}
-
-.header-btn.close {
-    padding: 3px 8px;
-    color: #94a3b8;
-}
-
-.header-btn.close:hover {
-    background-color: rgba(239, 68, 68, 0.2);
-    border-color: rgba(239, 68, 68, 0.5);
-    color: #fca5a5;
-}
-
-.prompts-count-label {
-    font-size: 11.5px;
-    font-weight: 500;
-    color: #cbd5e1;
-    margin-left: 2px;
 }
 
 .header-icon-btn {
     min-width: 26px;
     min-height: 26px;
-    padding: 3px;
-    border-radius: 5px;
+    padding: 2px 6px;
+    border-radius: 4px;
     background-color: transparent;
-    color: #9ca3af;
+    color: #A7A8BA;
     border: none;
+    font-size: 13px;
+    transition: background-color 120ms ease, color 120ms ease;
 }
 
 .header-icon-btn:hover {
-    background-color: #26272e;
-    color: #f4f4f5;
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #D4D4E0;
+}
+
+.header-icon-btn:active,
+.header-icon-btn:checked {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: #4FC1FF;
 }
 
 .header-icon-btn.close:hover {
-    background-color: rgba(239, 68, 68, 0.2);
-    color: #f87171;
+    background-color: rgba(244, 135, 113, 0.2);
+    color: #F48771;
 }
 
-/* ── Chat Messages Scroll Area ─────────────────────────────────────────── */
+/* ── 2. Session Sub-Header (Thanh Phiên) ────────────────────────────────── */
+.session-subheader {
+    background-color: #1E1E2A;
+    border-bottom: 1px solid #424252;
+    padding: 6px 12px;
+    min-height: 32px;
+}
+
+.session-back-btn {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px;
+    border-radius: 4px;
+    background-color: transparent;
+    color: #A7A8BA;
+    border: none;
+    font-size: 13px;
+}
+
+.session-back-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #D4D4E0;
+}
+
+.session-title-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #D4D4E0;
+    letter-spacing: -0.01em;
+}
+
+.session-side-btn {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px;
+    border-radius: 4px;
+    background-color: transparent;
+    color: #A7A8BA;
+    border: none;
+    font-size: 12px;
+}
+
+.session-side-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #D4D4E0;
+}
+
+/* ── 3. Messages Stream (Vùng Hội Thoại) ────────────────────────────────── */
 .chat-scroll {
-    background: transparent;
+    background-color: #1E1E2A;
     padding: 8px 12px;
 }
 
 .chat-scroll viewport {
-    background: transparent;
+    background-color: #1E1E2A;
 }
 
 .messages-container {
-    background: transparent;
-    padding: 4px;
+    background-color: #1E1E2A;
+    padding: 6px 4px;
 }
 
-/* ── Welcome Hero Widget (When conversation is empty) ──────────────────── */
+/* Welcome Hero */
 .welcome-hero {
-    padding: 36px 16px;
+    padding: 32px 16px;
 }
 
 .welcome-glyph {
-    font-size: 32px;
-    color: #38bdf8;
+    font-size: 28px;
+    color: #4FC1FF;
     margin-bottom: 8px;
 }
 
 .welcome-title {
-    font-size: 17px;
-    font-weight: 700;
-    color: #f4f4f5;
-    letter-spacing: -0.02em;
+    font-size: 16px;
+    font-weight: 600;
+    color: #D4D4E0;
     margin-bottom: 4px;
 }
 
 .welcome-subtitle {
-    font-size: 12.5px;
-    color: #94a3b8;
-    margin-bottom: 20px;
+    font-size: 12px;
+    color: #A7A8BA;
+    margin-bottom: 16px;
 }
 
 .welcome-pill-btn {
     font-size: 12px;
-    color: #cbd5e1;
-    background-color: #1a1b20;
-    border: 1px solid #282932;
-    border-radius: 8px;
+    color: #D4D4E0;
+    background-color: #292936;
+    border: 1px solid #424252;
+    border-radius: 6px;
     padding: 6px 12px;
     margin: 3px 0;
 }
 
 .welcome-pill-btn:hover {
-    background-color: #24262e;
+    background-color: #343644;
+    border-color: #4FC1FF;
     color: #ffffff;
-    border-color: #3b82f6;
 }
 
-/* ── User Message Card ─────────────────────────────────────────────────── */
+/* User Message Card (Right-aligned bubble, --chat-surface) */
 .card-user {
-    background-color: #1e2026;
-    border: 1px solid #2d2f38;
-    border-radius: 10px;
-    padding: 10px 14px;
-    margin-bottom: 12px;
+    background-color: #292936;
+    border: 1px solid #424252;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 14px;
 }
 
 .card-user-header {
     margin-bottom: 4px;
 }
 
-.card-user-avatar {
-    font-size: 11px;
-    color: #3b82f6;
-    margin-right: 4px;
-}
-
 .card-user-badge {
-    font-size: 11.5px;
+    font-size: 11px;
     font-weight: 600;
-    color: #60a5fa;
+    color: #4FC1FF;
 }
 
 .card-user-idx {
-    font-size: 10.5px;
-    color: #64748b;
-    font-weight: 500;
+    font-size: 10px;
+    color: #A7A8BA;
 }
 
 .card-user-text {
     font-size: 13px;
     line-height: 1.5;
-    color: #f4f4f5;
+    color: #D4D4E0;
 }
 
-/* ── Assistant Message Card ────────────────────────────────────────────── */
+/* Assistant Message Card (Transparent background, full width) */
 .card-assistant {
-    background-color: #16171b;
-    border: 1px solid #26272e;
-    border-radius: 10px;
-    padding: 12px 14px;
-    margin-bottom: 14px;
+    background-color: transparent;
+    padding: 4px 2px;
+    margin-bottom: 16px;
 }
 
 .card-assistant-header {
-    margin-bottom: 8px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 6px;
 }
 
 .card-assistant-avatar {
     font-size: 12px;
-    color: #34d399;
+    color: #4FC1FF;
     margin-right: 4px;
 }
 
 .card-assistant-badge {
     font-size: 12px;
     font-weight: 600;
-    color: #34d399;
+    color: #D4D4E0;
 }
 
 .card-metrics-pill {
     font-size: 10px;
     font-weight: 500;
-    color: #94a3b8;
-    background-color: #202127;
-    border: 1px solid #2d2e36;
+    color: #A7A8BA;
+    background-color: #292936;
+    border: 1px solid #424252;
     border-radius: 4px;
     padding: 1px 6px;
     margin-left: 6px;
 }
 
-.card-copy-btn {
-    font-size: 10.5px;
+/* Assistant Text Typography */
+.bubble-assistant-text {
+    font-size: 13px;
+    line-height: 1.55;
+    color: #D4D4E0;
+}
+
+.card-assistant tt {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 12px;
+    background: #292936;
+    border: 1px solid #424252;
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: #D4D4E0;
+}
+
+/* ── Progress & Tool Steps Disclosure (Completed N steps in Xs ▾) ───────── */
+.progress-steps-disclosure {
+    margin: 6px 0 10px 0;
+    border: 1px solid #424252;
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.03);
+    padding: 4px 8px;
+}
+
+.progress-steps-disclosure > title {
+    font-size: 11.5px;
     font-weight: 500;
-    color: #9ca3af;
-    background-color: transparent;
-    border-radius: 4px;
-    padding: 2px 6px;
-    border: 1px solid transparent;
+    color: #A7A8BA;
+    padding: 2px 4px;
 }
 
-.card-copy-btn:hover {
-    background-color: #26272e;
-    color: #ffffff;
-    border-color: #383a45;
+.progress-steps-disclosure:hover > title {
+    color: #D4D4E0;
 }
 
-/* ── Reasoning Disclosure (Thinking Accordion) ─────────────────────────── */
-.thinking-disclosure {
-    margin: 4px 0 8px 0;
-}
-
-.thinking-disclosure > title {
-    font-size: 11.5px;
-    font-style: italic;
-    color: #71717a;
-    padding: 2px 0;
-}
-
-.thinking-disclosure:hover > title {
-    color: #a1a1aa;
-}
-
-.thinking-content-box {
+.steps-list-box {
     margin-top: 4px;
-    padding: 6px 10px;
-    border-left: 2px solid #3b82f6;
-    background-color: rgba(255, 255, 255, 0.02);
+    padding: 4px 2px;
+}
+
+.step-item-card {
+    padding: 4px 8px;
+    margin: 2px 0;
     border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.thinking-text {
+.step-item-icon {
+    font-size: 11px;
+    color: #4FC1FF;
+    margin-right: 6px;
+}
+
+.step-item-label {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
     font-size: 11.5px;
-    font-family: monospace;
-    color: #94a3b8;
-    line-height: 1.4;
+    color: #D4D4E0;
 }
 
-/* ── Tool Call Card (VS Code Inline Tool Invocation) ───────────────────── */
+.step-item-file-chip {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 11px;
+    color: #4FC1FF;
+    background-color: rgba(79, 193, 255, 0.12);
+    border: 1px solid rgba(79, 193, 255, 0.25);
+    border-radius: 3px;
+    padding: 1px 5px;
+    margin-left: 4px;
+}
+
+.step-item-status {
+    font-size: 9.5px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #89D185;
+    background-color: rgba(137, 209, 133, 0.15);
+}
+
+.step-item-status.running {
+    color: #4FC1FF;
+    background-color: rgba(79, 193, 255, 0.15);
+}
+
+.step-item-status.error {
+    color: #F48771;
+    background-color: rgba(244, 135, 113, 0.15);
+}
+
+/* Backward compatible tool call card styling */
 .tool-call-card {
-    background-color: #121317;
-    border: 1px solid #262730;
-    border-radius: 7px;
-    margin: 6px 0;
+    background-color: #232330;
+    border: 1px solid #424252;
+    border-radius: 6px;
+    margin: 4px 0;
     padding: 6px 10px;
 }
 
 .tool-name-label {
-    font-family: monospace;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
     font-size: 11.5px;
-    font-weight: 600;
-    color: #e2e8f0;
+    font-weight: 500;
+    color: #D4D4E0;
 }
 
 .tool-badge-running {
     font-size: 9.5px;
     font-weight: 700;
-    color: #38bdf8;
-    background-color: rgba(56, 189, 248, 0.15);
+    color: #4FC1FF;
+    background-color: rgba(79, 193, 255, 0.15);
     border-radius: 3px;
-    padding: 1px 6px;
+    padding: 1px 5px;
 }
 
 .tool-badge-done {
     font-size: 9.5px;
     font-weight: 700;
-    color: #34d399;
-    background-color: rgba(52, 211, 153, 0.15);
+    color: #89D185;
+    background-color: rgba(137, 209, 133, 0.15);
     border-radius: 3px;
-    padding: 1px 6px;
+    padding: 1px 5px;
 }
 
 .tool-badge-error {
     font-size: 9.5px;
     font-weight: 700;
-    color: #f87171;
-    background-color: rgba(248, 113, 113, 0.15);
+    color: #F48771;
+    background-color: rgba(244, 135, 113, 0.15);
     border-radius: 3px;
-    padding: 1px 6px;
+    padding: 1px 5px;
 }
 
 .tool-args-box {
     margin-top: 4px;
     font-family: "JetBrains Mono", "Fira Code", monospace;
     font-size: 11px;
-    color: #94a3b8;
-    background-color: #0b0c0f;
+    color: #A7A8BA;
+    background-color: #1a1a24;
     border-radius: 4px;
     padding: 4px 8px;
     border: 1px solid rgba(255, 255, 255, 0.04);
@@ -489,240 +467,338 @@ button.header-btn:checked:hover,
 
 .tool-output-expander > title {
     font-size: 11px;
-    color: #71717a;
-}
-
-.tool-output-expander:hover > title {
-    color: #a1a1aa;
+    color: #A7A8BA;
 }
 
 .tool-output-box {
     margin-top: 3px;
     font-family: "JetBrains Mono", "Fira Code", monospace;
     font-size: 11px;
-    color: #cbd5e1;
-    background-color: #090a0d;
+    color: #D4D4E0;
+    background-color: #1a1a24;
     border-radius: 4px;
     padding: 6px 8px;
     border: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-/* ── Rich Structured Tables (VS Code Markdown Table Scrolling) ────────── */
-.markdown-table-card {
-    background-color: #141519;
-    border: 1px solid #272830;
-    border-radius: 7px;
-    margin: 8px 0;
-    padding: 0;
+/* ── 4. Assistant Feedback & Action Bar ────────────────────────────────── */
+.card-feedback-bar {
+    margin-top: 8px;
+    padding-top: 4px;
 }
 
-.markdown-table-scrolled {
-    background: transparent;
-    padding: 0;
-}
-
-.markdown-table-grid {
-    background: transparent;
-}
-
-.table-cell-header {
-    background-color: #1a1b22;
-    border-bottom: 1px solid #2b2c36;
-    padding: 6px 12px;
-}
-
-.table-header-text {
-    font-weight: 700;
-    font-size: 12px;
-    color: #f4f4f5;
-}
-
-.table-cell {
-    padding: 5px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-}
-
-.table-row-even {
-    background-color: #141519;
-}
-
-.table-row-odd {
-    background-color: #17181e;
-}
-
-.table-cell-text {
-    font-size: 12px;
-    color: #d4d4d8;
-    line-height: 1.4;
-}
-
-.table-cell-text tt {
-    font-family: monospace;
-    font-size: 11px;
-    background: #202228;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 3px;
-    padding: 1px 4px;
-    color: #e2e8f0;
-}
-
-/* ── Code Blocks ───────────────────────────────────────────────────────── */
-.code-block-container {
-    background-color: #101114;
-    border: 1px solid #27282f;
-    border-radius: 8px;
-    margin: 8px 0;
-}
-
-.code-block-header {
-    background-color: #18191e;
-    border-bottom: 1px solid #27282f;
-    padding: 5px 10px;
-    border-top-left-radius: 7px;
-    border-top-right-radius: 7px;
-}
-
-.code-block-lang {
-    font-family: monospace;
-    font-size: 10.5px;
-    font-weight: 600;
-    color: #94a3b8;
-}
-
-.code-block-copy-btn {
-    font-size: 10.5px;
-    font-weight: 500;
-    color: #a1a1aa;
+.feedback-btn {
+    min-width: 26px;
+    min-height: 26px;
     padding: 2px 6px;
     border-radius: 4px;
     background-color: transparent;
-    border: 1px solid transparent;
-}
-
-.code-block-copy-btn:hover {
-    background-color: #272830;
-    color: #ffffff;
-    border-color: #3a3b47;
-}
-
-.code-block-content {
-    padding: 8px 12px 10px 12px;
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 12px;
-    line-height: 1.5;
-    color: #e2e8f0;
-}
-
-/* ── Assistant Text Typography ─────────────────────────────────────────── */
-.bubble-assistant-text {
-    font-size: 13px;
-    line-height: 1.55;
-    color: #e4e4e7;
-}
-
-/* Inline code pill */
-.card-assistant tt {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 12px;
-    background: #202226;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 4px;
-    padding: 1px 5px;
-    color: #e4e4e7;
-}
-
-/* ── Bottom Input Dock ─────────────────────────────────────────────────── */
-.input-dock {
-    background-color: #1a1b20;
-    border: 1px solid #2d2e38;
-    border-radius: 12px;
-    padding: 8px 12px;
-    margin: 6px 12px 8px 12px;
-}
-
-.input-dock:focus-within {
-    border-color: #3b82f6;
-}
-
-.prompt-entry {
-    background-color: transparent;
+    color: #A7A8BA;
     border: none;
-    color: #f4f4f5;
-    font-size: 13px;
-    padding: 4px 0;
+    font-size: 12px;
+    transition: background-color 120ms ease, color 120ms ease;
 }
 
-.prompt-entry:focus {
+.feedback-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #D4D4E0;
+}
+
+.feedback-btn:active,
+.feedback-btn.active {
+    color: #4FC1FF;
+    background-color: rgba(79, 193, 255, 0.15);
+}
+
+.feedback-btn.copied {
+    color: #89D185;
+}
+
+/* Floating Scroll-to-Bottom Button */
+.btn-scroll-bottom {
+    min-width: 30px;
+    min-height: 30px;
+    border-radius: 15px;
+    background-color: #292936;
+    border: 1px solid #424252;
+    color: #D4D4E0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    font-size: 14px;
+    padding: 0;
+}
+
+.btn-scroll-bottom:hover {
+    background-color: #343644;
+    border-color: #4FC1FF;
+    color: #ffffff;
+}
+
+/* ── 5. Pinned Composer (pinned at bottom) ──────────────────────────────── */
+.composer-container {
+    background-color: #343644;
+    border: 1px solid #424252;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin: 8px 12px 4px 12px;
+}
+
+.composer-container:focus-within {
+    border-color: #4FC1FF;
+}
+
+/* Attached Context Chips Row */
+.composer-chips-row {
+    margin-bottom: 6px;
+}
+
+.composer-chip {
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid #424252;
+    border-radius: 12px;
+    padding: 1px 8px;
+    margin-right: 6px;
+    margin-bottom: 2px;
+}
+
+.composer-chip-icon {
+    font-size: 11px;
+    color: #4FC1FF;
+    margin-right: 4px;
+}
+
+.composer-chip-text {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 11px;
+    color: #D4D4E0;
+}
+
+.composer-chip-del {
+    min-width: 16px;
+    min-height: 16px;
+    padding: 0;
+    margin-left: 4px;
+    border-radius: 8px;
+    background-color: transparent;
+    color: #A7A8BA;
+    border: none;
+    font-size: 10px;
+}
+
+.composer-chip-del:hover {
+    color: #F48771;
+    background-color: rgba(244, 135, 113, 0.2);
+}
+
+/* Multi-line Composer Text View */
+.composer-text-view {
+    background-color: transparent;
+    color: #D4D4E0;
+    font-size: 13px;
+    line-height: 1.45;
+    caret-color: #4FC1FF;
+    padding: 2px 0;
+    min-height: 38px;
+}
+
+.composer-text-view:focus {
     background-color: transparent;
     box-shadow: none;
 }
 
-.btn-send {
+.composer-text-view text {
+    background-color: transparent;
+    color: #D4D4E0;
+}
+
+.composer-placeholder {
+    color: #A7A8BA;
+    font-size: 13px;
+    font-style: normal;
+}
+
+/* Composer Bottom Toolbar */
+.composer-toolbar {
+    margin-top: 6px;
+    padding-top: 4px;
+}
+
+.composer-pill-btn {
+    background-color: rgba(255, 255, 255, 0.06);
+    border: 1px solid #424252;
+    border-radius: 4px;
+    padding: 2px 7px;
+    color: #D4D4E0;
+    font-size: 11px;
+    font-weight: 500;
+    margin-right: 4px;
+    transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.composer-pill-btn:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+    border-color: #4FC1FF;
+    color: #ffffff;
+}
+
+.composer-pill-btn:active {
+    background-color: rgba(79, 193, 255, 0.2);
+    border-color: #4FC1FF;
+}
+
+.composer-icon-btn {
+    min-width: 26px;
+    min-height: 26px;
+    padding: 2px;
+    border-radius: 4px;
+    background-color: transparent;
+    color: #A7A8BA;
+    border: none;
+    font-size: 13px;
+    margin-right: 4px;
+}
+
+.composer-icon-btn:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #D4D4E0;
+}
+
+.composer-send-btn {
     min-width: 28px;
     min-height: 28px;
     border-radius: 14px;
-    background-color: #2563eb;
-    color: #ffffff;
-    font-weight: 600;
-    font-size: 12px;
-    padding: 2px 10px;
+    background-color: #4FC1FF;
+    color: #1E1E2A;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 0;
     border: none;
+    transition: background-color 120ms ease, transform 80ms ease;
 }
 
-.btn-send:hover {
-    background-color: #1d4ed8;
+.composer-send-btn:hover {
+    background-color: #79d2ff;
 }
 
-.btn-send:active {
-    background-color: #1e40af;
+.composer-send-btn:active {
+    background-color: #38bdf8;
+    transform: scale(0.96);
 }
 
-.shortcut-footer {
-    font-size: 10.5px;
-    color: #64748b;
-    margin-bottom: 6px;
+.composer-send-btn.stop {
+    background-color: #F48771;
+    color: #1E1E2A;
+    font-size: 12px;
 }
 
-/* ── Flyout Popovers (Prompts & Settings) ───────────────────────────────── */
+.composer-send-btn.stop:hover {
+    background-color: #fca5a5;
+}
+
+/* ── 6. Status Footer (Chân Trạng Thái) ─────────────────────────────────── */
+.status-footer {
+    padding: 4px 14px 8px 14px;
+}
+
+.status-footer-label {
+    font-size: 11px;
+    color: #A7A8BA;
+}
+
+.status-footer-icon {
+    font-size: 11px;
+    color: #A7A8BA;
+    margin-right: 4px;
+}
+
+.status-footer-dot {
+    min-width: 7px;
+    min-height: 7px;
+    border-radius: 4px;
+    background-color: #A7A8BA;
+}
+
+.status-footer-dot.working {
+    background-color: #4FC1FF;
+}
+
+.status-footer-dot.error {
+    background-color: #F48771;
+}
+
+/* ── Sleek Custom Popovers (Replaces Clunky Settings Flyout) ────────────── */
 popover,
 popover.menu {
     background: transparent;
     padding: 0;
 }
 
-.flyout-popover > contents {
-    background-color: #18191e;
-    border: 1px solid #2c2d36;
-    border-radius: 10px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
-    padding: 12px;
+.clean-popover > contents {
+    background-color: #292936;
+    border: 1px solid #424252;
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
+    padding: 6px;
+    color: #D4D4E0;
 }
 
-.flyout-header-title {
-    font-size: 13px;
+.clean-popover-title {
+    font-size: 11px;
     font-weight: 700;
-    color: #f4f4f5;
+    color: #A7A8BA;
+    letter-spacing: 0.04em;
+    padding: 4px 8px 6px 8px;
+    border-bottom: 1px solid #424252;
+    margin-bottom: 4px;
+}
+
+.clean-popover-item {
+    padding: 5px 10px;
+    border-radius: 5px;
+    background-color: transparent;
+    border: none;
+    color: #D4D4E0;
+    font-size: 12px;
+    text-align: left;
     margin-bottom: 2px;
 }
 
-.flyout-header-sub {
-    font-size: 11px;
-    color: #64748b;
-    margin-bottom: 8px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid #26272e;
+.clean-popover-item:hover {
+    background-color: #343644;
+    color: #ffffff;
 }
 
-.flyout-section-title {
+.clean-popover-item:active,
+.clean-popover-item.active {
+    background-color: #424252;
+    color: #4FC1FF;
+}
+
+.clean-popover-item-desc {
     font-size: 10px;
-    font-weight: 700;
-    color: #64748b;
-    letter-spacing: 0.05em;
-    margin-top: 10px;
-    margin-bottom: 3px;
+    color: #A7A8BA;
 }
 
-/* ── Session History Items & Actions ───────────────────────────────────── */
+.clean-popover-check {
+    padding: 4px 8px;
+    font-size: 11.5px;
+    color: #D4D4E0;
+}
+
+.clean-popover-check check {
+    min-width: 14px;
+    min-height: 14px;
+    border-radius: 4px;
+    background-color: #343644;
+    border: 1px solid #424252;
+}
+
+.clean-popover-check:checked check {
+    background-color: #4FC1FF;
+    border-color: #4FC1FF;
+    color: #1E1E2A;
+}
+
+/* ── Session History Items in Popover ───────────────────────────────────── */
 .prompt-row-box {
     padding: 3px 6px;
     border-radius: 6px;
@@ -730,8 +806,8 @@ popover.menu {
 }
 
 .prompt-row-box:hover {
-    background-color: #202127;
-    border-color: #2d2e38;
+    background-color: #343644;
+    border-color: #424252;
 }
 
 .prompt-item-btn {
@@ -746,8 +822,8 @@ popover.menu {
 .prompt-idx-pill {
     font-size: 10.5px;
     font-weight: 700;
-    color: #38bdf8;
-    background-color: rgba(56, 189, 248, 0.15);
+    color: #4FC1FF;
+    background-color: rgba(79, 193, 255, 0.15);
     border-radius: 4px;
     padding: 1px 5px;
     margin-right: 6px;
@@ -755,7 +831,7 @@ popover.menu {
 
 .prompt-snippet-text {
     font-size: 12px;
-    color: #e2e8f0;
+    color: #D4D4E0;
 }
 
 .prompt-delete-btn {
@@ -764,7 +840,7 @@ popover.menu {
     padding: 2px 4px;
     border-radius: 4px;
     background-color: transparent;
-    color: #64748b;
+    color: #A7A8BA;
     border: none;
     font-size: 11px;
     outline: none;
@@ -773,21 +849,15 @@ popover.menu {
 }
 
 .prompt-delete-btn:hover {
-    background-color: rgba(239, 68, 68, 0.2);
-    color: #f87171;
-}
-
-.prompt-delete-btn:focus,
-.prompt-delete-btn:focus-visible {
-    outline: none;
-    box-shadow: none;
+    background-color: rgba(244, 135, 113, 0.2);
+    color: #F48771;
 }
 
 /* ── Destructive Confirmation Dialog Box ───────────────────────────────── */
 .confirm-popover > contents {
-    background-color: #18191e;
-    border: 1px solid #2e303c;
-    border-radius: 9px;
+    background-color: #292936;
+    border: 1px solid #424252;
+    border-radius: 8px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9);
     padding: 12px 14px;
 }
@@ -795,20 +865,20 @@ popover.menu {
 .confirm-dialog-title {
     font-size: 12.5px;
     font-weight: 700;
-    color: #f4f4f5;
+    color: #D4D4E0;
     margin-bottom: 3px;
 }
 
 .confirm-dialog-desc {
     font-size: 11.5px;
-    color: #94a3b8;
+    color: #A7A8BA;
     margin-bottom: 10px;
     line-height: 1.4;
 }
 
 .btn-dialog-destructive {
-    background-color: #dc2626;
-    color: #ffffff;
+    background-color: #F48771;
+    color: #1E1E2A;
     font-size: 11.5px;
     font-weight: 600;
     padding: 4px 12px;
@@ -819,219 +889,130 @@ popover.menu {
 }
 
 .btn-dialog-destructive:hover {
-    background-color: #ef4444;
+    background-color: #fca5a5;
 }
 
 .btn-dialog-cancel {
-    background-color: #24252c;
-    color: #cbd5e1;
+    background-color: #343644;
+    color: #D4D4E0;
     font-size: 11.5px;
     font-weight: 500;
     padding: 4px 12px;
     border-radius: 5px;
-    border: 1px solid #2e303c;
+    border: 1px solid #424252;
     outline: none;
     box-shadow: none;
 }
 
 .btn-dialog-cancel:hover {
-    background-color: #2f303a;
+    background-color: #424252;
     color: #ffffff;
 }
 
-.settings-row-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: #94a3b8;
-    margin-top: 8px;
-    margin-bottom: 3px;
+/* ── Code Blocks (Rich Syntax Container) ────────────────────────────────── */
+.code-block-container {
+    background-color: #121316;
+    border: 1px solid #424252;
+    border-radius: 7px;
+    margin: 8px 0;
 }
 
-/* ── Dropdowns / Combo (Tightly Bounded VS Code Style) ─────────────────── */
-dropdown,
-dropdown.settings-dropdown {
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    outline: none;
-    outline-width: 0;
-    -gtk-outline-radius: 0;
-    margin-bottom: 4px;
-    min-width: 180px;
-    max-width: 240px;
-}
-
-dropdown > button,
-dropdown > button.combo,
-dropdown > button.toggle,
-dropdown.settings-dropdown > button {
-    background-color: #202127;
-    background-image: none;
-    border: 1px solid #2d2e38;
-    border-radius: 6px;
-    color: #f4f4f5;
-    padding: 4px 8px;
-    min-height: 26px;
-    box-shadow: none;
-    outline: none;
-    outline-width: 0;
-    -gtk-outline-radius: 0;
-}
-
-dropdown > button:hover,
-dropdown.settings-dropdown > button:hover {
-    background-color: #2a2c35;
-    border-color: #3d3f4d;
-    color: #ffffff;
-}
-
-dropdown > button:focus,
-dropdown > button:focus-visible,
-dropdown > button:focus-within,
-dropdown:focus > button,
-dropdown:focus-visible > button,
-dropdown.settings-dropdown > button:focus,
-dropdown.settings-dropdown > button:focus-visible {
-    background-color: #202127;
-    border-color: #3b82f6;
-    color: #ffffff;
-    outline: none;
-    box-shadow: none;
-}
-
-dropdown > button:checked,
-dropdown:checked > button,
-dropdown.settings-dropdown > button:checked,
-dropdown.settings-dropdown:checked > button,
-dropdown > button:active,
-dropdown:active > button,
-dropdown.settings-dropdown > button:active,
-dropdown.settings-dropdown:active > button {
-    background-color: #282a33;
-    border-color: #3b82f6;
-    color: #ffffff;
-    outline: none;
-    box-shadow: none;
-}
-
-dropdown > button label,
-dropdown > button.combo label,
-dropdown.settings-dropdown label,
-.settings-dropdown > button label {
-    color: #f4f4f5;
-    font-size: 11.5px;
-    font-weight: 500;
-}
-
-dropdown > button arrow,
-dropdown > button.combo arrow,
-dropdown.settings-dropdown arrow,
-.settings-dropdown > button arrow {
-    color: #94a3b8;
-}
-
-/* Dropdown popover menu - scoped tightly without ballooning */
-dropdown popover,
-dropdown popover.menu,
-popover.menu {
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    padding: 0;
-    margin: 0;
-}
-
-dropdown popover contents,
-dropdown popover > contents,
-dropdown popover.menu contents,
-dropdown popover.menu > contents,
-popover.menu contents,
-popover.menu > contents {
+.code-block-header {
     background-color: #18191e;
-    border: 1px solid #2c2d36;
-    border-radius: 8px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
-    padding: 3px;
-    margin: 0;
-    min-width: 170px;
-    max-width: 240px;
+    border-bottom: 1px solid #424252;
+    padding: 4px 10px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
 }
 
-dropdown popover scrolledwindow,
-dropdown popover.menu scrolledwindow,
-popover.menu scrolledwindow {
-    max-height: 200px;
-    background: transparent;
-    padding: 0;
-    margin: 0;
-}
-
-dropdown popover listview,
-dropdown popover.menu listview,
-popover.menu listview {
-    background: transparent;
-    min-width: 160px;
-    max-width: 234px;
-    padding: 0;
-}
-
-dropdown popover listview > row,
-dropdown popover row,
-popover.menu listview > row,
-popover.menu row {
-    padding: 4px 8px;
-    border-radius: 5px;
-    background-color: transparent;
-    color: #d4d4d8;
-    font-size: 11.5px;
-    min-height: 22px;
-    outline: none;
-    outline-width: 0;
-    box-shadow: none;
-}
-
-dropdown popover listview > row:hover,
-dropdown popover row:hover,
-popover.menu listview > row:hover,
-popover.menu row:hover {
-    background-color: #272830;
-    color: #ffffff;
-    outline: none;
-}
-
-dropdown popover listview > row:selected,
-dropdown popover row:selected,
-popover.menu listview > row:selected,
-popover.menu row:selected {
-    background-color: #2563eb;
-    color: #ffffff;
+.code-block-lang {
+    font-family: monospace;
+    font-size: 10.5px;
     font-weight: 600;
-    outline: none;
+    color: #A7A8BA;
 }
 
-/* ── Checkboxes ────────────────────────────────────────────────────────── */
-checkbutton {
-    padding: 3px 0;
-    font-size: 11.5px;
-    color: #cbd5e1;
-}
-
-checkbutton:hover {
-    color: #ffffff;
-}
-
-checkbutton check {
-    min-width: 14px;
-    min-height: 14px;
+.code-block-copy-btn {
+    font-size: 10.5px;
+    font-weight: 500;
+    color: #A7A8BA;
+    padding: 2px 6px;
     border-radius: 4px;
-    background-color: #202127;
-    border: 1px solid #2d2e38;
+    background-color: transparent;
+    border: 1px solid transparent;
 }
 
-checkbutton:checked check {
-    background-color: #2563eb;
-    border-color: #3b82f6;
-    color: #ffffff;
+.code-block-copy-btn:hover {
+    background-color: #292936;
+    color: #D4D4E0;
+    border-color: #424252;
+}
+
+.code-block-content {
+    padding: 8px 12px 10px 12px;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #D4D4E0;
+}
+
+/* ── Rich Structured Tables ────────────────────────────────────────────── */
+.markdown-table-card {
+    background-color: #1E1E2A;
+    border: 1px solid #424252;
+    border-radius: 6px;
+    margin: 8px 0;
+    padding: 0;
+}
+
+.markdown-table-scrolled {
+    background: transparent;
+    padding: 0;
+}
+
+.markdown-table-grid {
+    background: transparent;
+}
+
+.table-cell-header {
+    background-color: #292936;
+    border-bottom: 1px solid #424252;
+    padding: 6px 12px;
+}
+
+.table-header-text {
+    font-weight: 700;
+    font-size: 12px;
+    color: #D4D4E0;
+}
+
+.table-cell {
+    padding: 5px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.table-row-even {
+    background-color: #1E1E2A;
+}
+
+.table-row-odd {
+    background-color: #232330;
+}
+
+.table-cell-text {
+    font-size: 12px;
+    color: #D4D4E0;
+    line-height: 1.4;
+}
+
+.table-cell-text tt {
+    font-family: monospace;
+    font-size: 11px;
+    background: #292936;
+    border: 1px solid #424252;
+    border-radius: 3px;
+    padding: 1px 4px;
+    color: #D4D4E0;
 }
 
 /* ── Floating Chat Head Bubble ─────────────────────────────────────────── */
@@ -1048,46 +1029,52 @@ checkbutton:checked check {
     min-width: 44px;
     min-height: 44px;
     border-radius: 22px;
-    background-color: #18191e;
-    border: 1px solid #2d2e38;
+    background-color: #292936;
+    border: 1px solid #424252;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
     padding: 0;
 }
 
 .chat-head-btn:hover {
-    background-color: #24252d;
-    border-color: #38bdf8;
+    background-color: #343644;
+    border-color: #4FC1FF;
 }
 
 .chat-head-icon {
     font-size: 18px;
     font-weight: 700;
-    color: #38bdf8;
+    color: #4FC1FF;
 }
 
 .chat-head-dot {
     min-width: 8px;
     min-height: 8px;
     border-radius: 4px;
-    background-color: #22c55e;
+    background-color: #89D185;
     margin-left: 2px;
 }
 
 .chat-head-dot.working {
-    background-color: #38bdf8;
+    background-color: #4FC1FF;
 }
 
-/* ── Themes ────────────────────────────────────────────────────────────── */
+/* ── Theme Variants ────────────────────────────────────────────────────── */
+.theme-dark-glass #drawer-container,
+.theme-dark-glass.drawer-container {
+    background-color: #1E1E2A;
+    border-color: #424252;
+}
+
 .theme-oled #drawer-container,
 .theme-oled.drawer-container {
     background-color: #000000;
-    border-color: #1f1f23;
+    border-color: #222222;
 }
 
 .theme-slate #drawer-container,
 .theme-slate.drawer-container {
     background-color: #0f172a;
-    border-color: #1e293b;
+    border-color: #334155;
 }
 
 .theme-tokyo-night #drawer-container,
