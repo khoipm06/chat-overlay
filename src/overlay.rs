@@ -3,8 +3,8 @@ use gtk4::gdk;
 use gtk4::prelude::*;
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 
-pub fn init_layer_shell(window: &gtk4::ApplicationWindow) {
-    if gtk4_layer_shell::is_supported() {
+pub fn init_layer_shell(window: &gtk4::ApplicationWindow, use_layer_shell: bool) {
+    if use_layer_shell && gtk4_layer_shell::is_supported() {
         window.init_layer_shell();
         window.set_namespace("pi-ephemeral-overlay");
         window.set_layer(Layer::Overlay);
@@ -30,7 +30,7 @@ pub fn expand_overlay(
         window.set_anchor(Edge::Top, true);
         window.set_anchor(Edge::Bottom, true);
         window.set_margin(Edge::Right, right_margin.max(0));
-        window.set_margin(Edge::Top, top_margin.max(8));
+        window.set_margin(Edge::Top, top_margin.max(0));
         window.set_margin(Edge::Bottom, bottom_margin.max(0));
         window.set_keyboard_mode(gtk4_layer_shell::KeyboardMode::OnDemand);
     }
@@ -42,8 +42,8 @@ pub fn expand_overlay(
 pub fn update_margins(window: &gtk4::ApplicationWindow, top: i32, bottom: i32, right: i32) {
     if window.is_layer_window() {
         window.set_margin(Edge::Right, right.max(0));
-        window.set_margin(Edge::Top, top.max(8));
-        window.set_margin(Edge::Bottom, bottom.max(54));
+        window.set_margin(Edge::Top, top.max(0));
+        window.set_margin(Edge::Bottom, bottom.max(0));
     }
 }
 

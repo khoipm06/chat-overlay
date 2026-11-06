@@ -191,6 +191,7 @@ pub fn render_markdown_blocks_into(container: &gtk4::Box, raw: &str) {
                     .wrap(true)
                     .wrap_mode(gtk4::pango::WrapMode::WordChar)
                     .width_chars(1)
+                    .max_width_chars(50)
                     .xalign(0.0)
                     .css_classes(["bubble-assistant-text"])
                     .build();
@@ -200,6 +201,7 @@ pub fn render_markdown_blocks_into(container: &gtk4::Box, raw: &str) {
             MarkdownBlock::Code { lang, code } => {
                 let code_card = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
                 code_card.add_css_class("code-block-container");
+                code_card.set_hexpand(false);
 
                 // Header Bar: Language Badge + Spacer + Copy Button
                 let header_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);

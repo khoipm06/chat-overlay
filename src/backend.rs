@@ -36,27 +36,31 @@ pub struct PiRunner {
 
 pub fn resolve_pi_binary() -> std::path::PathBuf {
     if let Ok(path) = std::env::var("PATH") {
-        for dir in path.split(':') {
-            let candidate = std::path::Path::new(dir).join("pi");
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join("pi");
             if candidate.is_file() {
                 return candidate;
             }
         }
     }
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/var/home/khoipm".to_string());
-    let candidates = [
-        format!("{}/.bun/bin/pi", home),
-        format!("{}/.local/bin/pi", home),
-        format!("{}/.cargo/bin/pi", home),
-        "/var/home/khoipm/.bun/bin/pi".to_string(),
-        "/home/linuxbrew/.linuxbrew/bin/pi".to_string(),
-        "/usr/local/bin/pi".to_string(),
-        "/usr/bin/pi".to_string(),
-    ];
+    if let Ok(home) = std::env::var("HOME") {
+        let home_path = std::path::PathBuf::from(home);
+        let candidates = [
+            home_path.join(".bun/bin/pi"),
+            home_path.join(".local/bin/pi"),
+            home_path.join(".cargo/bin/pi"),
+            home_path.join(".local/share/mise/shims/pi"),
+        ];
+        for candidate in candidates {
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
 
-    for candidate in candidates {
-        let p = std::path::PathBuf::from(&candidate);
+    for sys in ["/home/linuxbrew/.linuxbrew/bin/pi", "/usr/local/bin/pi", "/usr/bin/pi"] {
+        let p = std::path::PathBuf::from(sys);
         if p.is_file() {
             return p;
         }
@@ -108,12 +112,15 @@ impl PiRunner {
         let mut cmd = Command::new(&pi_bin);
 
         // Prepend user toolchain directories to PATH for pi and its tool executions
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/var/home/khoipm".to_string());
         let current_path = std::env::var("PATH").unwrap_or_default();
-        let augmented_path = format!(
-            "{}/.local/share/mise/installs/node/lts/bin:{}/.local/share/mise/shims:{}/.bun/bin:{}/.local/bin:{}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
-            home, home, home, home, home, current_path
-        );
+        let augmented_path = if let Ok(home) = std::env::var("HOME") {
+            format!(
+                "{}/.local/share/mise/installs/node/lts/bin:{}/.local/share/mise/shims:{}/.bun/bin:{}/.local/bin:{}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
+                home, home, home, home, home, current_path
+            )
+        } else {
+            format!("/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}", current_path)
+        };
         cmd.env("PATH", augmented_path);
 
         cmd.arg("-p")

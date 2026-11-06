@@ -93,6 +93,7 @@ struct AppState {
     settings: AppSettings,
     top_margin: i32,
     bottom_margin: i32,
+    is_window_mode: bool,
 }
 
 struct AppContext {
@@ -108,12 +109,15 @@ fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
 
     // Augment PATH with standard user toolchain directories
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/var/home/khoipm".to_string());
     let current_path = std::env::var("PATH").unwrap_or_default();
-    let augmented = format!(
-        "{}/.local/share/mise/installs/node/lts/bin:{}/.local/share/mise/shims:{}/.bun/bin:{}/.local/bin:{}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
-        home, home, home, home, home, current_path
-    );
+    let augmented = if let Ok(home) = std::env::var("HOME") {
+        format!(
+            "{}/.local/share/mise/installs/node/lts/bin:{}/.local/share/mise/shims:{}/.bun/bin:{}/.local/bin:{}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
+            home, home, home, home, home, current_path
+        )
+    } else {
+        format!("/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}", current_path)
+    };
     std::env::set_var("PATH", augmented);
 
     // Fast path: if CLI args contain a prompt, send via IPC to running instance
@@ -162,6 +166,9 @@ fn main() -> glib::ExitCode {
     // Auto-register desktop file and icons if missing
     ensure_desktop_integration();
 
+    let is_window_mode = args.contains(&"--window".to_string());
+    let is_daemon = args.contains(&"--daemon".to_string()) || args.contains(&"--hidden".to_string());
+
     // Initialize Tokio runtime so background workers and IPC listener can call tokio::spawn
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -180,7 +187,7 @@ fn main() -> glib::ExitCode {
     app.connect_activate(move |application| {
         if app_ctx_clone.borrow().is_none() {
             load_css();
-            let ctx = build_ui(application);
+            let ctx = build_ui(application, is_window_mode, is_daemon);
             *app_ctx_clone.borrow_mut() = Some(ctx);
         }
     });
@@ -232,7 +239,7 @@ fn load_css() {
     }
 }
 
-fn build_ui(app: &gtk4::Application) -> AppContext {
+fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> AppContext {
     // Hold reference so daemon does not terminate when overlay window is hidden
     let hold_guard = app.hold();
 
@@ -244,7 +251,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         .default_width(initial_settings.width)
         .build();
 
-    overlay::init_layer_shell(&window);
+    overlay::init_layer_shell(&window, !is_window_mode);
+    if is_window_mode {
+        window.set_decorated(true);
+    }
 
     // Floating Chat Head Window
     let chat_head_window = gtk4::ApplicationWindow::builder()
@@ -258,7 +268,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         initial_settings.margin_top,
         initial_settings.margin_right,
     );
-    chat_head_window.set_visible(initial_settings.show_chat_head);
+    chat_head_window.set_visible(!is_window_mode && initial_settings.show_chat_head);
 
     let head_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     head_box.add_css_class("chat-head-box");
@@ -290,6 +300,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     let root_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     root_box.set_halign(gtk4::Align::End);
     root_box.set_vexpand(true);
+    root_box.set_hexpand(false);
 
     // Left Resize Grip
     let left_col = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -316,10 +327,12 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     drawer.add_css_class(&initial_settings.theme);
     drawer.set_width_request(initial_settings.width);
     drawer.set_vexpand(true);
+    drawer.set_hexpand(false);
 
     // ── Header Bar ──────────────────────────────────────────────────────────
     let header_bar = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     header_bar.add_css_class("header-bar");
+    header_bar.set_hexpand(false);
 
     // Status Dot
     let status_dot = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
@@ -347,28 +360,22 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     header_spacer.set_hexpand(true);
     header_bar.append(&header_spacer);
 
-    // Context & Status Badge
-    let context_pill = gtk4::Label::builder()
-        .label("1.0M Context • Ready")
-        .css_classes(["context-pill"])
-        .build();
-    header_bar.append(&context_pill);
-
-    // ── Prompts Flyout Button & Popover ─────────────────────────────────────
-    let btn_prompts = gtk4::MenuButton::builder()
-        .label("📋 Prompts (0)")
+    // ── Session Flyout Button & Popover ─────────────────────────────────────
+    let btn_session = gtk4::Button::builder()
+        .label("📋 Session (0)")
         .css_classes(["header-btn"])
         .tooltip_text("Session Prompts")
         .build();
 
     let prompts_popover = gtk4::Popover::new();
+    prompts_popover.set_parent(&btn_session);
     prompts_popover.add_css_class("flyout-popover");
 
     let prompts_pop_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
     prompts_pop_box.set_width_request(280);
 
     let prompts_pop_title = gtk4::Label::builder()
-        .label("Session Prompts")
+        .label("Session History")
         .css_classes(["flyout-header-title"])
         .xalign(0.0)
         .build();
@@ -400,17 +407,22 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     prompts_scroll.set_child(Some(&prompts_list_box));
     prompts_pop_box.append(&prompts_scroll);
     prompts_popover.set_child(Some(&prompts_pop_box));
-    btn_prompts.set_popover(Some(&prompts_popover));
-    header_bar.append(&btn_prompts);
+
+    let prompts_pop_toggle = prompts_popover.clone();
+    btn_session.connect_clicked(move |_| {
+        prompts_pop_toggle.popup();
+    });
+    header_bar.append(&btn_session);
 
     // ── Settings Flyout Button & Popover ────────────────────────────────────
-    let btn_settings = gtk4::MenuButton::builder()
+    let btn_settings = gtk4::Button::builder()
         .label("⚙ Settings")
         .css_classes(["header-btn"])
         .tooltip_text("Preferences")
         .build();
 
     let settings_popover = gtk4::Popover::new();
+    settings_popover.set_parent(&btn_settings);
     settings_popover.add_css_class("flyout-popover");
 
     let settings_pop_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
@@ -510,7 +522,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     settings_pop_box.append(&ephemeral_check);
 
     settings_popover.set_child(Some(&settings_pop_box));
-    btn_settings.set_popover(Some(&settings_popover));
+    let settings_pop_toggle = settings_popover.clone();
+    btn_settings.connect_clicked(move |_| {
+        settings_pop_toggle.popup();
+    });
     header_bar.append(&btn_settings);
 
     // Model pill button connects to settings popover
@@ -542,6 +557,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
         .vexpand(true)
+        .propagate_natural_width(false)
+        .propagate_natural_height(false)
         .css_classes(["chat-scroll"])
         .build();
 
@@ -598,10 +615,12 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
     // ── Bottom Floating Input Dock ──────────────────────────────────────────
     let input_dock = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     input_dock.add_css_class("input-dock");
+    input_dock.set_hexpand(false);
 
     let entry = gtk4::Entry::builder()
         .placeholder_text("Ask agent or type / for commands...")
         .hexpand(true)
+        .width_chars(1)
         .css_classes(["prompt-entry"])
         .build();
     input_dock.append(&entry);
@@ -631,7 +650,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         prompts: Vec::new(),
         settings: initial_settings.clone(),
         top_margin: initial_settings.margin_top,
-        bottom_margin: 12,
+        bottom_margin: initial_settings.margin_top,
+        is_window_mode,
     }));
 
     // Connect Welcome Pill Buttons to populate prompt
@@ -752,7 +772,12 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let state = state.clone();
         Rc::new(move || {
             let is_ephemeral = state.borrow().settings.ephemeral;
-            overlay::hide_overlay(&win);
+            let is_win = state.borrow().is_window_mode;
+            if !is_win {
+                overlay::hide_overlay(&win);
+            } else {
+                win.set_visible(false);
+            }
             state.borrow_mut().mode = OverlayMode::Hidden;
             if is_ephemeral {
                 state.borrow_mut().runner.abort();
@@ -765,11 +790,16 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let state = state.clone();
         let entry = entry.clone();
         Rc::new(move || {
-            let (top, bot, right) = {
+            let (top, bot, right, is_win) = {
                 let st = state.borrow();
-                (st.top_margin, st.bottom_margin, st.settings.margin_right)
+                (st.top_margin, st.bottom_margin, st.settings.margin_right, st.is_window_mode)
             };
-            overlay::expand_overlay(&win, top, bot, right);
+            if !is_win {
+                overlay::expand_overlay(&win, top, bot, right);
+            } else {
+                win.set_visible(true);
+                win.present();
+            }
             state.borrow_mut().mode = OverlayMode::Visible;
             entry.grab_focus();
         })
@@ -819,7 +849,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let welcome_box = welcome_box.clone();
         let prompts_list_box = prompts_list_box.clone();
         let prompt_empty_label = prompt_empty_label.clone();
-        let btn_prompts_clear = btn_prompts.clone();
+        let btn_session_clear = btn_session.clone();
         let state_clear = state.clone();
         btn_clear.connect_clicked(move |_| {
             state_clear.borrow_mut().runner.abort();
@@ -834,7 +864,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             }
             prompt_empty_label.set_visible(true);
             prompts_list_box.append(&prompt_empty_label);
-            btn_prompts_clear.set_label("📋 Prompts (0)");
+            btn_session_clear.set_label("📋 Session (0)");
             state_clear.borrow_mut().prompts.clear();
         });
     }
@@ -847,7 +877,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let welcome_box_ref = welcome_box.clone();
         let prompts_list_ref = prompts_list_box.clone();
         let prompt_empty_ref = prompt_empty_label.clone();
-        let btn_prompts_key = btn_prompts.clone();
+        let btn_session_key = btn_session.clone();
         let state_keys = state.clone();
 
         key_controller.connect_key_pressed(move |_, key, _, modifier| {
@@ -868,7 +898,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 }
                 prompt_empty_ref.set_visible(true);
                 prompts_list_ref.append(&prompt_empty_ref);
-                btn_prompts_key.set_label("📋 Prompts (0)");
+                btn_session_key.set_label("📋 Session (0)");
                 state_keys.borrow_mut().prompts.clear();
                 return glib::Propagation::Stop;
             }
@@ -959,6 +989,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                                     .selectable(true)
                                     .wrap(true)
                                     .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                                    .width_chars(1)
+                                    .max_width_chars(50)
                                     .xalign(0.0)
                                     .css_classes(["thinking-text"])
                                     .build();
@@ -1035,6 +1067,8 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                                     .selectable(true)
                                     .wrap(true)
                                     .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                                    .width_chars(1)
+                                    .max_width_chars(50)
                                     .xalign(0.0)
                                     .css_classes(["tool-args-box"])
                                     .build();
@@ -1130,7 +1164,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         let stream_tx = stream_tx.clone();
         let scroll_fn = scroll_to_bottom.clone();
         let scroll_to_widget = scroll_to_widget.clone();
-        let btn_prompts_submit = btn_prompts.clone();
+        let btn_session_submit = btn_session.clone();
 
         Rc::new(move || {
             let prompt = entry.text().trim().to_string();
@@ -1142,7 +1176,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
             welcome_box.set_visible(false);
 
             let prompt_idx = state.borrow().prompts.len() + 1;
-            btn_prompts_submit.set_label(&format!("📋 Prompts ({})", prompt_idx));
+            btn_session_submit.set_label(&format!("📋 Session ({})", prompt_idx));
 
             // 1. User Message Card
             let user_card = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
@@ -1178,6 +1212,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 .wrap(true)
                 .wrap_mode(gtk4::pango::WrapMode::WordChar)
                 .width_chars(1)
+                .max_width_chars(50)
                 .selectable(true)
                 .xalign(0.0)
                 .css_classes(["card-user-text"])
@@ -1297,6 +1332,7 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
                 .wrap(true)
                 .wrap_mode(gtk4::pango::WrapMode::WordChar)
                 .width_chars(1)
+                .max_width_chars(50)
                 .xalign(0.0)
                 .css_classes(["bubble-assistant-text"])
                 .build();
@@ -1398,8 +1434,10 @@ fn build_ui(app: &gtk4::Application) -> AppContext {
         }
     });
 
-    // Expand overlay on startup
-    expand_overlay_fn();
+    // Expand overlay on startup unless launched as hidden daemon
+    if !is_daemon {
+        expand_overlay_fn();
+    }
 
     AppContext {
         window,

@@ -32,6 +32,8 @@ pub struct AppSettings {
     pub margin_right: i32,
     #[serde(default = "default_margin_top")]
     pub margin_top: i32,
+    #[serde(default = "default_margin_bottom")]
+    pub margin_bottom: i32,
     #[serde(default = "default_show_chat_head")]
     pub show_chat_head: bool,
 }
@@ -41,11 +43,15 @@ fn default_show_chat_head() -> bool {
 }
 
 fn default_margin_right() -> i32 {
-    12
+    24
 }
 
 fn default_margin_top() -> i32 {
-    32
+    24
+}
+
+fn default_margin_bottom() -> i32 {
+    24
 }
 
 fn default_model() -> String {
@@ -94,6 +100,7 @@ impl Default for AppSettings {
             ephemeral: default_ephemeral(),
             margin_right: default_margin_right(),
             margin_top: default_margin_top(),
+            margin_bottom: default_margin_bottom(),
         }
     }
 }
@@ -139,6 +146,7 @@ impl AppSettings {
         self.height = self.height.clamp(MIN_HEIGHT, MAX_HEIGHT);
         self.margin_right = self.margin_right.clamp(0, 3840);
         self.margin_top = self.margin_top.clamp(0, 2160);
+        self.margin_bottom = self.margin_bottom.clamp(0, 2160);
         self
     }
 }
