@@ -199,7 +199,7 @@ fn highlight_generic(
                     out.push_str(&format_token(&cur_token, keywords, builtins));
                     cur_token.clear();
                 }
-                while let Some(c) = chars.next() {
+                for c in chars.by_ref() {
                     comment_rest.push(c);
                 }
                 out.push_str(&format!(

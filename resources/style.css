@@ -3,12 +3,49 @@
    Palette: Radix Dark Zinc (#121316, #18191e, #22232a, #2e303b, #f4f4f5, #3b82f6)
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ── Global Theme & Accent Color Isolation (No System Accent Bleed) ────── */
+@define-color accent_color #3b82f6;
+@define-color accent_bg_color #2563eb;
+@define-color accent_fg_color #ffffff;
+@define-color theme_selected_bg_color #2563eb;
+@define-color theme_selected_fg_color #ffffff;
+@define-color destructive_color #ef4444;
+@define-color destructive_bg_color #dc2626;
+@define-color destructive_fg_color #ffffff;
+
 /* ── Universal Reset ────────────────────────────────────────────────────── */
 * {
     background-image: none;
     text-shadow: none;
     -gtk-icon-shadow: none;
-    outline-style: none;
+    outline-style: none !important;
+    outline-width: 0 !important;
+    outline-color: transparent !important;
+    -gtk-outline-radius: 0;
+    box-shadow: none;
+    -gtk-secondary-caret-color: transparent;
+}
+
+*:focus,
+*:focus-visible,
+*:focus-within {
+    outline-style: none !important;
+    outline-width: 0 !important;
+    outline-color: transparent !important;
+    box-shadow: none;
+}
+
+button,
+button:focus,
+button:focus-visible,
+button:focus-within,
+button:hover,
+button:active,
+button:checked {
+    outline-style: none !important;
+    outline-width: 0 !important;
+    outline-color: transparent !important;
+    -gtk-outline-radius: 0;
     box-shadow: none;
     -gtk-secondary-caret-color: transparent;
 }
@@ -99,12 +136,23 @@ window {
     border: 1px solid #2d2e36;
     border-radius: 5px;
     padding: 2px 8px;
+    outline: none;
+    -gtk-outline-radius: 0;
 }
 
 .model-pill-btn:hover {
     background-color: #2a2b33;
     color: #ffffff;
     border-color: #3f414d;
+}
+
+.model-pill-btn:focus,
+.model-pill-btn:focus-visible {
+    background-color: #202127;
+    border-color: #3b82f6;
+    color: #ffffff;
+    outline: none;
+    box-shadow: none;
 }
 
 button.header-btn,
@@ -119,13 +167,28 @@ button.header-btn,
     font-weight: 500;
     box-shadow: none;
     outline: none;
+    outline-width: 0;
+    -gtk-outline-radius: 0;
 }
 
 button.header-btn:hover,
 .header-btn:hover {
     background-color: #2a2c35;
     background-image: none;
-    border-color: #3b82f6;
+    border-color: #3f414d;
+    color: #ffffff;
+    box-shadow: none;
+    outline: none;
+}
+
+button.header-btn:focus,
+button.header-btn:focus-visible,
+button.header-btn:focus-within,
+.header-btn:focus,
+.header-btn:focus-visible,
+.header-btn:focus-within {
+    background-color: #202127;
+    border-color: #3f414d;
     color: #ffffff;
     box-shadow: none;
     outline: none;
@@ -135,12 +198,19 @@ button.header-btn:active,
 button.header-btn:checked,
 .header-btn:active,
 .header-btn:checked {
-    background-color: #2a2c35;
+    background-color: #282a33;
     background-image: none;
-    border-color: #3b82f6;
+    border-color: #4b4d5c;
     color: #ffffff;
     box-shadow: none;
     outline: none;
+}
+
+button.header-btn:checked:hover,
+.header-btn:checked:hover {
+    background-color: #2e303c;
+    border-color: #585a6b;
+    color: #ffffff;
 }
 
 .header-btn.close {
@@ -359,12 +429,12 @@ button.header-btn:checked,
     line-height: 1.4;
 }
 
-/* ── Tool Call Card ────────────────────────────────────────────────────── */
+/* ── Tool Call Card (VS Code Inline Tool Invocation) ───────────────────── */
 .tool-call-card {
-    background-color: #121316;
-    border: 1px solid #27282f;
-    border-radius: 6px;
-    margin: 4px 0 6px 0;
+    background-color: #121317;
+    border: 1px solid #262730;
+    border-radius: 7px;
+    margin: 6px 0;
     padding: 6px 10px;
 }
 
@@ -372,7 +442,7 @@ button.header-btn:checked,
     font-family: monospace;
     font-size: 11.5px;
     font-weight: 600;
-    color: #38bdf8;
+    color: #e2e8f0;
 }
 
 .tool-badge-running {
@@ -381,7 +451,7 @@ button.header-btn:checked,
     color: #38bdf8;
     background-color: rgba(56, 189, 248, 0.15);
     border-radius: 3px;
-    padding: 1px 4px;
+    padding: 1px 6px;
 }
 
 .tool-badge-done {
@@ -390,7 +460,7 @@ button.header-btn:checked,
     color: #34d399;
     background-color: rgba(52, 211, 153, 0.15);
     border-radius: 3px;
-    padding: 1px 4px;
+    padding: 1px 6px;
 }
 
 .tool-badge-error {
@@ -399,17 +469,101 @@ button.header-btn:checked,
     color: #f87171;
     background-color: rgba(248, 113, 113, 0.15);
     border-radius: 3px;
-    padding: 1px 4px;
+    padding: 1px 6px;
 }
 
 .tool-args-box {
     margin-top: 4px;
-    font-family: monospace;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
     font-size: 11px;
-    color: #cbd5e1;
-    background-color: #0d0e11;
+    color: #94a3b8;
+    background-color: #0b0c0f;
     border-radius: 4px;
     padding: 4px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.tool-output-expander {
+    margin-top: 4px;
+}
+
+.tool-output-expander > title {
+    font-size: 11px;
+    color: #71717a;
+}
+
+.tool-output-expander:hover > title {
+    color: #a1a1aa;
+}
+
+.tool-output-box {
+    margin-top: 3px;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 11px;
+    color: #cbd5e1;
+    background-color: #090a0d;
+    border-radius: 4px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* ── Rich Structured Tables (VS Code Markdown Table Scrolling) ────────── */
+.markdown-table-card {
+    background-color: #141519;
+    border: 1px solid #272830;
+    border-radius: 7px;
+    margin: 8px 0;
+    padding: 0;
+}
+
+.markdown-table-scrolled {
+    background: transparent;
+    padding: 0;
+}
+
+.markdown-table-grid {
+    background: transparent;
+}
+
+.table-cell-header {
+    background-color: #1a1b22;
+    border-bottom: 1px solid #2b2c36;
+    padding: 6px 12px;
+}
+
+.table-header-text {
+    font-weight: 700;
+    font-size: 12px;
+    color: #f4f4f5;
+}
+
+.table-cell {
+    padding: 5px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.table-row-even {
+    background-color: #141519;
+}
+
+.table-row-odd {
+    background-color: #17181e;
+}
+
+.table-cell-text {
+    font-size: 12px;
+    color: #d4d4d8;
+    line-height: 1.4;
+}
+
+.table-cell-text tt {
+    font-family: monospace;
+    font-size: 11px;
+    background: #202228;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    padding: 1px 4px;
+    color: #e2e8f0;
 }
 
 /* ── Code Blocks ───────────────────────────────────────────────────────── */
@@ -536,8 +690,7 @@ popover.menu {
     padding: 0;
 }
 
-.flyout-popover > contents,
-popover > contents {
+.flyout-popover > contents {
     background-color: #18191e;
     border: 1px solid #2c2d36;
     border-radius: 10px;
@@ -569,17 +722,25 @@ popover > contents {
     margin-bottom: 3px;
 }
 
-.prompt-item-btn {
-    background-color: transparent;
-    border: 1px solid transparent;
+/* ── Session History Items & Actions ───────────────────────────────────── */
+.prompt-row-box {
+    padding: 3px 6px;
     border-radius: 6px;
-    padding: 6px 8px;
-    margin-bottom: 3px;
+    border: 1px solid transparent;
 }
 
-.prompt-item-btn:hover {
+.prompt-row-box:hover {
     background-color: #202127;
     border-color: #2d2e38;
+}
+
+.prompt-item-btn {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    padding: 4px 0;
+    margin: 0;
 }
 
 .prompt-idx-pill {
@@ -597,6 +758,87 @@ popover > contents {
     color: #e2e8f0;
 }
 
+.prompt-delete-btn {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background-color: transparent;
+    color: #64748b;
+    border: none;
+    font-size: 11px;
+    outline: none;
+    box-shadow: none;
+    margin-left: 4px;
+}
+
+.prompt-delete-btn:hover {
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+.prompt-delete-btn:focus,
+.prompt-delete-btn:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+
+/* ── Destructive Confirmation Dialog Box ───────────────────────────────── */
+.confirm-popover > contents {
+    background-color: #18191e;
+    border: 1px solid #2e303c;
+    border-radius: 9px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9);
+    padding: 12px 14px;
+}
+
+.confirm-dialog-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #f4f4f5;
+    margin-bottom: 3px;
+}
+
+.confirm-dialog-desc {
+    font-size: 11.5px;
+    color: #94a3b8;
+    margin-bottom: 10px;
+    line-height: 1.4;
+}
+
+.btn-dialog-destructive {
+    background-color: #dc2626;
+    color: #ffffff;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 5px;
+    border: none;
+    outline: none;
+    box-shadow: none;
+}
+
+.btn-dialog-destructive:hover {
+    background-color: #ef4444;
+}
+
+.btn-dialog-cancel {
+    background-color: #24252c;
+    color: #cbd5e1;
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 4px 12px;
+    border-radius: 5px;
+    border: 1px solid #2e303c;
+    outline: none;
+    box-shadow: none;
+}
+
+.btn-dialog-cancel:hover {
+    background-color: #2f303a;
+    color: #ffffff;
+}
+
 .settings-row-label {
     font-size: 11px;
     font-weight: 600;
@@ -605,50 +847,35 @@ popover > contents {
     margin-bottom: 3px;
 }
 
-/* ── Dropdowns / Combo ─────────────────────────────────────────────────── */
+/* ── Dropdowns / Combo (Tightly Bounded VS Code Style) ─────────────────── */
 dropdown,
 dropdown.settings-dropdown {
     background: transparent;
     border: none;
     box-shadow: none;
-    outline-style: none;
+    outline: none;
+    outline-width: 0;
+    -gtk-outline-radius: 0;
     margin-bottom: 4px;
+    min-width: 180px;
+    max-width: 240px;
 }
 
 dropdown > button,
 dropdown > button.combo,
 dropdown > button.toggle,
-dropdown > button:focus,
-dropdown > button:focus-within,
-dropdown > button:hover,
-dropdown > button:active,
-dropdown > button:checked,
-dropdown:focus > button,
-dropdown:focus-within > button,
-dropdown:active > button,
-dropdown:checked > button,
-dropdown.settings-dropdown > button,
-dropdown.settings-dropdown > button.combo,
-dropdown.settings-dropdown > button.toggle,
-dropdown.settings-dropdown > button:focus,
-dropdown.settings-dropdown > button:focus-within,
-dropdown.settings-dropdown > button:hover,
-dropdown.settings-dropdown > button:active,
-dropdown.settings-dropdown > button:checked,
-dropdown.settings-dropdown:focus > button,
-dropdown.settings-dropdown:focus-within > button,
-dropdown.settings-dropdown:active > button,
-dropdown.settings-dropdown:checked > button,
-.settings-dropdown > button {
+dropdown.settings-dropdown > button {
     background-color: #202127;
     background-image: none;
     border: 1px solid #2d2e38;
     border-radius: 6px;
     color: #f4f4f5;
-    padding: 5px 8px;
-    min-height: 28px;
+    padding: 4px 8px;
+    min-height: 26px;
     box-shadow: none;
-    outline-style: none;
+    outline: none;
+    outline-width: 0;
+    -gtk-outline-radius: 0;
 }
 
 dropdown > button:hover,
@@ -656,6 +883,20 @@ dropdown.settings-dropdown > button:hover {
     background-color: #2a2c35;
     border-color: #3d3f4d;
     color: #ffffff;
+}
+
+dropdown > button:focus,
+dropdown > button:focus-visible,
+dropdown > button:focus-within,
+dropdown:focus > button,
+dropdown:focus-visible > button,
+dropdown.settings-dropdown > button:focus,
+dropdown.settings-dropdown > button:focus-visible {
+    background-color: #202127;
+    border-color: #3b82f6;
+    color: #ffffff;
+    outline: none;
+    box-shadow: none;
 }
 
 dropdown > button:checked,
@@ -666,9 +907,11 @@ dropdown > button:active,
 dropdown:active > button,
 dropdown.settings-dropdown > button:active,
 dropdown.settings-dropdown:active > button {
-    background-color: #2a2c35;
+    background-color: #282a33;
     border-color: #3b82f6;
     color: #ffffff;
+    outline: none;
+    box-shadow: none;
 }
 
 dropdown > button label,
@@ -676,7 +919,7 @@ dropdown > button.combo label,
 dropdown.settings-dropdown label,
 .settings-dropdown > button label {
     color: #f4f4f5;
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
 }
 
@@ -687,30 +930,64 @@ dropdown.settings-dropdown arrow,
     color: #94a3b8;
 }
 
+/* Dropdown popover menu - scoped tightly without ballooning */
 dropdown popover,
+dropdown popover.menu,
 popover.menu {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+}
+
+dropdown popover contents,
+dropdown popover > contents,
+dropdown popover.menu contents,
+dropdown popover.menu > contents,
+popover.menu contents,
+popover.menu > contents {
     background-color: #18191e;
     border: 1px solid #2c2d36;
     border-radius: 8px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
-    padding: 4px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
+    padding: 3px;
+    margin: 0;
+    min-width: 170px;
+    max-width: 240px;
+}
+
+dropdown popover scrolledwindow,
+dropdown popover.menu scrolledwindow,
+popover.menu scrolledwindow {
+    max-height: 200px;
+    background: transparent;
+    padding: 0;
+    margin: 0;
 }
 
 dropdown popover listview,
+dropdown popover.menu listview,
 popover.menu listview {
     background: transparent;
+    min-width: 160px;
+    max-width: 234px;
+    padding: 0;
 }
 
 dropdown popover listview > row,
 dropdown popover row,
 popover.menu listview > row,
 popover.menu row {
-    padding: 6px 10px;
+    padding: 4px 8px;
     border-radius: 5px;
     background-color: transparent;
     color: #d4d4d8;
-    font-size: 12px;
-    min-height: 24px;
+    font-size: 11.5px;
+    min-height: 22px;
+    outline: none;
+    outline-width: 0;
+    box-shadow: none;
 }
 
 dropdown popover listview > row:hover,
@@ -719,15 +996,17 @@ popover.menu listview > row:hover,
 popover.menu row:hover {
     background-color: #272830;
     color: #ffffff;
+    outline: none;
 }
 
 dropdown popover listview > row:selected,
 dropdown popover row:selected,
 popover.menu listview > row:selected,
 popover.menu row:selected {
-    background-color: #2e3242;
-    color: #38bdf8;
+    background-color: #2563eb;
+    color: #ffffff;
     font-weight: 600;
+    outline: none;
 }
 
 /* ── Checkboxes ────────────────────────────────────────────────────────── */

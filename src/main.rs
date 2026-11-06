@@ -14,6 +14,7 @@ use gtk4::glib::{self, LogWriterOutput};
 use gtk4::prelude::*;
 use settings::AppSettings;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 use tokio::sync::mpsc;
 
@@ -50,14 +51,7 @@ pub const THINKING_LEVELS: &[(&str, &str)] = &[
 ];
 
 struct TrackedPrompt {
-    #[allow(dead_code)]
     index: usize,
-    #[allow(dead_code)]
-    text: String,
-    #[allow(dead_code)]
-    widget: gtk4::Box,
-    #[allow(dead_code)]
-    bubble: gtk4::Box,
 }
 
 type ActiveThoughtState = Option<(
@@ -67,17 +61,19 @@ type ActiveThoughtState = Option<(
     std::time::Instant,
 )>;
 
-struct ActiveStreamTarget {
-    content_box: gtk4::Box,
-    label: gtk4::Label,
-    parent_expander: gtk4::Expander,
-    steps_expander: gtk4::Expander,
-    timeline_box: gtk4::Box,
-    active_thought_expander: Rc<RefCell<ActiveThoughtState>>,
+struct ToolCardEntry {
+    card: gtk4::Box,
+    badge: gtk4::Label,
     start_time: std::time::Instant,
-    metrics_badge: gtk4::Label,
+}
+
+struct ActiveStreamTarget {
+    turn_body: gtk4::Box,
     full_text: Rc<RefCell<String>>,
-    tool_count: Rc<Cell<usize>>,
+    active_thought_expander: Rc<RefCell<ActiveThoughtState>>,
+    active_markdown: Rc<RefCell<Option<(gtk4::Box, String)>>>,
+    tools: Rc<RefCell<HashMap<String, ToolCardEntry>>>,
+    metrics_badge: gtk4::Label,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -350,7 +346,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
 
     // Model Pill Button (opens settings)
     let model_pill = gtk4::Button::builder()
-        .label(&format!("{} ▾", initial_settings.model))
+        .label(format!("{} ▾", initial_settings.model))
         .css_classes(["model-pill-btn"])
         .tooltip_text("Active Model (Click to change)")
         .build();
@@ -843,16 +839,29 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         });
     }
 
-    // Clear Button resets transcript
-    {
+    // Setup tokio stream channel
+    let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<(u64, StreamEvent)>();
+    let active_stream: Rc<RefCell<Option<ActiveStreamTarget>>> = Rc::new(RefCell::new(None));
+
+    // Clear transcript helper
+    let execute_clear = {
         let messages_box = messages_box.clone();
         let welcome_box = welcome_box.clone();
         let prompts_list_box = prompts_list_box.clone();
         let prompt_empty_label = prompt_empty_label.clone();
         let btn_session_clear = btn_session.clone();
         let state_clear = state.clone();
-        btn_clear.connect_clicked(move |_| {
+        let active_stream_clear = active_stream.clone();
+        let status_dot_clear = status_dot.clone();
+        let head_dot_clear = head_dot.clone();
+
+        Rc::new(move || {
             state_clear.borrow_mut().runner.abort();
+            *active_stream_clear.borrow_mut() = None;
+            status_dot_clear.remove_css_class("working");
+            status_dot_clear.remove_css_class("error");
+            head_dot_clear.remove_css_class("working");
+
             while let Some(child) = messages_box.first_child() {
                 messages_box.remove(&child);
             }
@@ -866,19 +875,88 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             prompts_list_box.append(&prompt_empty_label);
             btn_session_clear.set_label("📋 Session (0)");
             state_clear.borrow_mut().prompts.clear();
+        })
+    };
+
+    // Destructive Confirmation Popover for Clear action
+    let confirm_popover = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["confirm-popover"])
+        .build();
+    confirm_popover.set_parent(&btn_clear);
+
+    let confirm_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+
+    let confirm_title = gtk4::Label::builder()
+        .label("Clear Conversation?")
+        .css_classes(["confirm-dialog-title"])
+        .xalign(0.0)
+        .build();
+    confirm_box.append(&confirm_title);
+
+    let confirm_desc = gtk4::Label::builder()
+        .label("This will erase all active messages and session history.")
+        .css_classes(["confirm-dialog-desc"])
+        .wrap(true)
+        .wrap_mode(gtk4::pango::WrapMode::WordChar)
+        .width_chars(1)
+        .max_width_chars(32)
+        .xalign(0.0)
+        .build();
+    confirm_box.append(&confirm_desc);
+
+    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    btn_row.set_halign(gtk4::Align::End);
+
+    let btn_cancel = gtk4::Button::builder()
+        .label("Cancel")
+        .css_classes(["btn-dialog-cancel"])
+        .build();
+
+    let btn_confirm = gtk4::Button::builder()
+        .label("Clear All")
+        .css_classes(["btn-dialog-destructive"])
+        .build();
+
+    btn_row.append(&btn_cancel);
+    btn_row.append(&btn_confirm);
+    confirm_box.append(&btn_row);
+    confirm_popover.set_child(Some(&confirm_box));
+
+    {
+        let pop_ref = confirm_popover.clone();
+        btn_cancel.connect_clicked(move |_| {
+            pop_ref.popdown();
         });
     }
 
-    // Keyboard Shortcuts (Esc to close, Ctrl+L to clear)
+    {
+        let pop_ref = confirm_popover.clone();
+        let do_clear = execute_clear.clone();
+        btn_confirm.connect_clicked(move |_| {
+            pop_ref.popdown();
+            do_clear();
+        });
+    }
+
+    // Clear Button shows confirmation popover
+    {
+        let pop_ref = confirm_popover.clone();
+        let state_check = state.clone();
+        btn_clear.connect_clicked(move |_| {
+            if !state_check.borrow().prompts.is_empty() {
+                pop_ref.popup();
+            }
+        });
+    }
+
+    // Keyboard Shortcuts (Esc to close, Ctrl+L to confirm clear)
     {
         let key_controller = gtk4::EventControllerKey::new();
         let hide_fn = hide_overlay_fn.clone();
-        let messages_box_ref = messages_box.clone();
-        let welcome_box_ref = welcome_box.clone();
-        let prompts_list_ref = prompts_list_box.clone();
-        let prompt_empty_ref = prompt_empty_label.clone();
-        let btn_session_key = btn_session.clone();
-        let state_keys = state.clone();
+        let pop_ref = confirm_popover.clone();
+        let state_check = state.clone();
 
         key_controller.connect_key_pressed(move |_, key, _, modifier| {
             if key == gdk::Key::Escape {
@@ -886,20 +964,9 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 return glib::Propagation::Stop;
             }
             if modifier.contains(gdk::ModifierType::CONTROL_MASK) && key == gdk::Key::l {
-                state_keys.borrow_mut().runner.abort();
-                while let Some(child) = messages_box_ref.first_child() {
-                    messages_box_ref.remove(&child);
+                if !state_check.borrow().prompts.is_empty() {
+                    pop_ref.popup();
                 }
-                welcome_box_ref.set_visible(true);
-                messages_box_ref.append(&welcome_box_ref);
-
-                while let Some(child) = prompts_list_ref.first_child() {
-                    prompts_list_ref.remove(&child);
-                }
-                prompt_empty_ref.set_visible(true);
-                prompts_list_ref.append(&prompt_empty_ref);
-                btn_session_key.set_label("📋 Session (0)");
-                state_keys.borrow_mut().prompts.clear();
                 return glib::Propagation::Stop;
             }
             glib::Propagation::Proceed
@@ -929,10 +996,6 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         window.add_controller(focus_controller);
     }
 
-    // Setup tokio stream channel
-    let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<(u64, StreamEvent)>();
-    let active_stream: Rc<RefCell<Option<ActiveStreamTarget>>> = Rc::new(RefCell::new(None));
-
     // Stream consumer loop
     {
         let active_stream_clone = active_stream.clone();
@@ -949,32 +1012,8 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 }
 
                 match event {
-                    StreamEvent::TextDelta(delta) => {
-                        if let Some(ref target) = *active_stream_clone.borrow() {
-                            if let Some((ref exp, _, _, thought_start)) =
-                                *target.active_thought_expander.borrow()
-                            {
-                                let elapsed = thought_start.elapsed().as_secs();
-                                exp.set_label(Some(&format!("Thought for {}s ▾", elapsed.max(1))));
-                                exp.set_expanded(false);
-                            }
-                            *target.active_thought_expander.borrow_mut() = None;
-
-                            let mut full = target.full_text.borrow_mut();
-                            full.push_str(&delta);
-                            if full.contains("```") {
-                                crate::render::render_markdown_blocks_into(&target.content_box, &full);
-                            } else {
-                                format::apply_assistant_markup(&target.label, &full);
-                            }
-                        }
-                        scroll_fn();
-                    }
                     StreamEvent::ThinkingDelta(delta) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            target.parent_expander.set_visible(true);
-                            target.steps_expander.set_visible(true);
-
                             let mut cur_thought = target.active_thought_expander.borrow_mut();
                             if cur_thought.is_none() {
                                 let item_expander = gtk4::Expander::builder()
@@ -996,7 +1035,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                                     .build();
                                 inner_box.append(&item_label);
                                 item_expander.set_child(Some(&inner_box));
-                                target.timeline_box.append(&item_expander);
+                                target.turn_body.append(&item_expander);
                                 *cur_thought = Some((
                                     item_expander,
                                     item_label,
@@ -1015,11 +1054,8 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                         }
                         scroll_fn();
                     }
-                    StreamEvent::ToolCall { name, args } => {
+                    StreamEvent::ToolStart { id, name, args } => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            target.parent_expander.set_visible(true);
-                            target.steps_expander.set_visible(true);
-
                             if let Some((ref exp, _, _, thought_start)) =
                                 *target.active_thought_expander.borrow()
                             {
@@ -1028,25 +1064,23 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                                 exp.set_expanded(false);
                             }
                             *target.active_thought_expander.borrow_mut() = None;
+                            *target.active_markdown.borrow_mut() = None;
 
-                            target.tool_count.set(target.tool_count.get() + 1);
-                            let count = target.tool_count.get();
-                            let steps_lbl = if count == 1 {
-                                "Used 1 tool ▾".to_string()
-                            } else {
-                                format!("Used {} tools ▾", count)
-                            };
-                            target.steps_expander.set_label(Some(&steps_lbl));
-
-                            // Tool Card
                             let tool_card = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
                             tool_card.add_css_class("tool-call-card");
+                            tool_card.set_hexpand(false);
+                            tool_card.set_halign(gtk4::Align::Fill);
 
                             let card_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                            card_hdr.set_hexpand(false);
+                            let action_label = format::format_tool_call_label(&name, &args);
                             let name_lbl = gtk4::Label::builder()
-                                .label(&format!("⚙ {}", name))
+                                .label(format!("⚙ {}", action_label))
                                 .css_classes(["tool-name-label"])
                                 .halign(gtk4::Align::Start)
+                                .ellipsize(gtk4::pango::EllipsizeMode::End)
+                                .max_width_chars(32)
+                                .hexpand(false)
                                 .build();
                             card_hdr.append(&name_lbl);
 
@@ -1061,21 +1095,228 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                             card_hdr.append(&badge);
                             tool_card.append(&card_hdr);
 
-                            if !args.trim().is_empty() {
+                            let trimmed_args = args.trim();
+                            if !trimmed_args.is_empty() && trimmed_args != "{}" {
                                 let args_lbl = gtk4::Label::builder()
-                                    .label(&args)
+                                    .label(trimmed_args)
                                     .selectable(true)
                                     .wrap(true)
                                     .wrap_mode(gtk4::pango::WrapMode::WordChar)
                                     .width_chars(1)
-                                    .max_width_chars(50)
+                                    .max_width_chars(48)
                                     .xalign(0.0)
                                     .css_classes(["tool-args-box"])
                                     .build();
                                 tool_card.append(&args_lbl);
                             }
 
-                            target.timeline_box.append(&tool_card);
+                            target.turn_body.append(&tool_card);
+                            target.tools.borrow_mut().insert(
+                                id,
+                                ToolCardEntry {
+                                    card: tool_card,
+                                    badge,
+                                    start_time: std::time::Instant::now(),
+                                },
+                            );
+                        }
+                        scroll_fn();
+                    }
+                    StreamEvent::ToolEnd {
+                        id,
+                        name: _,
+                        result,
+                        is_error,
+                        duration_ms,
+                    } => {
+                        if let Some(ref target) = *active_stream_clone.borrow() {
+                            let mut tools_map = target.tools.borrow_mut();
+                            if let Some(entry) = tools_map.get_mut(&id) {
+                                let dur_s = if duration_ms > 0 {
+                                    duration_ms / 1000
+                                } else {
+                                    entry.start_time.elapsed().as_secs()
+                                };
+                                entry.badge.remove_css_class("tool-badge-running");
+                                if is_error {
+                                    entry.badge.set_text(&format!(
+                                        "ERROR ({})",
+                                        format::format_duration_sec(dur_s)
+                                    ));
+                                    entry.badge.add_css_class("tool-badge-error");
+                                } else {
+                                    entry.badge.set_text(&format!(
+                                        "DONE ({})",
+                                        format::format_duration_sec(dur_s)
+                                    ));
+                                    entry.badge.add_css_class("tool-badge-done");
+                                }
+
+                                let trimmed_res = result.trim();
+                                if !trimmed_res.is_empty() {
+                                    let output_expander = gtk4::Expander::builder()
+                                        .label("Output ▾")
+                                        .css_classes(["tool-output-expander"])
+                                        .expanded(false)
+                                        .build();
+
+                                    let out_scroll = gtk4::ScrolledWindow::builder()
+                                        .hscrollbar_policy(gtk4::PolicyType::Automatic)
+                                        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+                                        .max_content_height(200)
+                                        .propagate_natural_height(true)
+                                        .build();
+
+                                    let out_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+                                    out_box.add_css_class("tool-output-box");
+                                    let out_lbl = gtk4::Label::builder()
+                                        .label(trimmed_res)
+                                        .selectable(true)
+                                        .wrap(true)
+                                        .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                                        .width_chars(1)
+                                        .max_width_chars(48)
+                                        .xalign(0.0)
+                                        .build();
+                                    out_box.append(&out_lbl);
+                                    out_scroll.set_child(Some(&out_box));
+                                    output_expander.set_child(Some(&out_scroll));
+                                    entry.card.append(&output_expander);
+                                }
+                            }
+                        }
+                        scroll_fn();
+                    }
+                    StreamEvent::ToolCall { name, args } => {
+                        if let Some(ref target) = *active_stream_clone.borrow() {
+                            if let Some((ref exp, _, _, thought_start)) =
+                                *target.active_thought_expander.borrow()
+                            {
+                                let elapsed = thought_start.elapsed().as_secs();
+                                exp.set_label(Some(&format!("Thought for {}s ▾", elapsed.max(1))));
+                                exp.set_expanded(false);
+                            }
+                            *target.active_thought_expander.borrow_mut() = None;
+                            *target.active_markdown.borrow_mut() = None;
+
+                            let tool_card = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+                            tool_card.add_css_class("tool-call-card");
+                            tool_card.set_hexpand(false);
+                            tool_card.set_halign(gtk4::Align::Fill);
+
+                            let card_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                            card_hdr.set_hexpand(false);
+                            let action_label = format::format_tool_call_label(&name, &args);
+                            let name_lbl = gtk4::Label::builder()
+                                .label(format!("⚙ {}", action_label))
+                                .css_classes(["tool-name-label"])
+                                .halign(gtk4::Align::Start)
+                                .ellipsize(gtk4::pango::EllipsizeMode::End)
+                                .max_width_chars(32)
+                                .hexpand(false)
+                                .build();
+                            card_hdr.append(&name_lbl);
+
+                            let hdr_sp = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+                            hdr_sp.set_hexpand(true);
+                            card_hdr.append(&hdr_sp);
+
+                            let badge = gtk4::Label::builder()
+                                .label("DONE")
+                                .css_classes(["tool-badge-done"])
+                                .build();
+                            card_hdr.append(&badge);
+                            tool_card.append(&card_hdr);
+
+                            let trimmed_args = args.trim();
+                            if !trimmed_args.is_empty() && trimmed_args != "{}" {
+                                let args_lbl = gtk4::Label::builder()
+                                    .label(trimmed_args)
+                                    .selectable(true)
+                                    .wrap(true)
+                                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                                    .width_chars(1)
+                                    .max_width_chars(48)
+                                    .xalign(0.0)
+                                    .css_classes(["tool-args-box"])
+                                    .build();
+                                tool_card.append(&args_lbl);
+                            }
+
+                            target.turn_body.append(&tool_card);
+                        }
+                        scroll_fn();
+                    }
+                    StreamEvent::TextDelta(delta) => {
+                        if let Some(ref target) = *active_stream_clone.borrow() {
+                            if let Some((ref exp, _, _, thought_start)) =
+                                *target.active_thought_expander.borrow()
+                            {
+                                let elapsed = thought_start.elapsed().as_secs();
+                                exp.set_label(Some(&format!("Thought for {}s ▾", elapsed.max(1))));
+                                exp.set_expanded(false);
+                            }
+                            *target.active_thought_expander.borrow_mut() = None;
+
+                            target.full_text.borrow_mut().push_str(&delta);
+
+                            let mut md_opt = target.active_markdown.borrow_mut();
+                            if md_opt.is_none() {
+                                let md_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+                                target.turn_body.append(&md_box);
+                                *md_opt = Some((md_box, String::new()));
+                            }
+
+                            if let Some((ref md_box, ref mut md_text)) = *md_opt {
+                                md_text.push_str(&delta);
+                                if md_text.contains("```") || md_text.contains('|') {
+                                    crate::render::render_markdown_blocks_into(md_box, md_text);
+                                } else {
+                                    if md_box.first_child().is_none() {
+                                        let lbl = gtk4::Label::builder()
+                                            .selectable(true)
+                                            .wrap(true)
+                                            .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                                            .width_chars(1)
+                                            .max_width_chars(50)
+                                            .xalign(0.0)
+                                            .css_classes(["bubble-assistant-text"])
+                                            .build();
+                                        md_box.append(&lbl);
+                                    }
+                                    if let Some(lbl) = md_box
+                                        .first_child()
+                                        .and_then(|w| w.downcast::<gtk4::Label>().ok())
+                                    {
+                                        format::apply_assistant_markup(&lbl, md_text);
+                                    }
+                                }
+                            }
+                        }
+                        scroll_fn();
+                    }
+                    StreamEvent::Content(line) => {
+                        if let Some(ref target) = *active_stream_clone.borrow() {
+                            let mut full = target.full_text.borrow_mut();
+                            if !full.is_empty() {
+                                full.push('\n');
+                            }
+                            full.push_str(&line);
+
+                            let mut md_opt = target.active_markdown.borrow_mut();
+                            if md_opt.is_none() {
+                                let md_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+                                target.turn_body.append(&md_box);
+                                *md_opt = Some((md_box, String::new()));
+                            }
+
+                            if let Some((ref md_box, ref mut md_text)) = *md_opt {
+                                if !md_text.is_empty() {
+                                    md_text.push('\n');
+                                }
+                                md_text.push_str(&line);
+                                crate::render::render_markdown_blocks_into(md_box, md_text);
+                            }
                         }
                         scroll_fn();
                     }
@@ -1089,29 +1330,22 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                             ));
                         }
                     }
-                    StreamEvent::Content(line) => {
-                        if let Some(ref target) = *active_stream_clone.borrow() {
-                            let mut full = target.full_text.borrow_mut();
-                            if !full.is_empty() {
-                                full.push('\n');
-                            }
-                            full.push_str(&line);
-                            if full.contains("```") {
-                                crate::render::render_markdown_blocks_into(&target.content_box, &full);
-                            } else {
-                                format::apply_assistant_markup(&target.label, &full);
-                            }
-                        }
-                        scroll_fn();
-                    }
                     StreamEvent::Error(err_line) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            let mut full = target.full_text.borrow_mut();
-                            if !full.is_empty() {
-                                full.push('\n');
+                            let err_msg = format!("[Error] {}", err_line);
+                            target.full_text.borrow_mut().push_str(&err_msg);
+
+                            let mut md_opt = target.active_markdown.borrow_mut();
+                            if md_opt.is_none() {
+                                let md_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+                                target.turn_body.append(&md_box);
+                                *md_opt = Some((md_box, String::new()));
                             }
-                            full.push_str(&format!("[Error] {}", err_line));
-                            crate::render::render_markdown_blocks_into(&target.content_box, &full);
+
+                            if let Some((ref md_box, ref mut md_text)) = *md_opt {
+                                md_text.push_str(&err_msg);
+                                crate::render::render_markdown_blocks_into(md_box, md_text);
+                            }
                         }
                         status_dot_clone.remove_css_class("working");
                         status_dot_clone.add_css_class("error");
@@ -1128,16 +1362,12 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                             }
                             *target.active_thought_expander.borrow_mut() = None;
 
-                            let total_secs = target.start_time.elapsed().as_secs();
-                            target.parent_expander.set_label(Some(&format!(
-                                "Worked for {} ▾",
-                                format::format_duration_sec(total_secs)
-                            )));
-                            target.parent_expander.set_expanded(false);
-                            target.steps_expander.set_expanded(false);
-
-                            let full = target.full_text.borrow();
-                            crate::render::render_markdown_blocks_into(&target.content_box, &full);
+                            if let Some((ref md_box, ref md_text)) = *target.active_markdown.borrow() {
+                                crate::render::render_markdown_blocks_into(md_box, md_text);
+                            }
+                        }
+                        if state_clone.borrow().settings.sound_bell_on_done {
+                            overlay::ring_completion_bell();
                         }
                         status_dot_clone.remove_css_class("working");
                         status_dot_clone.remove_css_class("error");
@@ -1167,10 +1397,11 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let btn_session_submit = btn_session.clone();
 
         Rc::new(move || {
-            let prompt = entry.text().trim().to_string();
-            if prompt.is_empty() {
+            let raw_prompt = entry.text().trim().to_string();
+            if raw_prompt.is_empty() {
                 return;
             }
+            let prompt = commands::expand_slash_command(&raw_prompt).unwrap_or(raw_prompt);
 
             entry.set_text("");
             welcome_box.set_visible(false);
@@ -1201,7 +1432,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             u_hdr.append(&u_sp);
 
             let u_idx = gtk4::Label::builder()
-                .label(&format!("#{}", prompt_idx))
+                .label(format!("#{}", prompt_idx))
                 .css_classes(["card-user-idx"])
                 .build();
             u_hdr.append(&u_idx);
@@ -1220,53 +1451,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             user_card.append(&user_label);
             messages_box.append(&user_card);
 
-            // 2. Track in Prompts Flyout
-            state.borrow_mut().prompts.push(TrackedPrompt {
-                index: prompt_idx,
-                text: prompt.clone(),
-                widget: user_card.clone(),
-                bubble: user_card.clone(),
-            });
-
-            prompt_empty_label.set_visible(false);
-
-            let nav_btn = gtk4::Button::builder()
-                .css_classes(["prompt-item-btn"])
-                .build();
-
-            let nav_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-            let nav_pill = gtk4::Label::builder()
-                .label(&format!("#{}", prompt_idx))
-                .css_classes(["prompt-idx-pill"])
-                .build();
-            nav_row.append(&nav_pill);
-
-            let snippet = if prompt.chars().count() > 28 {
-                format!("{}…", prompt.chars().take(28).collect::<String>())
-            } else {
-                prompt.clone()
-            };
-            let nav_txt = gtk4::Label::builder()
-                .label(&snippet)
-                .css_classes(["prompt-snippet-text"])
-                .ellipsize(gtk4::pango::EllipsizeMode::End)
-                .xalign(0.0)
-                .hexpand(true)
-                .build();
-            nav_row.append(&nav_txt);
-            nav_btn.set_child(Some(&nav_row));
-
-            let target_widget = user_card.clone();
-            let pop_ref = prompts_popover.clone();
-            let scroll_fn_widget = scroll_to_widget.clone();
-
-            nav_btn.connect_clicked(move |_| {
-                pop_ref.popdown();
-                scroll_fn_widget(&target_widget);
-            });
-            prompts_list_box.append(&nav_btn);
-
-            // 3. Assistant Message Card
+            // 2. Assistant Message Card
             let asst_card = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
             asst_card.add_css_class("card-assistant");
 
@@ -1301,48 +1486,12 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             asst_header.append(&btn_copy);
             asst_card.append(&asst_header);
 
-            // Thinking Accordion
-            let parent_expander = gtk4::Expander::builder()
-                .label("Thinking... ▾")
-                .css_classes(["thinking-disclosure"])
-                .expanded(true)
-                .visible(false)
-                .build();
-
-            let parent_content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-
-            let steps_expander = gtk4::Expander::builder()
-                .label("Tools ▾")
-                .css_classes(["thinking-disclosure"])
-                .expanded(true)
-                .visible(false)
-                .build();
-
-            let timeline_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-            steps_expander.set_child(Some(&timeline_box));
-            parent_content_box.append(&steps_expander);
-
-            parent_expander.set_child(Some(&parent_content_box));
-            asst_card.append(&parent_expander);
-
-            // Content container
-            let content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
-            let asst_label = gtk4::Label::builder()
-                .selectable(true)
-                .wrap(true)
-                .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                .width_chars(1)
-                .max_width_chars(50)
-                .xalign(0.0)
-                .css_classes(["bubble-assistant-text"])
-                .build();
-            content_box.append(&asst_label);
-            asst_card.append(&content_box);
+            let turn_body = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+            asst_card.append(&turn_body);
 
             messages_box.append(&asst_card);
 
             let full_text = Rc::new(RefCell::new(String::new()));
-
             let copy_text_ref = full_text.clone();
             let copy_btn_clone = btn_copy.clone();
             btn_copy.connect_clicked(move |_| {
@@ -1357,17 +1506,164 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 });
             });
 
+            // 3. Track in Prompts Flyout with per-item Delete button
+            prompt_empty_label.set_visible(false);
+
+            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
+            row_box.add_css_class("prompt-row-box");
+
+            let nav_btn = gtk4::Button::builder()
+                .css_classes(["prompt-item-btn"])
+                .hexpand(true)
+                .build();
+
+            let nav_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+            let nav_pill = gtk4::Label::builder()
+                .label(format!("#{}", prompt_idx))
+                .css_classes(["prompt-idx-pill"])
+                .build();
+            nav_row.append(&nav_pill);
+
+            let snippet = if prompt.chars().count() > 24 {
+                format!("{}…", prompt.chars().take(24).collect::<String>())
+            } else {
+                prompt.clone()
+            };
+            let nav_txt = gtk4::Label::builder()
+                .label(&snippet)
+                .css_classes(["prompt-snippet-text"])
+                .ellipsize(gtk4::pango::EllipsizeMode::End)
+                .xalign(0.0)
+                .hexpand(true)
+                .build();
+            nav_row.append(&nav_txt);
+            nav_btn.set_child(Some(&nav_row));
+
+            let target_widget = user_card.clone();
+            let pop_ref = prompts_popover.clone();
+            let scroll_fn_widget = scroll_to_widget.clone();
+
+            nav_btn.connect_clicked(move |_| {
+                pop_ref.popdown();
+                scroll_fn_widget(&target_widget);
+            });
+            row_box.append(&nav_btn);
+
+            let del_btn = gtk4::Button::builder()
+                .label("🗑")
+                .css_classes(["prompt-delete-btn"])
+                .tooltip_text("Delete prompt from session")
+                .build();
+            row_box.append(&del_btn);
+
+            prompts_list_box.append(&row_box);
+
+            // Per-item prompt deletion connection with safety confirmation
+            {
+                let row_ref = row_box.clone();
+                let u_card = user_card.clone();
+                let a_card = asst_card.clone();
+                let msg_box_ref = messages_box.clone();
+                let p_list_box_ref = prompts_list_box.clone();
+                let p_empty_lbl = prompt_empty_label.clone();
+                let wel_box = welcome_box.clone();
+                let st_ref = state.clone();
+                let btn_sess_ref = btn_session_submit.clone();
+                let active_stream_ref = active_stream.clone();
+                let status_dot_ref = status_dot.clone();
+                let head_dot_ref = head_dot.clone();
+                let this_idx = prompt_idx;
+
+                let item_popover = gtk4::Popover::builder()
+                    .autohide(true)
+                    .has_arrow(true)
+                    .css_classes(["confirm-popover"])
+                    .build();
+                item_popover.set_parent(&del_btn);
+
+                let del_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+                let del_title = gtk4::Label::builder()
+                    .label("Delete this message?")
+                    .css_classes(["confirm-dialog-title"])
+                    .xalign(0.0)
+                    .build();
+                del_box.append(&del_title);
+
+                let del_desc = gtk4::Label::builder()
+                    .label("Remove this turn and its response from history.")
+                    .css_classes(["confirm-dialog-desc"])
+                    .wrap(true)
+                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                    .width_chars(1)
+                    .max_width_chars(28)
+                    .xalign(0.0)
+                    .build();
+                del_box.append(&del_desc);
+
+                let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                btn_row.set_halign(gtk4::Align::End);
+
+                let btn_cancel_item = gtk4::Button::builder()
+                    .label("Cancel")
+                    .css_classes(["btn-dialog-cancel"])
+                    .build();
+                btn_row.append(&btn_cancel_item);
+
+                let btn_confirm_item = gtk4::Button::builder()
+                    .label("Delete")
+                    .css_classes(["btn-dialog-destructive"])
+                    .build();
+                btn_row.append(&btn_confirm_item);
+                del_box.append(&btn_row);
+                item_popover.set_child(Some(&del_box));
+
+                let pop_close_cancel = item_popover.clone();
+                btn_cancel_item.connect_clicked(move |_| {
+                    pop_close_cancel.popdown();
+                });
+
+                let pop_close_confirm = item_popover.clone();
+                btn_confirm_item.connect_clicked(move |_| {
+                    pop_close_confirm.popdown();
+                    msg_box_ref.remove(&u_card);
+                    msg_box_ref.remove(&a_card);
+                    p_list_box_ref.remove(&row_ref);
+
+                    let mut st = st_ref.borrow_mut();
+                    if st.prompts.last().map(|p| p.index == this_idx).unwrap_or(false) {
+                        st.runner.abort();
+                        *active_stream_ref.borrow_mut() = None;
+                        status_dot_ref.remove_css_class("working");
+                        head_dot_ref.remove_css_class("working");
+                    }
+                    st.prompts.retain(|p| p.index != this_idx);
+                    let remaining = st.prompts.len();
+                    btn_sess_ref.set_label(&format!("📋 Session ({})", remaining));
+
+                    if remaining == 0 {
+                        p_empty_lbl.set_visible(true);
+                        wel_box.set_visible(true);
+                        msg_box_ref.append(&wel_box);
+                    }
+                });
+
+                let pop_show = item_popover.clone();
+                del_btn.connect_clicked(move |_| {
+                    pop_show.popup();
+                });
+            }
+
+            state.borrow_mut().prompts.push(TrackedPrompt {
+                index: prompt_idx,
+            });
+
             *active_stream.borrow_mut() = Some(ActiveStreamTarget {
-                content_box: content_box.clone(),
-                label: asst_label.clone(),
-                parent_expander: parent_expander.clone(),
-                steps_expander: steps_expander.clone(),
-                timeline_box: timeline_box.clone(),
-                active_thought_expander: Rc::new(RefCell::new(None)),
-                start_time: std::time::Instant::now(),
-                metrics_badge: metrics_badge.clone(),
+                turn_body: turn_body.clone(),
                 full_text: full_text.clone(),
-                tool_count: Rc::new(Cell::new(0)),
+                active_thought_expander: Rc::new(RefCell::new(None)),
+                active_markdown: Rc::new(RefCell::new(None)),
+                tools: Rc::new(RefCell::new(HashMap::new())),
+                metrics_badge: metrics_badge.clone(),
             });
 
             scroll_fn();
@@ -1384,8 +1680,9 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             {
                 let err_str = format!("[Error] Failed to spawn agent: {}", e);
                 full_text.borrow_mut().push_str(&err_str);
-                format::apply_assistant_markup(&asst_label, &err_str);
-                parent_expander.set_expanded(false);
+                let err_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+                turn_body.append(&err_box);
+                crate::render::render_markdown_blocks_into(&err_box, &err_str);
                 status_dot.remove_css_class("working");
                 status_dot.add_css_class("error");
                 head_dot.remove_css_class("working");

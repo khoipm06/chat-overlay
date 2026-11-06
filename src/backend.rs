@@ -17,7 +17,21 @@ pub enum StreamEvent {
     TextDelta(String),
     /// Thinking indicator updates
     ThinkingDelta(String),
-    /// Tool execution notification (e.g. "Running bash: whoami")
+    /// Tool execution started: id, name, formatted/raw args
+    ToolStart {
+        id: String,
+        name: String,
+        args: String,
+    },
+    /// Tool execution finished: id, name, output result, is_error, duration_ms
+    ToolEnd {
+        id: String,
+        name: String,
+        result: String,
+        is_error: bool,
+        duration_ms: u64,
+    },
+    /// Backward-compatible ToolCall
     ToolCall { name: String, args: String },
     /// Token usage and latency metrics from model
     Metrics(UsageMetrics),
@@ -232,13 +246,44 @@ fn parse_and_dispatch_line(
                     }
                 }
                 "tool_execution_start" => {
-                    let name = v.get("toolName").and_then(|n| n.as_str()).unwrap_or("tool");
+                    let id = v
+                        .get("toolCallId")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("tool_call")
+                        .to_string();
+                    let name = v.get("toolName").and_then(|n| n.as_str()).unwrap_or("tool").to_string();
                     let args = v.get("args").map(|a| a.to_string()).unwrap_or_default();
                     let _ = tx.send((
                         gen,
-                        StreamEvent::ToolCall {
-                            name: name.to_string(),
+                        StreamEvent::ToolStart {
+                            id,
+                            name,
                             args,
+                        },
+                    ));
+                }
+                "tool_execution_end" => {
+                    let id = v
+                        .get("toolCallId")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("tool_call")
+                        .to_string();
+                    let name = v.get("toolName").and_then(|n| n.as_str()).unwrap_or("tool").to_string();
+                    let is_error = v.get("isError").and_then(|b| b.as_bool()).unwrap_or(false);
+                    let duration_ms = v.get("durationMs").and_then(|d| d.as_u64()).unwrap_or(0);
+                    let result_str = if let Some(res) = v.get("result") {
+                        extract_tool_result_text(res)
+                    } else {
+                        String::new()
+                    };
+                    let _ = tx.send((
+                        gen,
+                        StreamEvent::ToolEnd {
+                            id,
+                            name,
+                            result: result_str,
+                            is_error,
+                            duration_ms,
                         },
                     ));
                 }
@@ -301,6 +346,29 @@ fn parse_and_dispatch_line(
         return Err(());
     }
     Ok(())
+}
+
+pub fn extract_tool_result_text(v: &serde_json::Value) -> String {
+    if let Some(s) = v.as_str() {
+        return s.to_string();
+    }
+    if let Some(content_arr) = v.get("content").and_then(|c| c.as_array()) {
+        let texts: Vec<String> = content_arr
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+            .map(|t| t.to_string())
+            .collect();
+        if !texts.is_empty() {
+            return texts.join("\n");
+        }
+    }
+    if let Some(output) = v.get("output").and_then(|o| o.as_str()) {
+        return output.to_string();
+    }
+    if let Some(details) = v.get("details").and_then(|d| d.as_str()) {
+        return details.to_string();
+    }
+    v.to_string()
 }
 
 #[cfg(test)]
@@ -381,7 +449,8 @@ mod tests {
             ev3,
             (
                 10,
-                StreamEvent::ToolCall {
+                StreamEvent::ToolStart {
+                    id: "call_1".to_string(),
                     name: "bash".to_string(),
                     args: r#"{"command":"ls"}"#.to_string()
                 }
@@ -390,6 +459,34 @@ mod tests {
 
         let ev4 = rx.try_recv().unwrap();
         assert_eq!(ev4, (10, StreamEvent::Done));
+    }
+
+    #[test]
+    fn test_parse_tool_execution_end() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let gen = 20;
+
+        let json_end = r#"{"type":"tool_execution_end","toolCallId":"call_123","toolName":"read","result":{"content":[{"type":"text","text":"file contents"}],"details":{}},"isError":false,"durationMs":45}"#;
+        assert!(parse_and_dispatch_line(json_end, gen, &tx).is_ok());
+
+        let (g, ev) = rx.try_recv().unwrap();
+        assert_eq!(g, 20);
+        match ev {
+            StreamEvent::ToolEnd {
+                id,
+                name,
+                result,
+                is_error,
+                duration_ms,
+            } => {
+                assert_eq!(id, "call_123");
+                assert_eq!(name, "read");
+                assert_eq!(result, "file contents");
+                assert!(!is_error);
+                assert_eq!(duration_ms, 45);
+            }
+            other => panic!("Expected ToolEnd, got {:?}", other),
+        }
     }
 
     #[test]
@@ -428,33 +525,33 @@ mod tests {
         let (g1, ev1) = rx.try_recv().unwrap();
         assert_eq!(g1, 42);
         match ev1 {
-            StreamEvent::ToolCall { name, args } => {
+            StreamEvent::ToolStart { name, args, .. } => {
                 assert_eq!(name, "edit");
                 assert!(args.contains("Xin chào thế giới 🦀"));
             }
-            other => panic!("Expected ToolCall, got {:?}", other),
+            other => panic!("Expected ToolStart, got {:?}", other),
         }
 
         // Verify tool call 2
         let (g2, ev2) = rx.try_recv().unwrap();
         assert_eq!(g2, 42);
         match ev2 {
-            StreamEvent::ToolCall { name, args } => {
+            StreamEvent::ToolStart { name, args, .. } => {
                 assert_eq!(name, "bash");
                 assert_eq!(args, "");
             }
-            other => panic!("Expected ToolCall, got {:?}", other),
+            other => panic!("Expected ToolStart, got {:?}", other),
         }
 
         // Verify tool call 3
         let (g3, ev3) = rx.try_recv().unwrap();
         assert_eq!(g3, 42);
         match ev3 {
-            StreamEvent::ToolCall { name, args } => {
+            StreamEvent::ToolStart { name, args, .. } => {
                 assert_eq!(name, "read");
                 assert!(args.contains("tệp_tin.txt"));
             }
-            other => panic!("Expected ToolCall, got {:?}", other),
+            other => panic!("Expected ToolStart, got {:?}", other),
         }
 
         // Verify metrics

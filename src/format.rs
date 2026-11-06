@@ -1,9 +1,6 @@
-#![allow(dead_code)]
 pub use crate::render::apply_assistant_markup;
-#[allow(unused_imports)]
-pub use crate::render::render_markdown_blocks_into;
-#[allow(unused_imports)]
-pub use crate::render::format_markdown_to_pango;
+#[cfg(test)]
+use crate::render::format_markdown_to_pango;
 
 /// Format duration in seconds to human-readable string: "Xs" or "Xm Ys"
 pub fn format_duration_sec(secs: u64) -> String {

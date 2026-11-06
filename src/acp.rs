@@ -194,8 +194,21 @@ pub fn parse_acp_message(json_str: &str) -> Option<StreamEvent> {
                     SessionUpdatePayload::ThinkingDelta { text } => {
                         return Some(StreamEvent::ThinkingDelta(text));
                     }
-                    SessionUpdatePayload::ToolCall { name, args, .. } => {
-                        return Some(StreamEvent::ToolCall { name, args });
+                    SessionUpdatePayload::ToolCall { name, args, status } => {
+                        if status.as_deref() == Some("done") {
+                            return Some(StreamEvent::ToolEnd {
+                                id: "acp_tool".to_string(),
+                                name,
+                                result: String::new(),
+                                is_error: false,
+                                duration_ms: 0,
+                            });
+                        }
+                        return Some(StreamEvent::ToolStart {
+                            id: "acp_tool".to_string(),
+                            name,
+                            args,
+                        });
                     }
                     SessionUpdatePayload::Usage {
                         input_tokens,

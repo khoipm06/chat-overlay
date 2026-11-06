@@ -12,19 +12,40 @@ use gtk4::prelude::*;
 pub enum MarkdownBlock {
     Text(String),
     Code { lang: String, code: String },
+    Table(table::TableData),
 }
 
-/// Parses raw markdown into structured blocks: text paragraphs and fenced code blocks.
+/// Parses raw markdown into structured blocks: text paragraphs, fenced code blocks, and structured tables.
 pub fn parse_markdown_blocks(input: &str) -> Vec<MarkdownBlock> {
     let mut blocks = Vec::new();
     let mut text_acc = String::new();
     let mut code_acc = String::new();
     let mut current_lang = String::new();
     let mut in_code_block = false;
+    let mut table_lines: Vec<&str> = Vec::new();
+
+    let flush_table = |t_lines: &mut Vec<&str>, blks: &mut Vec<MarkdownBlock>, txt: &mut String| {
+        if !t_lines.is_empty() {
+            if let Some(data) = table::parse_table_data(t_lines) {
+                if !txt.is_empty() {
+                    blks.push(MarkdownBlock::Text(txt.clone()));
+                    txt.clear();
+                }
+                blks.push(MarkdownBlock::Table(data));
+            } else {
+                for l in t_lines.drain(..) {
+                    txt.push_str(l);
+                    txt.push('\n');
+                }
+            }
+            t_lines.clear();
+        }
+    };
 
     for line in input.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("```") {
+            flush_table(&mut table_lines, &mut blocks, &mut text_acc);
             if !in_code_block {
                 in_code_block = true;
                 if !text_acc.is_empty() {
@@ -52,7 +73,10 @@ pub fn parse_markdown_blocks(input: &str) -> Vec<MarkdownBlock> {
         if in_code_block {
             code_acc.push_str(line);
             code_acc.push('\n');
+        } else if table::is_table_row(line) {
+            table_lines.push(line);
         } else {
+            flush_table(&mut table_lines, &mut blocks, &mut text_acc);
             text_acc.push_str(line);
             text_acc.push('\n');
         }
@@ -63,8 +87,11 @@ pub fn parse_markdown_blocks(input: &str) -> Vec<MarkdownBlock> {
             lang: current_lang,
             code: code_acc.trim_end_matches('\n').to_string(),
         });
-    } else if !text_acc.is_empty() {
-        blocks.push(MarkdownBlock::Text(text_acc));
+    } else {
+        flush_table(&mut table_lines, &mut blocks, &mut text_acc);
+        if !text_acc.is_empty() {
+            blocks.push(MarkdownBlock::Text(text_acc));
+        }
     }
 
     blocks
@@ -198,6 +225,10 @@ pub fn render_markdown_blocks_into(container: &gtk4::Box, raw: &str) {
                 apply_assistant_markup(&label, &text);
                 container.append(&label);
             }
+            MarkdownBlock::Table(table_data) => {
+                let table_widget = table::build_table_widget(&table_data);
+                container.append(&table_widget);
+            }
             MarkdownBlock::Code { lang, code } => {
                 let code_card = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
                 code_card.add_css_class("code-block-container");
@@ -314,5 +345,22 @@ mod tests {
                 code: "print('streaming')".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn test_parse_markdown_blocks_with_table() {
+        let input = "Intro\n| Header 1 | Header 2 |\n|---|---|\n| Val 1 | Val 2 |\nOutro text";
+        let blocks = parse_markdown_blocks(input);
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0], MarkdownBlock::Text("Intro\n".to_string()));
+        match &blocks[1] {
+            MarkdownBlock::Table(data) => {
+                assert_eq!(data.headers, vec!["Header 1", "Header 2"]);
+                assert_eq!(data.rows.len(), 1);
+                assert_eq!(data.rows[0], vec!["Val 1", "Val 2"]);
+            }
+            _ => panic!("Expected MarkdownBlock::Table"),
+        }
+        assert_eq!(blocks[2], MarkdownBlock::Text("Outro text\n".to_string()));
     }
 }
