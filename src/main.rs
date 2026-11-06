@@ -9,6 +9,7 @@ use rune::{
 };
 use tokio::sync::mpsc;
 
+mod acp;
 mod backend;
 mod commands;
 mod ipc;
