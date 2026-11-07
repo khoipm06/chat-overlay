@@ -843,34 +843,25 @@ popover.menu {
     color: #ffffff;
 }
 
-.settings-dropdown-row {
-    padding: 3px 6px;
-}
-
-dropdown.clean-dropdown,
-dropdown {
-    background-color: #252534;
-    color: #e4e4e7;
-    border: 1px solid #3c3c4e;
-    border-radius: 6px;
-    padding: 2px 8px;
-    min-height: 26px;
-    font-size: 12px;
-}
-
-dropdown.clean-dropdown:hover,
-dropdown:hover {
-    background-color: #2e3040;
-    border-color: #55556a;
-}
-
-dropdown.clean-dropdown > button.combo,
-dropdown > button.combo {
-    background: transparent;
+.clean-settings-row {
+    padding: 6px 8px;
+    border-radius: 4px;
+    background-color: transparent;
+    background-image: none;
     border: none;
     box-shadow: none;
-    padding: 0;
-    color: #e4e4e7;
+    color: #D4D4E0;
+    margin-bottom: 2px;
+}
+
+.clean-settings-row:hover {
+    background-color: #343644;
+    color: #ffffff;
+}
+
+.clean-settings-val {
+    font-size: 11px;
+    color: #4FC1FF;
 }
 
 .clean-popover-item:active,

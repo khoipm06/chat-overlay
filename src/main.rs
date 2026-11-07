@@ -1081,203 +1081,400 @@ fn build_ui(
         .build();
     more_box.append(&more_title);
 
-    // ── Dropdown Controls ──────────────────────────────────────────────────
-    // 1. Model Dropdown
-    let model_labels: Vec<String> = initial_models.iter().map(|(_, name)| name.clone()).collect();
-    let model_strs: Vec<&str> = model_labels.iter().map(|s| s.as_str()).collect();
-    let dd_model = gtk4::DropDown::from_strings(&model_strs);
-    dd_model.add_css_class("clean-dropdown");
-    let selected_model_idx = initial_models
-        .iter()
-        .position(|(id, _)| id == &initial_settings.model)
-        .unwrap_or(0);
-    dd_model.set_selected(selected_model_idx as u32);
-
-    {
-        let state_m = state.clone();
-        let models_list = initial_models.clone();
-        let btn_mdl_pill_ref = btn_model_pill.clone();
-        dd_model.connect_selected_notify(move |dd| {
-            let idx = dd.selected() as usize;
-            if let Some((id, _name)) = models_list.get(idx) {
-                let mut st = state_m.borrow_mut();
-                st.settings.model = id.clone();
-                let _ = st.settings.save();
-                let short = model_display_name_with_list(id, &models_list);
-                btn_mdl_pill_ref.set_label(&short);
-            }
-        });
-    }
-    let row_model = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    row_model.add_css_class("settings-dropdown-row");
-    let lbl_m = gtk4::Label::builder()
+    // ── Clean Settings Selector Rows (No GtkDropDown to prevent system theme bleed) ──
+    // 1. Model Selector Row
+    let btn_row_model = gtk4::Button::builder()
+        .css_classes(["clean-settings-row"])
+        .halign(gtk4::Align::Fill)
+        .build();
+    let box_rm = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let lbl_rm_title = gtk4::Label::builder()
         .label("Model")
         .css_classes(["clean-popover-item-desc"])
         .xalign(0.0)
         .hexpand(true)
         .build();
-    row_model.append(&lbl_m);
-    row_model.append(&dd_model);
-    more_box.append(&row_model);
+    let initial_model_name = format!("{} ▾", model_display_name_with_list(&initial_settings.model, &initial_models));
+    let lbl_rm_val = gtk4::Label::builder()
+        .label(&initial_model_name)
+        .css_classes(["clean-settings-val"])
+        .xalign(1.0)
+        .build();
+    box_rm.append(&lbl_rm_title);
+    box_rm.append(&lbl_rm_val);
+    btn_row_model.set_child(Some(&box_rm));
+    more_box.append(&btn_row_model);
 
-    // 2. Reasoning Depth Dropdown
-    let think_options = [
-        ("off", "Off (No thinking)"),
-        ("minimal", "Minimal"),
-        ("low", "Low"),
-        ("medium", "Medium (Recommended)"),
-        ("high", "High (Deep)"),
-    ];
-    let think_labels: Vec<&str> = think_options.iter().map(|(_, name)| *name).collect();
-    let dd_think = gtk4::DropDown::from_strings(&think_labels);
-    dd_think.add_css_class("clean-dropdown");
-    let selected_think_idx = think_options
-        .iter()
-        .position(|(id, _)| id == &initial_settings.thinking_level)
-        .unwrap_or(3);
-    dd_think.set_selected(selected_think_idx as u32);
+    let popover_row_model = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_row_model.set_parent(&btn_row_model);
+
+    let prm_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    prm_box.set_width_request(260);
+    let prm_title = gtk4::Label::builder()
+        .label("SELECT MODEL")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    prm_box.append(&prm_title);
+
+    let prm_scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .max_content_height(280)
+        .propagate_natural_height(true)
+        .build();
+    let prm_list = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+
+    for (m_id, m_name) in &initial_models {
+        let m_btn = gtk4::Button::builder()
+            .label(m_name)
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let pop_close = popover_row_model.clone();
+        let state_m = state.clone();
+        let models_list = initial_models.clone();
+        let mid = m_id.clone();
+        let lbl_val = lbl_rm_val.clone();
+        let btn_mdl_pill_ref = btn_model_pill.clone();
+
+        m_btn.connect_clicked(move |_| {
+            pop_close.popdown();
+            let mut st = state_m.borrow_mut();
+            st.settings.model = mid.clone();
+            let _ = st.settings.save();
+            let short = model_display_name_with_list(&mid, &models_list);
+            lbl_val.set_label(&format!("{} ▾", short));
+            btn_mdl_pill_ref.set_label(&short);
+        });
+        prm_list.append(&m_btn);
+    }
+    prm_scroll.set_child(Some(&prm_list));
+    prm_box.append(&prm_scroll);
+    popover_row_model.set_child(Some(&prm_box));
 
     {
-        let state_th = state.clone();
-        let btn_th_pill_ref = btn_think_pill.clone();
-        dd_think.connect_selected_notify(move |dd| {
-            let idx = dd.selected() as usize;
-            if let Some((id, _)) = think_options.get(idx) {
-                let mut st = state_th.borrow_mut();
-                st.settings.thinking_level = id.to_string();
-                let _ = st.settings.save();
-                let short = thinking_display_name(id);
-                btn_th_pill_ref.set_label(&short);
-            }
+        let pop_ref = popover_row_model.clone();
+        btn_row_model.connect_clicked(move |_| {
+            pop_ref.popup();
         });
     }
-    let row_think = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    row_think.add_css_class("settings-dropdown-row");
-    let lbl_th = gtk4::Label::builder()
+
+    // 2. Reasoning Depth Selector Row
+    let btn_row_think = gtk4::Button::builder()
+        .css_classes(["clean-settings-row"])
+        .halign(gtk4::Align::Fill)
+        .build();
+    let box_rt = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let lbl_rt_title = gtk4::Label::builder()
         .label("Reasoning")
         .css_classes(["clean-popover-item-desc"])
         .xalign(0.0)
         .hexpand(true)
         .build();
-    row_think.append(&lbl_th);
-    row_think.append(&dd_think);
-    more_box.append(&row_think);
+    let initial_think_name = format!("{} ▾", thinking_display_name(&initial_settings.thinking_level));
+    let lbl_rt_val = gtk4::Label::builder()
+        .label(&initial_think_name)
+        .css_classes(["clean-settings-val"])
+        .xalign(1.0)
+        .build();
+    box_rt.append(&lbl_rt_title);
+    box_rt.append(&lbl_rt_val);
+    btn_row_think.set_child(Some(&box_rt));
+    more_box.append(&btn_row_think);
 
-    // 3. Theme Dropdown
-    let theme_labels: Vec<&str> = THEMES.iter().map(|(_, name, _)| *name).collect();
-    let dd_theme = gtk4::DropDown::from_strings(&theme_labels);
-    dd_theme.add_css_class("clean-dropdown");
-    let selected_theme_idx = THEMES
-        .iter()
-        .position(|(id, _, _)| id == &initial_settings.theme)
-        .unwrap_or(0);
-    dd_theme.set_selected(selected_theme_idx as u32);
+    let popover_row_think = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_row_think.set_parent(&btn_row_think);
+
+    let prt_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    prt_box.set_width_request(200);
+    let prt_title = gtk4::Label::builder()
+        .label("REASONING DEPTH")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    prt_box.append(&prt_title);
+
+    let think_options = [
+        ("off", "Off (No reasoning)"),
+        ("minimal", "Minimal"),
+        ("low", "Low"),
+        ("medium", "Medium (Recommended)"),
+        ("high", "High (Deep)"),
+    ];
+
+    for (th_id, th_name) in think_options {
+        let th_btn = gtk4::Button::builder()
+            .label(th_name)
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let pop_close = popover_row_think.clone();
+        let state_th = state.clone();
+        let tid = th_id.to_string();
+        let lbl_val = lbl_rt_val.clone();
+        let btn_th_pill_ref = btn_think_pill.clone();
+
+        th_btn.connect_clicked(move |_| {
+            pop_close.popdown();
+            let mut st = state_th.borrow_mut();
+            st.settings.thinking_level = tid.clone();
+            let _ = st.settings.save();
+            let short = thinking_display_name(&tid);
+            lbl_val.set_label(&format!("{} ▾", short));
+            btn_th_pill_ref.set_label(&short);
+        });
+        prt_box.append(&th_btn);
+    }
+    popover_row_think.set_child(Some(&prt_box));
 
     {
-        let state_th = state.clone();
-        let drawer_theme = drawer.clone();
-        dd_theme.connect_selected_notify(move |dd| {
-            let idx = dd.selected() as usize;
-            if let Some((id, _, _)) = THEMES.get(idx) {
-                for (other, _, _) in THEMES {
-                    drawer_theme.remove_css_class(other);
-                }
-                drawer_theme.add_css_class(id);
-                let mut st = state_th.borrow_mut();
-                st.settings.theme = id.to_string();
-                let _ = st.settings.save();
-            }
+        let pop_ref = popover_row_think.clone();
+        btn_row_think.connect_clicked(move |_| {
+            pop_ref.popup();
         });
     }
-    let row_theme = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    row_theme.add_css_class("settings-dropdown-row");
-    let lbl_t = gtk4::Label::builder()
+
+    // 3. Theme Selector Row
+    let btn_row_theme = gtk4::Button::builder()
+        .css_classes(["clean-settings-row"])
+        .halign(gtk4::Align::Fill)
+        .build();
+    let box_rth = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let lbl_rth_title = gtk4::Label::builder()
         .label("Theme")
         .css_classes(["clean-popover-item-desc"])
         .xalign(0.0)
         .hexpand(true)
         .build();
-    row_theme.append(&lbl_t);
-    row_theme.append(&dd_theme);
-    more_box.append(&row_theme);
+    let initial_theme_name = THEMES
+        .iter()
+        .find(|(id, _, _)| *id == initial_settings.theme)
+        .map(|(_, name, _)| format!("{} ▾", name))
+        .unwrap_or_else(|| "Dark Glass ▾".to_string());
+    let lbl_rth_val = gtk4::Label::builder()
+        .label(&initial_theme_name)
+        .css_classes(["clean-settings-val"])
+        .xalign(1.0)
+        .build();
+    box_rth.append(&lbl_rth_title);
+    box_rth.append(&lbl_rth_val);
+    btn_row_theme.set_child(Some(&box_rth));
+    more_box.append(&btn_row_theme);
 
-    // 4. UI Scale Dropdown
-    let scale_labels: Vec<String> = settings::UI_SCALE_PRESETS
-        .iter()
-        .map(|p| format!("{} ({})", p.label, p.desc))
-        .collect();
-    let scale_strs: Vec<&str> = scale_labels.iter().map(|s| s.as_str()).collect();
-    let dd_scale = gtk4::DropDown::from_strings(&scale_strs);
-    dd_scale.add_css_class("clean-dropdown");
-    let selected_scale_idx = settings::UI_SCALE_PRESETS
-        .iter()
-        .position(|p| p.scale == initial_settings.ui_scale)
-        .unwrap_or(0);
-    dd_scale.set_selected(selected_scale_idx as u32);
+    let popover_row_theme = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_row_theme.set_parent(&btn_row_theme);
+
+    let prth_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    prth_box.set_width_request(220);
+    let prth_title = gtk4::Label::builder()
+        .label("APPEARANCE THEME")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    prth_box.append(&prth_title);
+
+    for (t_id, t_name, _) in THEMES {
+        let t_btn = gtk4::Button::builder()
+            .label(*t_name)
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let pop_close = popover_row_theme.clone();
+        let state_t = state.clone();
+        let drawer_theme = drawer.clone();
+        let tid = *t_id;
+        let tname = *t_name;
+        let lbl_val = lbl_rth_val.clone();
+
+        t_btn.connect_clicked(move |_| {
+            pop_close.popdown();
+            for (other, _, _) in THEMES {
+                drawer_theme.remove_css_class(other);
+            }
+            drawer_theme.add_css_class(tid);
+            let mut st = state_t.borrow_mut();
+            st.settings.theme = tid.to_string();
+            let _ = st.settings.save();
+            lbl_val.set_label(&format!("{} ▾", tname));
+        });
+        prth_box.append(&t_btn);
+    }
+    popover_row_theme.set_child(Some(&prth_box));
 
     {
-        let state_sc = state.clone();
-        let scale_provider_ref = scale_css_provider.clone();
-        dd_scale.connect_selected_notify(move |dd| {
-            let idx = dd.selected() as usize;
-            if let Some(preset) = settings::UI_SCALE_PRESETS.get(idx) {
-                let mut st = state_sc.borrow_mut();
-                st.settings.ui_scale = preset.scale;
-                scale::apply_ui_scale(&scale_provider_ref, preset.scale, st.settings.font_size);
-                let _ = st.settings.save();
-            }
+        let pop_ref = popover_row_theme.clone();
+        btn_row_theme.connect_clicked(move |_| {
+            pop_ref.popup();
         });
     }
-    let row_scale = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    row_scale.add_css_class("settings-dropdown-row");
-    let lbl_sc = gtk4::Label::builder()
+
+    // 4. UI Scale Selector Row
+    let btn_row_scale = gtk4::Button::builder()
+        .css_classes(["clean-settings-row"])
+        .halign(gtk4::Align::Fill)
+        .build();
+    let box_rs = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let lbl_rs_title = gtk4::Label::builder()
         .label("UI Scale")
         .css_classes(["clean-popover-item-desc"])
         .xalign(0.0)
         .hexpand(true)
         .build();
-    row_scale.append(&lbl_sc);
-    row_scale.append(&dd_scale);
-    more_box.append(&row_scale);
+    let initial_scale_name = settings::UI_SCALE_PRESETS
+        .iter()
+        .find(|p| p.scale == initial_settings.ui_scale)
+        .map(|p| format!("{} ▾", p.label))
+        .unwrap_or_else(|| "100% ▾".to_string());
+    let lbl_rs_val = gtk4::Label::builder()
+        .label(&initial_scale_name)
+        .css_classes(["clean-settings-val"])
+        .xalign(1.0)
+        .build();
+    box_rs.append(&lbl_rs_title);
+    box_rs.append(&lbl_rs_val);
+    btn_row_scale.set_child(Some(&box_rs));
+    more_box.append(&btn_row_scale);
 
-    // 5. Font Size Dropdown
-    let font_labels: Vec<String> = settings::FONT_SIZE_PRESETS
-        .iter()
-        .map(|p| format!("{} ({})", p.label, p.desc))
-        .collect();
-    let font_strs: Vec<&str> = font_labels.iter().map(|s| s.as_str()).collect();
-    let dd_font = gtk4::DropDown::from_strings(&font_strs);
-    dd_font.add_css_class("clean-dropdown");
-    let selected_font_idx = settings::FONT_SIZE_PRESETS
-        .iter()
-        .position(|p| p.size == initial_settings.font_size)
-        .unwrap_or(1);
-    dd_font.set_selected(selected_font_idx as u32);
+    let popover_row_scale = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_row_scale.set_parent(&btn_row_scale);
+
+    let prs_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    prs_box.set_width_request(220);
+    let prs_title = gtk4::Label::builder()
+        .label("UI SCALE PRESET")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    prs_box.append(&prs_title);
+
+    for preset in settings::UI_SCALE_PRESETS {
+        let s_btn = gtk4::Button::builder()
+            .label(format!("{}  •  {}", preset.label, preset.desc))
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let pop_close = popover_row_scale.clone();
+        let state_sc = state.clone();
+        let scale_provider_ref = scale_css_provider.clone();
+        let sc_val = preset.scale;
+        let sc_lbl = preset.label;
+        let lbl_val = lbl_rs_val.clone();
+
+        s_btn.connect_clicked(move |_| {
+            pop_close.popdown();
+            let mut st = state_sc.borrow_mut();
+            st.settings.ui_scale = sc_val;
+            scale::apply_ui_scale(&scale_provider_ref, sc_val, st.settings.font_size);
+            let _ = st.settings.save();
+            lbl_val.set_label(&format!("{} ▾", sc_lbl));
+        });
+        prs_box.append(&s_btn);
+    }
+    popover_row_scale.set_child(Some(&prs_box));
 
     {
-        let state_fs = state.clone();
-        let scale_provider_ref = scale_css_provider.clone();
-        dd_font.connect_selected_notify(move |dd| {
-            let idx = dd.selected() as usize;
-            if let Some(preset) = settings::FONT_SIZE_PRESETS.get(idx) {
-                let mut st = state_fs.borrow_mut();
-                st.settings.font_size = preset.size;
-                scale::apply_ui_scale(&scale_provider_ref, st.settings.ui_scale, preset.size);
-                let _ = st.settings.save();
-            }
+        let pop_ref = popover_row_scale.clone();
+        btn_row_scale.connect_clicked(move |_| {
+            pop_ref.popup();
         });
     }
-    let row_font = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    row_font.add_css_class("settings-dropdown-row");
-    let lbl_fs = gtk4::Label::builder()
+
+    // 5. Font Size Selector Row
+    let btn_row_font = gtk4::Button::builder()
+        .css_classes(["clean-settings-row"])
+        .halign(gtk4::Align::Fill)
+        .build();
+    let box_rf = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let lbl_rf_title = gtk4::Label::builder()
         .label("Font Size")
         .css_classes(["clean-popover-item-desc"])
         .xalign(0.0)
         .hexpand(true)
         .build();
-    row_font.append(&lbl_fs);
-    row_font.append(&dd_font);
-    more_box.append(&row_font);
+    let initial_font_name = settings::FONT_SIZE_PRESETS
+        .iter()
+        .find(|p| p.size == initial_settings.font_size)
+        .map(|p| format!("{} ▾", p.label))
+        .unwrap_or_else(|| "13px ▾".to_string());
+    let lbl_rf_val = gtk4::Label::builder()
+        .label(&initial_font_name)
+        .css_classes(["clean-settings-val"])
+        .xalign(1.0)
+        .build();
+    box_rf.append(&lbl_rf_title);
+    box_rf.append(&lbl_rf_val);
+    btn_row_font.set_child(Some(&box_rf));
+    more_box.append(&btn_row_font);
+
+    let popover_row_font = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_row_font.set_parent(&btn_row_font);
+
+    let prf_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    prf_box.set_width_request(220);
+    let prf_title = gtk4::Label::builder()
+        .label("BASE FONT SIZE")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    prf_box.append(&prf_title);
+
+    for preset in settings::FONT_SIZE_PRESETS {
+        let f_btn = gtk4::Button::builder()
+            .label(format!("{}  •  {}", preset.label, preset.desc))
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let pop_close = popover_row_font.clone();
+        let state_fs = state.clone();
+        let scale_provider_ref = scale_css_provider.clone();
+        let fs_val = preset.size;
+        let fs_lbl = preset.label;
+        let lbl_val = lbl_rf_val.clone();
+
+        f_btn.connect_clicked(move |_| {
+            pop_close.popdown();
+            let mut st = state_fs.borrow_mut();
+            st.settings.font_size = fs_val;
+            scale::apply_ui_scale(&scale_provider_ref, st.settings.ui_scale, fs_val);
+            let _ = st.settings.save();
+            lbl_val.set_label(&format!("{} ▾", fs_lbl));
+        });
+        prf_box.append(&f_btn);
+    }
+    popover_row_font.set_child(Some(&prf_box));
+
+    {
+        let pop_ref = popover_row_font.clone();
+        btn_row_font.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
 
     // Clear Chat Option
     let btn_clear_chat = gtk4::Button::builder()
