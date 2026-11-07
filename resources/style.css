@@ -583,10 +583,35 @@ window {
     font-size: 10px;
 }
 
-.composer-chip-del:hover {
-    color: #F48771;
-    background-color: rgba(244, 135, 113, 0.2);
+.composer-chip.image-chip {
+    border-color: rgba(56, 189, 248, 0.45);
+    background-color: rgba(56, 189, 248, 0.12);
 }
+
+.dictation-btn {
+    min-width: 28px;
+    transition: all 150ms ease;
+}
+
+.dictation-recording {
+    background-color: rgba(239, 68, 68, 0.25) !important;
+    border-color: #ef4444 !important;
+    color: #fca5a5 !important;
+    animation: dictation-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dictation-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
+    }
+    70% {
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+}
+
 
 /* Multi-line Composer Text View */
 .composer-text-view {
@@ -811,28 +836,28 @@ popover.menu {
     border: 1px solid #424252;
     border-radius: 6px;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
-    padding: 4px;
+    padding: 3px;
     color: #D4D4E0;
 }
 
 .clean-popover-title {
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     color: #A7A8BA;
     letter-spacing: 0.04em;
-    padding: 2px 6px 4px 6px;
+    padding: 2px 4px 3px 4px;
     border-bottom: 1px solid #424252;
     margin-bottom: 2px;
 }
 
 .clean-popover-item {
-    padding: 3px 8px;
+    padding: 3px 6px;
     border-radius: 4px;
     background-color: transparent;
     background-image: none;
     border: none;
     color: #D4D4E0;
-    font-size: 11.5px;
+    font-size: 11px;
     margin-bottom: 1px;
     outline: none;
     box-shadow: none;
@@ -844,14 +869,14 @@ popover.menu {
 }
 
 .clean-settings-row {
-    padding: 6px 8px;
+    padding: 3px 6px;
     border-radius: 4px;
     background-color: transparent;
     background-image: none;
     border: none;
     box-shadow: none;
     color: #D4D4E0;
-    margin-bottom: 2px;
+    margin-bottom: 1px;
 }
 
 .clean-settings-row:hover {
@@ -860,7 +885,7 @@ popover.menu {
 }
 
 .clean-settings-val {
-    font-size: 11px;
+    font-size: 10.5px;
     color: #4FC1FF;
 }
 

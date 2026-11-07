@@ -252,17 +252,7 @@ impl PiRunner {
                 }
 
                 // 5. Build prompt payload with attached context
-                let mut prompt_blocks = Vec::new();
-                for (fname, content) in attached_files {
-                    prompt_blocks.push(serde_json::json!({
-                        "type": "text",
-                        "text": format!("[Attached Context File: {}]\n```\n{}\n```\n", fname, content)
-                    }));
-                }
-                prompt_blocks.push(serde_json::json!({
-                    "type": "text",
-                    "text": prompt
-                }));
+                let prompt_blocks = build_acp_prompt_blocks(&prompt, &attached_files);
 
                 let prompt_req = serde_json::json!({
                     "jsonrpc": "2.0",
@@ -505,6 +495,47 @@ fn parse_and_dispatch_line(
         return Err(());
     }
     Ok(())
+}
+
+pub fn build_acp_prompt_blocks(
+    prompt: &str,
+    attached_files: &[(String, String)],
+) -> Vec<serde_json::Value> {
+    let mut prompt_blocks = Vec::new();
+    for (fname, content) in attached_files {
+        if crate::capture::is_image_path(fname) {
+            let mime = crate::capture::image_mime_type(fname);
+            let base64_data = if content.starts_with("data:image/") {
+                if let Some(pos) = content.find(";base64,") {
+                    content[pos + 8..].to_string()
+                } else {
+                    content.clone()
+                }
+            } else if !content.is_empty() && !std::path::Path::new(fname).exists() {
+                content.clone()
+            } else if let Ok(bytes) = std::fs::read(fname) {
+                crate::capture::base64_encode(&bytes)
+            } else {
+                content.clone()
+            };
+
+            prompt_blocks.push(serde_json::json!({
+                "type": "image",
+                "mimeType": mime,
+                "data": base64_data
+            }));
+        } else {
+            prompt_blocks.push(serde_json::json!({
+                "type": "text",
+                "text": format!("[Attached Context File: {}]\n```\n{}\n```\n", fname, content)
+            }));
+        }
+    }
+    prompt_blocks.push(serde_json::json!({
+        "type": "text",
+        "text": prompt
+    }));
+    prompt_blocks
 }
 
 pub fn build_pi_command_args(
@@ -827,6 +858,23 @@ mod tests {
 
         // Nothing must have leaked to TextDelta
         assert!(rx.try_recv().is_err(), "Tool output must NOT leak into receiver");
+    }
+
+    #[test]
+    fn test_build_acp_prompt_blocks() {
+        let attached = vec![
+            ("notes.txt".to_string(), "hello world".to_string()),
+            ("screen.png".to_string(), "Zm9v".to_string()),
+        ];
+        let blocks = build_acp_prompt_blocks("Describe this", &attached);
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0]["type"], "text");
+        assert!(blocks[0]["text"].as_str().unwrap().contains("[Attached Context File: notes.txt]"));
+        assert_eq!(blocks[1]["type"], "image");
+        assert_eq!(blocks[1]["mimeType"], "image/png");
+        assert_eq!(blocks[1]["data"], "Zm9v");
+        assert_eq!(blocks[2]["type"], "text");
+        assert_eq!(blocks[2]["text"], "Describe this");
     }
 
     #[test]

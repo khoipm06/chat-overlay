@@ -118,6 +118,16 @@ pub struct AppSettings {
     pub ui_scale: u32,
     #[serde(default = "default_font_size")]
     pub font_size: u32,
+    #[serde(default)]
+    pub dictation_api_url: Option<String>,
+    #[serde(default)]
+    pub dictation_api_key: Option<String>,
+    #[serde(default)]
+    pub dictation_model: Option<String>,
+    #[serde(default)]
+    pub dictation_language: Option<String>,
+    #[serde(default)]
+    pub dictation_command: Option<String>,
 }
 
 fn default_show_chat_head() -> bool {
@@ -193,6 +203,11 @@ impl Default for AppSettings {
             margin_bottom: default_margin_bottom(),
             ui_scale: default_ui_scale(),
             font_size: default_font_size(),
+            dictation_api_url: None,
+            dictation_api_key: None,
+            dictation_model: None,
+            dictation_language: None,
+            dictation_command: None,
         }
     }
 }
@@ -334,5 +349,7 @@ mod tests {
         assert_eq!(s.font_size, DEFAULT_FONT_SIZE);
         assert_eq!(s.width, 500);
         assert_eq!(s.theme, "theme-oled");
+        assert!(s.dictation_api_url.is_none());
+        assert!(s.dictation_command.is_none());
     }
 }

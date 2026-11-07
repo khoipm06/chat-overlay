@@ -1,6 +1,8 @@
 pub mod acp;
 mod backend;
+pub mod capture;
 mod commands;
+pub mod dictation;
 mod format;
 mod ipc;
 mod overlay;
@@ -165,9 +167,13 @@ fn add_context_chip(
 ) {
     let chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
     chip.add_css_class("composer-chip");
+    let is_img = capture::is_image_path(full_path);
+    if is_img {
+        chip.add_css_class("image-chip");
+    }
 
     let chip_icon = gtk4::Label::builder()
-        .label("+")
+        .label(if is_img { "📸" } else { "📄" })
         .css_classes(["composer-chip-icon"])
         .build();
     let chip_text = gtk4::Label::builder()
@@ -628,6 +634,20 @@ fn build_ui(
         .build();
     composer_toolbar.append(&btn_attach);
 
+    let btn_capture = gtk4::Button::builder()
+        .label("📸")
+        .css_classes(["composer-pill-btn"])
+        .tooltip_text("Capture screen context (Ctrl+Shift+S)")
+        .build();
+    composer_toolbar.append(&btn_capture);
+
+    let btn_dictation = gtk4::Button::builder()
+        .label("🎙️")
+        .css_classes(["composer-pill-btn", "dictation-btn"])
+        .tooltip_text("Voice dictation (Ctrl+Shift+D)")
+        .build();
+    composer_toolbar.append(&btn_dictation);
+
     let btn_mode_pill = gtk4::Button::builder()
         .label("@ Agent")
         .css_classes(["composer-pill-btn"])
@@ -779,7 +799,13 @@ fn build_ui(
                                 .and_then(|n| n.to_str())
                                 .unwrap_or("file")
                                 .to_string();
-                            let content = std::fs::read_to_string(&path).unwrap_or_default();
+                            let content = if capture::is_image_path(&path_str) {
+                                std::fs::read(&path)
+                                    .map(|b| capture::base64_encode(&b))
+                                    .unwrap_or_default()
+                            } else {
+                                std::fs::read_to_string(&path).unwrap_or_default()
+                            };
                             st_ref.borrow_mut().attached_files.push((path_str.clone(), content));
                             add_context_chip(&c_ref, &display_name, &path_str, st_ref.clone(), Some(upd_ref.clone()));
                         }
@@ -787,6 +813,201 @@ fn build_ui(
                 }
             });
             chooser.show();
+        });
+    }
+
+    // ── Screen Capture Context Button ────────────────────────────────────────
+    let popover_capture = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_capture.set_parent(&btn_capture);
+
+    let capture_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    capture_box.set_width_request(160);
+
+    let capture_title = gtk4::Label::builder()
+        .label("CAPTURE SCREEN CONTEXT")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    capture_box.append(&capture_title);
+
+    let capture_modes = [
+        (capture::CaptureMode::Region, "✂️ Select Region", "Click & drag area to attach"),
+        (capture::CaptureMode::ActiveWindow, "🪟 Active Window", "Capture active application"),
+        (capture::CaptureMode::FullScreen, "🖥️ Full Screen", "Capture whole desktop"),
+    ];
+
+    for (mode, m_label, m_desc) in capture_modes {
+        let cap_btn = gtk4::Button::builder()
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+        let cap_inner = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
+        let cap_name = gtk4::Label::builder()
+            .label(m_label)
+            .xalign(0.0)
+            .build();
+        let cap_desc = gtk4::Label::builder()
+            .label(m_desc)
+            .css_classes(["clean-popover-item-desc"])
+            .xalign(0.0)
+            .build();
+        cap_inner.append(&cap_name);
+        cap_inner.append(&cap_desc);
+        cap_btn.set_child(Some(&cap_inner));
+
+        let pop_cap_close = popover_capture.clone();
+        let state_cap = state.clone();
+        let chips_cap = chips_row.clone();
+        let upd_cap = update_send_btn_state.clone();
+
+        cap_btn.connect_clicked(move |_| {
+            pop_cap_close.popdown();
+            let st_ref = state_cap.clone();
+            let c_ref = chips_cap.clone();
+            let upd_ref = upd_cap.clone();
+
+            glib::spawn_future_local(async move {
+                let res = tokio::task::spawn_blocking(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                    capture::capture_screen(mode)
+                })
+                .await
+                .unwrap_or_else(|e| Err(format!("Task failed: {}", e)));
+
+                match res {
+                    Ok(path) => {
+                        let path_str = path.to_string_lossy().to_string();
+                        let display_name = path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("screenshot.png")
+                            .to_string();
+                        let content = std::fs::read(&path)
+                            .map(|b| capture::base64_encode(&b))
+                            .unwrap_or_default();
+                        st_ref.borrow_mut().attached_files.push((path_str.clone(), content));
+                        add_context_chip(&c_ref, &display_name, &path_str, st_ref.clone(), Some(upd_ref.clone()));
+                    }
+                    Err(err) => {
+                        eprintln!("Capture failed: {}", err);
+                    }
+                }
+            });
+        });
+        capture_box.append(&cap_btn);
+    }
+    popover_capture.set_child(Some(&capture_box));
+
+    {
+        let pop_ref = popover_capture.clone();
+        btn_capture.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
+
+    // ── Voice Dictation Button ──────────────────────────────────────────────
+    let is_dictating = Rc::new(Cell::new(false));
+    let dictation_timer_id = Rc::new(RefCell::new(None::<glib::SourceId>));
+    let dictation_start_time = Rc::new(RefCell::new(None::<std::time::Instant>));
+
+    {
+        let is_dict = is_dictating.clone();
+        let btn_d = btn_dictation.clone();
+        let ph_d = placeholder_label.clone();
+        let tv_d = text_view.clone();
+        let state_d = state.clone();
+        let d_timer_id = dictation_timer_id.clone();
+        let d_start = dictation_start_time.clone();
+
+        btn_dictation.connect_clicked(move |_| {
+            if !is_dict.get() {
+                match dictation::start_recording() {
+                    Ok(_) => {
+                        is_dict.set(true);
+                        btn_d.set_label("🔴 0:00");
+                        btn_d.add_css_class("dictation-recording");
+                        btn_d.set_tooltip_text(Some("Recording... Click to stop and transcribe"));
+                        ph_d.set_label("Listening... Speak now");
+
+                        let start_inst = std::time::Instant::now();
+                        *d_start.borrow_mut() = Some(start_inst);
+                        let btn_tick = btn_d.clone();
+                        let d_start_tick = d_start.clone();
+                        let source_id = glib::timeout_add_local(
+                            std::time::Duration::from_secs(1),
+                            move || {
+                                if let Some(st) = *d_start_tick.borrow() {
+                                    let elapsed = st.elapsed().as_secs();
+                                    btn_tick.set_label(&format!("🔴 {}:{:02}", elapsed / 60, elapsed % 60));
+                                    glib::ControlFlow::Continue
+                                } else {
+                                    glib::ControlFlow::Break
+                                }
+                            },
+                        );
+                        *d_timer_id.borrow_mut() = Some(source_id);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to start recording: {}", e);
+                    }
+                }
+            } else {
+                is_dict.set(false);
+                if let Some(src_id) = d_timer_id.borrow_mut().take() {
+                    src_id.remove();
+                }
+                *d_start.borrow_mut() = None;
+
+                btn_d.remove_css_class("dictation-recording");
+                btn_d.set_label("⏳ Transcribing...");
+                btn_d.set_sensitive(false);
+
+                let settings = state_d.borrow().settings.clone();
+                let btn_done = btn_d.clone();
+                let tv_done = tv_d.clone();
+                let ph_done = ph_d.clone();
+
+                glib::spawn_future_local(async move {
+                    let res = tokio::task::spawn_blocking(move || {
+                        dictation::stop_recording()
+                            .and_then(|path| dictation::transcribe_audio(&path, &settings))
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(format!("STT task failed: {}", e)));
+
+                    btn_done.set_sensitive(true);
+                    btn_done.set_label("🎙️");
+                    btn_done.set_tooltip_text(Some("Voice dictation (Ctrl+Shift+D)"));
+                    ph_done.set_label("Describe what to build");
+
+                    match res {
+                        Ok(transcript) => {
+                            let buffer = tv_done.buffer();
+                            let current = get_text_view_content(&tv_done);
+                            let new_text = if current.is_empty() {
+                                transcript
+                            } else {
+                                format!("{} {}", current, transcript)
+                            };
+                            buffer.set_text(&new_text);
+                            let end = buffer.end_iter();
+                            buffer.place_cursor(&end);
+                            tv_done.grab_focus();
+                        }
+                        Err(err) => {
+                            eprintln!("Dictation error: {}", err);
+                            let buffer = tv_done.buffer();
+                            if get_text_view_content(&tv_done).is_empty() {
+                                buffer.set_text(&format!("[Dictation note: {}]", err));
+                            }
+                        }
+                    }
+                });
+            }
         });
     }
 
@@ -799,7 +1020,7 @@ fn build_ui(
     popover_env.set_parent(&btn_env);
 
     let env_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    env_box.set_width_request(200);
+    env_box.set_width_request(160);
 
     let env_title = gtk4::Label::builder()
         .label("EXECUTION TARGET")
@@ -859,7 +1080,7 @@ fn build_ui(
     popover_mode.set_parent(&btn_mode_pill);
 
     let mode_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    mode_box.set_width_request(220);
+    mode_box.set_width_request(170);
 
     let mode_title = gtk4::Label::builder()
         .label("SELECT AGENT MODE")
@@ -919,7 +1140,7 @@ fn build_ui(
     popover_model.set_parent(&btn_model_pill);
 
     let model_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    model_box.set_width_request(260);
+    model_box.set_width_request(210);
 
     let model_title = gtk4::Label::builder()
         .label("SELECT MODEL")
@@ -931,7 +1152,7 @@ fn build_ui(
     let model_scroll = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
-        .max_content_height(280)
+        .max_content_height(240)
         .propagate_natural_height(true)
         .build();
     let model_list = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
@@ -978,7 +1199,7 @@ fn build_ui(
     popover_think.set_parent(&btn_think_pill);
 
     let think_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    think_box.set_width_request(180);
+    think_box.set_width_request(150);
 
     let think_title = gtk4::Label::builder()
         .label("REASONING DEPTH")
@@ -1027,7 +1248,7 @@ fn build_ui(
     popover_session.set_parent(&btn_session_list);
 
     let session_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-    session_box.set_width_request(280);
+    session_box.set_width_request(220);
 
     let session_pop_title = gtk4::Label::builder()
         .label("SESSION HISTORY")
@@ -1039,7 +1260,7 @@ fn build_ui(
     let prompts_scroll = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
-        .max_content_height(260)
+        .max_content_height(220)
         .propagate_natural_height(true)
         .build();
 
@@ -1072,7 +1293,7 @@ fn build_ui(
     popover_more.set_parent(&btn_more);
 
     let more_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    more_box.set_width_request(250);
+    more_box.set_width_request(190);
 
     let more_title = gtk4::Label::builder()
         .label("MORE ACTIONS")
@@ -1082,170 +1303,7 @@ fn build_ui(
     more_box.append(&more_title);
 
     // ── Clean Settings Selector Rows (No GtkDropDown to prevent system theme bleed) ──
-    // 1. Model Selector Row
-    let btn_row_model = gtk4::Button::builder()
-        .css_classes(["clean-settings-row"])
-        .halign(gtk4::Align::Fill)
-        .build();
-    let box_rm = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let lbl_rm_title = gtk4::Label::builder()
-        .label("Model")
-        .css_classes(["clean-popover-item-desc"])
-        .xalign(0.0)
-        .hexpand(true)
-        .build();
-    let initial_model_name = format!("{} ▾", model_display_name_with_list(&initial_settings.model, &initial_models));
-    let lbl_rm_val = gtk4::Label::builder()
-        .label(&initial_model_name)
-        .css_classes(["clean-settings-val"])
-        .xalign(1.0)
-        .build();
-    box_rm.append(&lbl_rm_title);
-    box_rm.append(&lbl_rm_val);
-    btn_row_model.set_child(Some(&box_rm));
-    more_box.append(&btn_row_model);
-
-    let popover_row_model = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(true)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_row_model.set_parent(&btn_row_model);
-
-    let prm_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    prm_box.set_width_request(260);
-    let prm_title = gtk4::Label::builder()
-        .label("SELECT MODEL")
-        .css_classes(["clean-popover-title"])
-        .xalign(0.0)
-        .build();
-    prm_box.append(&prm_title);
-
-    let prm_scroll = gtk4::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk4::PolicyType::Never)
-        .vscrollbar_policy(gtk4::PolicyType::Automatic)
-        .max_content_height(280)
-        .propagate_natural_height(true)
-        .build();
-    let prm_list = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-
-    for (m_id, m_name) in &initial_models {
-        let m_btn = gtk4::Button::builder()
-            .label(m_name)
-            .css_classes(["clean-popover-item"])
-            .halign(gtk4::Align::Fill)
-            .build();
-
-        let pop_close = popover_row_model.clone();
-        let state_m = state.clone();
-        let models_list = initial_models.clone();
-        let mid = m_id.clone();
-        let lbl_val = lbl_rm_val.clone();
-        let btn_mdl_pill_ref = btn_model_pill.clone();
-
-        m_btn.connect_clicked(move |_| {
-            pop_close.popdown();
-            let mut st = state_m.borrow_mut();
-            st.settings.model = mid.clone();
-            let _ = st.settings.save();
-            let short = model_display_name_with_list(&mid, &models_list);
-            lbl_val.set_label(&format!("{} ▾", short));
-            btn_mdl_pill_ref.set_label(&short);
-        });
-        prm_list.append(&m_btn);
-    }
-    prm_scroll.set_child(Some(&prm_list));
-    prm_box.append(&prm_scroll);
-    popover_row_model.set_child(Some(&prm_box));
-
-    {
-        let pop_ref = popover_row_model.clone();
-        btn_row_model.connect_clicked(move |_| {
-            pop_ref.popup();
-        });
-    }
-
-    // 2. Reasoning Depth Selector Row
-    let btn_row_think = gtk4::Button::builder()
-        .css_classes(["clean-settings-row"])
-        .halign(gtk4::Align::Fill)
-        .build();
-    let box_rt = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    let lbl_rt_title = gtk4::Label::builder()
-        .label("Reasoning")
-        .css_classes(["clean-popover-item-desc"])
-        .xalign(0.0)
-        .hexpand(true)
-        .build();
-    let initial_think_name = format!("{} ▾", thinking_display_name(&initial_settings.thinking_level));
-    let lbl_rt_val = gtk4::Label::builder()
-        .label(&initial_think_name)
-        .css_classes(["clean-settings-val"])
-        .xalign(1.0)
-        .build();
-    box_rt.append(&lbl_rt_title);
-    box_rt.append(&lbl_rt_val);
-    btn_row_think.set_child(Some(&box_rt));
-    more_box.append(&btn_row_think);
-
-    let popover_row_think = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(true)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_row_think.set_parent(&btn_row_think);
-
-    let prt_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    prt_box.set_width_request(200);
-    let prt_title = gtk4::Label::builder()
-        .label("REASONING DEPTH")
-        .css_classes(["clean-popover-title"])
-        .xalign(0.0)
-        .build();
-    prt_box.append(&prt_title);
-
-    let think_options = [
-        ("off", "Off (No reasoning)"),
-        ("minimal", "Minimal"),
-        ("low", "Low"),
-        ("medium", "Medium (Recommended)"),
-        ("high", "High (Deep)"),
-    ];
-
-    for (th_id, th_name) in think_options {
-        let th_btn = gtk4::Button::builder()
-            .label(th_name)
-            .css_classes(["clean-popover-item"])
-            .halign(gtk4::Align::Fill)
-            .build();
-
-        let pop_close = popover_row_think.clone();
-        let state_th = state.clone();
-        let tid = th_id.to_string();
-        let lbl_val = lbl_rt_val.clone();
-        let btn_th_pill_ref = btn_think_pill.clone();
-
-        th_btn.connect_clicked(move |_| {
-            pop_close.popdown();
-            let mut st = state_th.borrow_mut();
-            st.settings.thinking_level = tid.clone();
-            let _ = st.settings.save();
-            let short = thinking_display_name(&tid);
-            lbl_val.set_label(&format!("{} ▾", short));
-            btn_th_pill_ref.set_label(&short);
-        });
-        prt_box.append(&th_btn);
-    }
-    popover_row_think.set_child(Some(&prt_box));
-
-    {
-        let pop_ref = popover_row_think.clone();
-        btn_row_think.connect_clicked(move |_| {
-            pop_ref.popup();
-        });
-    }
-
-    // 3. Theme Selector Row
+    // 1. Theme Selector Row
     let btn_row_theme = gtk4::Button::builder()
         .css_classes(["clean-settings-row"])
         .halign(gtk4::Align::Fill)
@@ -1280,7 +1338,7 @@ fn build_ui(
     popover_row_theme.set_parent(&btn_row_theme);
 
     let prth_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    prth_box.set_width_request(220);
+    prth_box.set_width_request(160);
     let prth_title = gtk4::Label::builder()
         .label("APPEARANCE THEME")
         .css_classes(["clean-popover-title"])
@@ -1324,7 +1382,7 @@ fn build_ui(
         });
     }
 
-    // 4. UI Scale Selector Row
+    // 2. UI Scale Selector Row
     let btn_row_scale = gtk4::Button::builder()
         .css_classes(["clean-settings-row"])
         .halign(gtk4::Align::Fill)
@@ -1359,7 +1417,7 @@ fn build_ui(
     popover_row_scale.set_parent(&btn_row_scale);
 
     let prs_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    prs_box.set_width_request(220);
+    prs_box.set_width_request(160);
     let prs_title = gtk4::Label::builder()
         .label("UI SCALE PRESET")
         .css_classes(["clean-popover-title"])
@@ -1400,7 +1458,7 @@ fn build_ui(
         });
     }
 
-    // 5. Font Size Selector Row
+    // 3. Font Size Selector Row
     let btn_row_font = gtk4::Button::builder()
         .css_classes(["clean-settings-row"])
         .halign(gtk4::Align::Fill)
@@ -1435,7 +1493,7 @@ fn build_ui(
     popover_row_font.set_parent(&btn_row_font);
 
     let prf_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    prf_box.set_width_request(220);
+    prf_box.set_width_request(150);
     let prf_title = gtk4::Label::builder()
         .label("BASE FONT SIZE")
         .css_classes(["clean-popover-title"])
@@ -1472,6 +1530,83 @@ fn build_ui(
     {
         let pop_ref = popover_row_font.clone();
         btn_row_font.connect_clicked(move |_| {
+            pop_ref.popup();
+        });
+    }
+
+    // 4. Dictation Language Selector Row
+    let btn_row_lang = gtk4::Button::builder()
+        .css_classes(["clean-settings-row"])
+        .halign(gtk4::Align::Fill)
+        .build();
+    let box_rl = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    let lbl_rl_title = gtk4::Label::builder()
+        .label("Dictation Lang")
+        .css_classes(["clean-popover-item-desc"])
+        .xalign(0.0)
+        .hexpand(true)
+        .build();
+    let initial_lang_str = match initial_settings.dictation_language.as_deref() {
+        Some("vi") => "Tiếng Việt ▾",
+        Some("en") => "English ▾",
+        _ => "Auto ▾",
+    };
+    let lbl_rl_val = gtk4::Label::builder()
+        .label(initial_lang_str)
+        .css_classes(["clean-settings-val"])
+        .xalign(1.0)
+        .build();
+    box_rl.append(&lbl_rl_title);
+    box_rl.append(&lbl_rl_val);
+    btn_row_lang.set_child(Some(&box_rl));
+    more_box.append(&btn_row_lang);
+
+    let popover_row_lang = gtk4::Popover::builder()
+        .autohide(true)
+        .has_arrow(true)
+        .css_classes(["clean-popover"])
+        .build();
+    popover_row_lang.set_parent(&btn_row_lang);
+
+    let prl_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    prl_box.set_width_request(150);
+    let prl_title = gtk4::Label::builder()
+        .label("DICTATION LANGUAGE")
+        .css_classes(["clean-popover-title"])
+        .xalign(0.0)
+        .build();
+    prl_box.append(&prl_title);
+
+    let lang_options = [
+        ("auto", "Auto Detect"),
+        ("vi", "Tiếng Việt (Vietnamese)"),
+        ("en", "English"),
+    ];
+    for (l_code, l_label) in lang_options {
+        let l_btn = gtk4::Button::builder()
+            .label(l_label)
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+        let pop_close = popover_row_lang.clone();
+        let state_l = state.clone();
+        let code_str = l_code.to_string();
+        let lbl_display = if l_code == "vi" { "Tiếng Việt ▾" } else if l_code == "en" { "English ▾" } else { "Auto ▾" };
+        let lbl_val = lbl_rl_val.clone();
+        l_btn.connect_clicked(move |_| {
+            pop_close.popdown();
+            let mut st = state_l.borrow_mut();
+            st.settings.dictation_language = Some(code_str.clone());
+            let _ = st.settings.save();
+            lbl_val.set_label(lbl_display);
+        });
+        prl_box.append(&l_btn);
+    }
+    popover_row_lang.set_child(Some(&prl_box));
+
+    {
+        let pop_ref = popover_row_lang.clone();
+        btn_row_lang.connect_clicked(move |_| {
             pop_ref.popup();
         });
     }
@@ -2759,20 +2894,32 @@ fn build_ui(
         });
     }
 
-    // Global Window Keyboard Shortcuts (Esc to close, Ctrl+N for new chat)
+    // Global Window Keyboard Shortcuts (Esc to close, Ctrl+N for new chat, Ctrl+Shift+S for capture, Ctrl+Shift+D for dictation)
     {
         let key_controller = gtk4::EventControllerKey::new();
         let hide_fn = hide_overlay_fn.clone();
         let req_nc_key = request_new_chat.clone();
+        let btn_cap_key = btn_capture.clone();
+        let btn_dict_key = btn_dictation.clone();
 
         key_controller.connect_key_pressed(move |_, key, _, modifier| {
             if key == gdk::Key::Escape {
                 hide_fn();
                 return glib::Propagation::Stop;
             }
-            if modifier.contains(gdk::ModifierType::CONTROL_MASK) && key == gdk::Key::n {
+            if modifier.contains(gdk::ModifierType::CONTROL_MASK) && (key == gdk::Key::n || key == gdk::Key::N) {
                 req_nc_key();
                 return glib::Propagation::Stop;
+            }
+            if modifier.contains(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK) {
+                if key == gdk::Key::S || key == gdk::Key::s {
+                    btn_cap_key.emit_clicked();
+                    return glib::Propagation::Stop;
+                }
+                if key == gdk::Key::D || key == gdk::Key::d {
+                    btn_dict_key.emit_clicked();
+                    return glib::Propagation::Stop;
+                }
             }
             glib::Propagation::Proceed
         });
