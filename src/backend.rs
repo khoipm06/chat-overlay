@@ -1,5 +1,5 @@
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
@@ -83,6 +83,20 @@ pub fn resolve_pi_binary() -> std::path::PathBuf {
     std::path::PathBuf::from("pi")
 }
 
+fn which_binary(path: &std::path::Path) -> bool {
+    if path.is_file() {
+        return true;
+    }
+    if let Ok(paths) = std::env::var("PATH") {
+        for p in std::env::split_paths(&paths) {
+            if p.join(path).is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 impl PiRunner {
     pub fn new() -> Self {
         Self {
@@ -110,6 +124,7 @@ impl PiRunner {
     pub fn spawn_prompt(
         &mut self,
         prompt: String,
+        attached_files: Vec<(String, String)>,
         model: Option<String>,
         thinking_level: Option<String>,
         mode: Option<String>,
@@ -123,10 +138,10 @@ impl PiRunner {
         let session_dir = std::env::temp_dir().join("pi-overlay-sessions");
         let _ = std::fs::create_dir_all(&session_dir);
 
-        let pi_bin = resolve_pi_binary();
-        let mut cmd = Command::new(&pi_bin);
+        let acp_bin = crate::acp::resolve_pi_acp_binary();
+        let use_acp = acp_bin.is_file() || which_binary(&acp_bin);
 
-        // Prepend user toolchain directories to PATH for pi and its tool executions
+        // Prepend user toolchain directories to PATH for pi, pi-acp and tool executions
         let current_path = std::env::var("PATH").unwrap_or_default();
         let augmented_path = if let Ok(home) = std::env::var("HOME") {
             format!(
@@ -136,7 +151,171 @@ impl PiRunner {
         } else {
             format!("/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}", current_path)
         };
-        cmd.env("PATH", augmented_path);
+
+        if use_acp {
+            let mut cmd = Command::new(&acp_bin);
+            cmd.env("PATH", &augmented_path);
+            cmd.stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            let mut child = cmd.spawn()?;
+            let mut stdin = child.stdin.take().ok_or("Failed to capture stdin")?;
+            let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+            let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
+
+            let tx_out = tx.clone();
+            let session_dir_clone = session_dir.clone();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stdout).lines();
+
+                // 1. Handshake initialize
+                let init_req = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": 1,
+                        "clientCapabilities": { "fs": false, "terminal": false }
+                    }
+                });
+                let mut init_line = serde_json::to_string(&init_req).unwrap_or_default();
+                init_line.push('\n');
+                let _ = stdin.write_all(init_line.as_bytes()).await;
+                let _ = stdin.flush().await;
+
+                // Wait for init response
+                let _ = reader.next_line().await;
+
+                // 2. session/new
+                let cwd_str = session_dir_clone.to_str().unwrap_or(".");
+                let sess_req = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "session/new",
+                    "params": {
+                        "cwd": cwd_str,
+                        "mcpServers": []
+                    }
+                });
+                let mut sess_line = serde_json::to_string(&sess_req).unwrap_or_default();
+                sess_line.push('\n');
+                let _ = stdin.write_all(sess_line.as_bytes()).await;
+                let _ = stdin.flush().await;
+
+                let sess_resp = reader.next_line().await.ok().flatten().unwrap_or_default();
+                let sess_val: serde_json::Value = serde_json::from_str(&sess_resp).unwrap_or_default();
+                let session_id = sess_val.get("result")
+                    .and_then(|r| r.get("sessionId"))
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("session-1")
+                    .to_string();
+
+                // 3. Set model if specified
+                if let Some(m) = model.as_deref() {
+                    if m != "default" && !m.is_empty() {
+                        let cfg_req = serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": 3,
+                            "method": "session/setConfigOption",
+                            "params": {
+                                "sessionId": session_id,
+                                "configId": "model",
+                                "value": m
+                            }
+                        });
+                        let mut line = serde_json::to_string(&cfg_req).unwrap_or_default();
+                        line.push('\n');
+                        let _ = stdin.write_all(line.as_bytes()).await;
+                        let _ = stdin.flush().await;
+                    }
+                }
+
+                // 4. Set thinking level if specified
+                if let Some(th) = thinking_level.as_deref() {
+                    if !th.is_empty() {
+                        let cfg_req = serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": 4,
+                            "method": "session/setConfigOption",
+                            "params": {
+                                "sessionId": session_id,
+                                "configId": "thought_level",
+                                "value": th
+                            }
+                        });
+                        let mut line = serde_json::to_string(&cfg_req).unwrap_or_default();
+                        line.push('\n');
+                        let _ = stdin.write_all(line.as_bytes()).await;
+                        let _ = stdin.flush().await;
+                    }
+                }
+
+                // 5. Build prompt payload with attached context
+                let mut prompt_blocks = Vec::new();
+                for (fname, content) in attached_files {
+                    prompt_blocks.push(serde_json::json!({
+                        "type": "text",
+                        "text": format!("[Attached Context File: {}]\n```\n{}\n```\n", fname, content)
+                    }));
+                }
+                prompt_blocks.push(serde_json::json!({
+                    "type": "text",
+                    "text": prompt
+                }));
+
+                let prompt_req = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "session/prompt",
+                    "params": {
+                        "sessionId": session_id,
+                        "prompt": prompt_blocks
+                    }
+                });
+                let mut prompt_line = serde_json::to_string(&prompt_req).unwrap_or_default();
+                prompt_line.push('\n');
+                let _ = stdin.write_all(prompt_line.as_bytes()).await;
+                let _ = stdin.flush().await;
+
+                // 6. Read stream events
+                while let Ok(Some(line)) = reader.next_line().await {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if let Some(ev) = crate::acp::parse_acp_message(trimmed) {
+                        let is_done = matches!(ev, StreamEvent::Done);
+                        let _ = tx_out.send((gen, ev));
+                        if is_done {
+                            return;
+                        }
+                    } else if parse_and_dispatch_line(trimmed, gen, &tx_out).is_err() {
+                        return;
+                    }
+                }
+                let _ = tx_out.send((gen, StreamEvent::Done));
+            });
+
+            let tx_err = tx;
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = reader.next_line().await {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() && !trimmed.contains("DeprecationWarning") {
+                        let _ = tx_err.send((gen, StreamEvent::Error(line)));
+                    }
+                }
+            });
+
+            self.child = Some(child);
+            return Ok(());
+        }
+
+        // Fallback: spawn direct pi runner if ACP adapter is absent
+        let pi_bin = resolve_pi_binary();
+        let mut cmd = Command::new(&pi_bin);
+        cmd.env("PATH", &augmented_path);
 
         let args = build_pi_command_args(
             &session_dir,

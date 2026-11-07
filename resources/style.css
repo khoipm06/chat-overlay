@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   Copilot Chat Sidebar Design System
+   Agent Chat Sidebar Design System
    Exact VS Code Chat Sidebar Spec & Palette:
    --chat-bg:       #1E1E2A (Main sidebar canvas)
    --chat-surface:  #292936 (User message bubble, subtle surface)
@@ -841,6 +841,36 @@ popover.menu {
 .clean-popover-item:hover {
     background-color: #343644;
     color: #ffffff;
+}
+
+.settings-dropdown-row {
+    padding: 3px 6px;
+}
+
+dropdown.clean-dropdown,
+dropdown {
+    background-color: #252534;
+    color: #e4e4e7;
+    border: 1px solid #3c3c4e;
+    border-radius: 6px;
+    padding: 2px 8px;
+    min-height: 26px;
+    font-size: 12px;
+}
+
+dropdown.clean-dropdown:hover,
+dropdown:hover {
+    background-color: #2e3040;
+    border-color: #55556a;
+}
+
+dropdown.clean-dropdown > button.combo,
+dropdown > button.combo {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    color: #e4e4e7;
 }
 
 .clean-popover-item:active,

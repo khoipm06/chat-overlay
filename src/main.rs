@@ -31,21 +31,32 @@ pub const AVAILABLE_THEMES: &[(&str, &str, &str)] = &[
 ];
 const THEMES: &[(&str, &str, &str)] = AVAILABLE_THEMES;
 
-pub const POPULAR_MODELS: &[(&str, &str)] = &[
-    ("default", "Auto"),
-    ("claude-3-7-sonnet", "Claude 3.7 Sonnet"),
-    ("claude-3-5-sonnet", "Claude 3.5 Sonnet"),
-    ("claude-3-5-haiku", "Claude 3.5 Haiku"),
-    ("gpt-4o", "GPT-4o"),
-    ("gpt-4o-mini", "GPT-4o Mini"),
-    ("gemini-2.5-flash", "Gemini 2.5 Flash"),
-    ("gemini-2.5-pro", "Gemini 2.5 Pro"),
-    ("deepseek/deepseek-chat", "DeepSeek Chat (V3)"),
-    ("deepseek/deepseek-reasoner", "DeepSeek Reasoner (R1)"),
-];
+pub fn model_display_name(model_id: &str) -> String {
+    let models = acp::query_pi_models_sync();
+    model_display_name_with_list(model_id, &models)
+}
+
+pub fn model_display_name_with_list(model_id: &str, available_models: &[(String, String)]) -> String {
+    if model_id == "default" {
+        return "Auto".to_string();
+    }
+    for (id, name) in available_models {
+        if id == model_id {
+            if let Some((_prov, rest)) = name.split_once('/') {
+                return rest.to_string();
+            }
+            return name.clone();
+        }
+    }
+    if let Some((_prov, rest)) = model_id.split_once('/') {
+        return rest.to_string();
+    }
+    model_id.to_string()
+}
 
 pub const THINKING_LEVELS: &[(&str, &str)] = &[
     ("off", "Off"),
+    ("minimal", "Minimal"),
     ("low", "Low"),
     ("medium", "Balance"),
     ("high", "Deep"),
@@ -57,21 +68,6 @@ pub const AGENT_MODES: &[(&str, &str, &str)] = &[
     ("edit", "Edit", "Direct focused code modifications"),
     ("plan", "Plan", "Architectural plans and breakdowns"),
 ];
-
-pub fn model_display_name(model_id: &str) -> String {
-    for (id, name) in POPULAR_MODELS {
-        if *id == model_id {
-            if *id == "default" {
-                return "Auto".to_string();
-            }
-            if let Some(short) = name.strip_suffix(" Sonnet") {
-                return short.to_string();
-            }
-            return (*name).to_string();
-        }
-    }
-    model_id.to_string()
-}
 
 pub fn thinking_display_name(th_id: &str) -> String {
     for (id, name) in THINKING_LEVELS {
@@ -92,7 +88,9 @@ pub fn mode_display_name(mode_id: &str) -> String {
 }
 
 struct TrackedPrompt {
+    #[allow(dead_code)]
     index: usize,
+    #[allow(dead_code)]
     user_card: gtk4::Box,
 }
 
@@ -133,6 +131,9 @@ struct AppState {
     top_margin: i32,
     bottom_margin: i32,
     is_window_mode: bool,
+    attached_files: Vec<(String, String)>,
+    #[allow(dead_code)]
+    available_models: Vec<(String, String)>,
 }
 
 struct AppContext {
@@ -155,7 +156,13 @@ fn set_text_view_content(tv: &gtk4::TextView, text: &str) {
     tv.buffer().set_text(text);
 }
 
-fn add_context_chip(chips_box: &gtk4::Box, name: &str, on_change: Option<Rc<dyn Fn()>>) {
+fn add_context_chip(
+    chips_box: &gtk4::Box,
+    display_name: &str,
+    full_path: &str,
+    state: Rc<RefCell<AppState>>,
+    on_change: Option<Rc<dyn Fn()>>,
+) {
     let chip = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
     chip.add_css_class("composer-chip");
 
@@ -164,11 +171,11 @@ fn add_context_chip(chips_box: &gtk4::Box, name: &str, on_change: Option<Rc<dyn 
         .css_classes(["composer-chip-icon"])
         .build();
     let chip_text = gtk4::Label::builder()
-        .label(name)
+        .label(display_name)
         .css_classes(["composer-chip-text"])
         .ellipsize(gtk4::pango::EllipsizeMode::End)
         .max_width_chars(24)
-        .tooltip_text(name)
+        .tooltip_text(full_path)
         .build();
     let chip_del = gtk4::Button::builder()
         .label("✕")
@@ -183,8 +190,10 @@ fn add_context_chip(chips_box: &gtk4::Box, name: &str, on_change: Option<Rc<dyn 
     let chips_box_clone = chips_box.clone();
     let chip_clone = chip.clone();
     let on_change_clone = on_change.clone();
+    let path_clone = full_path.to_string();
     chip_del.connect_clicked(move |_| {
         chips_box_clone.remove(&chip_clone);
+        state.borrow_mut().attached_files.retain(|(p, _)| p != &path_clone);
         if let Some(ref cb) = on_change_clone {
             cb();
         }
@@ -347,6 +356,7 @@ fn build_ui(
 ) -> AppContext {
     let hold_guard = app.hold();
     let initial_settings = AppSettings::load();
+    let initial_models = acp::query_pi_models_sync();
 
     scale::apply_ui_scale(
         &scale_css_provider,
@@ -489,15 +499,8 @@ fn build_ui(
     let session_subheader = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
     session_subheader.add_css_class("session-subheader");
 
-    let btn_back = gtk4::Button::builder()
-        .label("←")
-        .css_classes(["session-back-btn"])
-        .tooltip_text("Previous Turn / Session")
-        .build();
-    session_subheader.append(&btn_back);
-
     let session_title_label = gtk4::Label::builder()
-        .label("Local  •  Tạo giao diện chat giống copilot")
+        .label("Agent Session")
         .css_classes(["session-title-label"])
         .halign(gtk4::Align::Start)
         .ellipsize(gtk4::pango::EllipsizeMode::End)
@@ -540,7 +543,7 @@ fn build_ui(
     welcome_box.append(&glyph);
 
     let w_title = gtk4::Label::builder()
-        .label("Copilot Chat")
+        .label("Agent Chat")
         .css_classes(["welcome-title"])
         .build();
     welcome_box.append(&w_title);
@@ -551,22 +554,6 @@ fn build_ui(
         .build();
     welcome_box.append(&w_sub);
 
-    let pill1 = gtk4::Button::builder()
-        .label("Explain workspace architecture")
-        .css_classes(["welcome-pill-btn"])
-        .build();
-    let pill2 = gtk4::Button::builder()
-        .label("Run tests and inspect errors")
-        .css_classes(["welcome-pill-btn"])
-        .build();
-    let pill3 = gtk4::Button::builder()
-        .label("Review recent git changes")
-        .css_classes(["welcome-pill-btn"])
-        .build();
-
-    welcome_box.append(&pill1);
-    welcome_box.append(&pill2);
-    welcome_box.append(&pill3);
     messages_box.append(&welcome_box);
     scrolled.set_child(Some(&messages_box));
 
@@ -707,9 +694,6 @@ fn build_ui(
         })
     };
 
-    // Default context chip matching user reference screenshot
-    add_context_chip(&chips_row, "spec.md", Some(update_send_btn_state.clone()));
-
     {
         let pl_ref = placeholder_label.clone();
         let update_btn = update_send_btn_state.clone();
@@ -740,19 +724,6 @@ fn build_ui(
         .build();
     status_footer.append(&btn_env);
 
-    let status_sep = gtk4::Label::builder()
-        .label("•")
-        .css_classes(["status-footer-dot-sep"])
-        .build();
-    status_footer.append(&status_sep);
-
-    let btn_perm = gtk4::Button::builder()
-        .label("Autopilot (Preview) ▾")
-        .css_classes(["status-footer-btn"])
-        .tooltip_text("Permission Level (Click to change)")
-        .build();
-    status_footer.append(&btn_perm);
-
     let sf_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     sf_spacer.set_hexpand(true);
     status_footer.append(&sf_spacer);
@@ -776,49 +747,46 @@ fn build_ui(
         top_margin: initial_settings.margin_top,
         bottom_margin: initial_settings.margin_top,
         is_window_mode,
+        attached_files: Vec::new(),
+        available_models: initial_models.clone(),
     }));
 
-    // ── Attach Context Popover ──────────────────────────────────────────────
-    let popover_attach = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(true)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_attach.set_parent(&btn_attach);
-
-    let attach_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    attach_box.set_width_request(190);
-
-    let attach_title = gtk4::Label::builder()
-        .label("ATTACH CONTEXT")
-        .css_classes(["clean-popover-title"])
-        .xalign(0.0)
-        .build();
-    attach_box.append(&attach_title);
-
-    let sample_files = ["spec.md", "chatViewPane.ts", "chatInputPart.ts", "style.css", "Cargo.toml"];
-    for file in sample_files {
-        let item_btn = gtk4::Button::builder()
-            .label(file)
-            .css_classes(["clean-popover-item"])
-            .halign(gtk4::Align::Fill)
-            .build();
-        let pop_close = popover_attach.clone();
-        let chips_ref = chips_row.clone();
-        let fname = file.to_string();
-        let update_btn_attach = update_send_btn_state.clone();
-        item_btn.connect_clicked(move |_| {
-            pop_close.popdown();
-            add_context_chip(&chips_ref, &fname, Some(update_btn_attach.clone()));
-        });
-        attach_box.append(&item_btn);
-    }
-    popover_attach.set_child(Some(&attach_box));
-
+    // ── Attach File Context Button ───────────────────────────────────────────
     {
-        let pop_ref = popover_attach.clone();
+        let win_ref = window.clone();
+        let state_attach = state.clone();
+        let chips_ref = chips_row.clone();
+        let update_btn_attach = update_send_btn_state.clone();
         btn_attach.connect_clicked(move |_| {
-            pop_ref.popup();
+            let chooser = gtk4::FileChooserNative::new(
+                Some("Attach File as Context"),
+                Some(&win_ref),
+                gtk4::FileChooserAction::Open,
+                Some("Attach"),
+                Some("Cancel"),
+            );
+            chooser.set_modal(true);
+            let st_ref = state_attach.clone();
+            let c_ref = chips_ref.clone();
+            let upd_ref = update_btn_attach.clone();
+            chooser.connect_response(move |dialog, resp| {
+                if resp == gtk4::ResponseType::Accept {
+                    if let Some(file) = dialog.file() {
+                        if let Some(path) = file.path() {
+                            let path_str = path.to_string_lossy().to_string();
+                            let display_name = path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("file")
+                                .to_string();
+                            let content = std::fs::read_to_string(&path).unwrap_or_default();
+                            st_ref.borrow_mut().attached_files.push((path_str.clone(), content));
+                            add_context_chip(&c_ref, &display_name, &path_str, st_ref.clone(), Some(upd_ref.clone()));
+                        }
+                    }
+                }
+            });
+            chooser.show();
         });
     }
 
@@ -878,67 +846,6 @@ fn build_ui(
     {
         let pop_ref = popover_env.clone();
         btn_env.connect_clicked(move |_| {
-            pop_ref.popup();
-        });
-    }
-
-    // ── Permission Level Popover ────────────────────────────────────────────
-    let popover_perm = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(true)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_perm.set_parent(&btn_perm);
-
-    let perm_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    perm_box.set_width_request(220);
-
-    let perm_title = gtk4::Label::builder()
-        .label("PERMISSION LEVEL")
-        .css_classes(["clean-popover-title"])
-        .xalign(0.0)
-        .build();
-    perm_box.append(&perm_title);
-
-    let perm_options = [
-        ("autopilot", "Autopilot (Preview)", "Autonomous tool calls without prompts"),
-        ("default", "Default permissions", "Prompts on destructive tool actions"),
-        ("bypass", "Bypass approvals", "Executes all shell and filesystem tools"),
-        ("readonly", "Read-only sandbox", "Prohibits file edits and execution"),
-    ];
-    for (_pid, plabel, pdesc) in perm_options {
-        let p_btn = gtk4::Button::builder()
-            .css_classes(["clean-popover-item"])
-            .halign(gtk4::Align::Fill)
-            .build();
-        let p_inner = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
-        let p_name = gtk4::Label::builder()
-            .label(plabel)
-            .xalign(0.0)
-            .build();
-        let p_desc = gtk4::Label::builder()
-            .label(pdesc)
-            .css_classes(["clean-popover-item-desc"])
-            .xalign(0.0)
-            .build();
-        p_inner.append(&p_name);
-        p_inner.append(&p_desc);
-        p_btn.set_child(Some(&p_inner));
-
-        let pop_p_close = popover_perm.clone();
-        let btn_p_lbl = btn_perm.clone();
-        let short_lbl = format!("{} ▾", plabel);
-        p_btn.connect_clicked(move |_| {
-            pop_p_close.popdown();
-            btn_p_lbl.set_label(&short_lbl);
-        });
-        perm_box.append(&p_btn);
-    }
-    popover_perm.set_child(Some(&perm_box));
-
-    {
-        let pop_ref = popover_perm.clone();
-        btn_perm.connect_clicked(move |_| {
             pop_ref.popup();
         });
     }
@@ -1012,7 +919,7 @@ fn build_ui(
     popover_model.set_parent(&btn_model_pill);
 
     let model_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    model_box.set_width_request(240);
+    model_box.set_width_request(260);
 
     let model_title = gtk4::Label::builder()
         .label("SELECT MODEL")
@@ -1021,9 +928,17 @@ fn build_ui(
         .build();
     model_box.append(&model_title);
 
-    for (m_id, m_name) in POPULAR_MODELS {
+    let model_scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .max_content_height(280)
+        .propagate_natural_height(true)
+        .build();
+    let model_list = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+
+    for (m_id, m_name) in &initial_models {
         let m_btn = gtk4::Button::builder()
-            .label(*m_name)
+            .label(m_name)
             .css_classes(["clean-popover-item"])
             .halign(gtk4::Align::Fill)
             .build();
@@ -1031,8 +946,8 @@ fn build_ui(
         let pop_mdl_close = popover_model.clone();
         let btn_mdl_lbl = btn_model_pill.clone();
         let state_mdl = state.clone();
-        let model_key = m_id.to_string();
-        let short_name = model_display_name(m_id);
+        let model_key = m_id.clone();
+        let short_name = model_display_name_with_list(m_id, &initial_models);
 
         m_btn.connect_clicked(move |_| {
             pop_mdl_close.popdown();
@@ -1041,8 +956,10 @@ fn build_ui(
             st.settings.model = model_key.clone();
             let _ = st.settings.save();
         });
-        model_box.append(&m_btn);
+        model_list.append(&m_btn);
     }
+    model_scroll.set_child(Some(&model_list));
+    model_box.append(&model_scroll);
     popover_model.set_child(Some(&model_box));
 
     {
@@ -1164,173 +1081,203 @@ fn build_ui(
         .build();
     more_box.append(&more_title);
 
-    // ── UI Scale Section ─────────────────────────────────────────────────────
-    let scale_section_title = gtk4::Label::builder()
-        .label("UI SCALE")
-        .css_classes(["clean-popover-item-desc"])
-        .margin_start(8)
-        .margin_top(4)
-        .xalign(0.0)
-        .build();
-    more_box.append(&scale_section_title);
+    // ── Dropdown Controls ──────────────────────────────────────────────────
+    // 1. Model Dropdown
+    let model_labels: Vec<String> = initial_models.iter().map(|(_, name)| name.clone()).collect();
+    let model_strs: Vec<&str> = model_labels.iter().map(|s| s.as_str()).collect();
+    let dd_model = gtk4::DropDown::from_strings(&model_strs);
+    dd_model.add_css_class("clean-dropdown");
+    let selected_model_idx = initial_models
+        .iter()
+        .position(|(id, _)| id == &initial_settings.model)
+        .unwrap_or(0);
+    dd_model.set_selected(selected_model_idx as u32);
 
-    let scale_check_labels: Rc<RefCell<Vec<(u32, gtk4::Label)>>> = Rc::new(RefCell::new(Vec::new()));
-
-    for preset in settings::UI_SCALE_PRESETS {
-        let is_current = preset.scale == initial_settings.ui_scale;
-        let s_btn = gtk4::Button::builder()
-            .css_classes(["clean-popover-item"])
-            .halign(gtk4::Align::Fill)
-            .build();
-
-        let s_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-        let check_lbl = gtk4::Label::builder()
-            .label(if is_current { "✓" } else { " " })
-            .css_classes(["theme-check-icon"])
-            .width_chars(2)
-            .build();
-        let name_lbl = gtk4::Label::builder()
-            .label(format!("{}  •  {}", preset.label, preset.desc))
-            .xalign(0.0)
-            .hexpand(true)
-            .build();
-        s_row.append(&check_lbl);
-        s_row.append(&name_lbl);
-        s_btn.set_child(Some(&s_row));
-
-        scale_check_labels.borrow_mut().push((preset.scale, check_lbl.clone()));
-
-        let state_scale = state.clone();
-        let pop_more_close = popover_more.clone();
-        let checks_ref = scale_check_labels.clone();
-        let scale_provider_ref = scale_css_provider.clone();
-        let sc_val = preset.scale;
-
-        s_btn.connect_clicked(move |_| {
-            pop_more_close.popdown();
-            for (sc, lbl) in checks_ref.borrow().iter() {
-                lbl.set_text(if *sc == sc_val { "✓" } else { " " });
+    {
+        let state_m = state.clone();
+        let models_list = initial_models.clone();
+        let btn_mdl_pill_ref = btn_model_pill.clone();
+        dd_model.connect_selected_notify(move |dd| {
+            let idx = dd.selected() as usize;
+            if let Some((id, _name)) = models_list.get(idx) {
+                let mut st = state_m.borrow_mut();
+                st.settings.model = id.clone();
+                let _ = st.settings.save();
+                let short = model_display_name_with_list(id, &models_list);
+                btn_mdl_pill_ref.set_label(&short);
             }
-            let mut st = state_scale.borrow_mut();
-            st.settings.ui_scale = sc_val;
-            scale::apply_ui_scale(&scale_provider_ref, sc_val, st.settings.font_size);
-            let _ = st.settings.save();
         });
-        more_box.append(&s_btn);
     }
-
-    // ── Font Size Section ────────────────────────────────────────────────────
-    let font_section_title = gtk4::Label::builder()
-        .label("FONT SIZE")
+    let row_model = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row_model.add_css_class("settings-dropdown-row");
+    let lbl_m = gtk4::Label::builder()
+        .label("Model")
         .css_classes(["clean-popover-item-desc"])
-        .margin_start(8)
-        .margin_top(6)
         .xalign(0.0)
+        .hexpand(true)
         .build();
-    more_box.append(&font_section_title);
+    row_model.append(&lbl_m);
+    row_model.append(&dd_model);
+    more_box.append(&row_model);
 
-    let font_check_labels: Rc<RefCell<Vec<(u32, gtk4::Label)>>> = Rc::new(RefCell::new(Vec::new()));
+    // 2. Reasoning Depth Dropdown
+    let think_options = [
+        ("off", "Off (No thinking)"),
+        ("minimal", "Minimal"),
+        ("low", "Low"),
+        ("medium", "Medium (Recommended)"),
+        ("high", "High (Deep)"),
+    ];
+    let think_labels: Vec<&str> = think_options.iter().map(|(_, name)| *name).collect();
+    let dd_think = gtk4::DropDown::from_strings(&think_labels);
+    dd_think.add_css_class("clean-dropdown");
+    let selected_think_idx = think_options
+        .iter()
+        .position(|(id, _)| id == &initial_settings.thinking_level)
+        .unwrap_or(3);
+    dd_think.set_selected(selected_think_idx as u32);
 
-    for preset in settings::FONT_SIZE_PRESETS {
-        let is_current = preset.size == initial_settings.font_size;
-        let f_btn = gtk4::Button::builder()
-            .css_classes(["clean-popover-item"])
-            .halign(gtk4::Align::Fill)
-            .build();
-
-        let f_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-        let check_lbl = gtk4::Label::builder()
-            .label(if is_current { "✓" } else { " " })
-            .css_classes(["theme-check-icon"])
-            .width_chars(2)
-            .build();
-        let name_lbl = gtk4::Label::builder()
-            .label(format!("{}  •  {}", preset.label, preset.desc))
-            .xalign(0.0)
-            .hexpand(true)
-            .build();
-        f_row.append(&check_lbl);
-        f_row.append(&name_lbl);
-        f_btn.set_child(Some(&f_row));
-
-        font_check_labels.borrow_mut().push((preset.size, check_lbl.clone()));
-
-        let state_font = state.clone();
-        let pop_more_close = popover_more.clone();
-        let checks_ref = font_check_labels.clone();
-        let scale_provider_ref = scale_css_provider.clone();
-        let fs_val = preset.size;
-
-        f_btn.connect_clicked(move |_| {
-            pop_more_close.popdown();
-            for (fs, lbl) in checks_ref.borrow().iter() {
-                lbl.set_text(if *fs == fs_val { "✓" } else { " " });
+    {
+        let state_th = state.clone();
+        let btn_th_pill_ref = btn_think_pill.clone();
+        dd_think.connect_selected_notify(move |dd| {
+            let idx = dd.selected() as usize;
+            if let Some((id, _)) = think_options.get(idx) {
+                let mut st = state_th.borrow_mut();
+                st.settings.thinking_level = id.to_string();
+                let _ = st.settings.save();
+                let short = thinking_display_name(id);
+                btn_th_pill_ref.set_label(&short);
             }
-            let mut st = state_font.borrow_mut();
-            st.settings.font_size = fs_val;
-            scale::apply_ui_scale(&scale_provider_ref, st.settings.ui_scale, fs_val);
-            let _ = st.settings.save();
         });
-        more_box.append(&f_btn);
     }
-
-    // Appearance Theme Section
-    let theme_section_title = gtk4::Label::builder()
-        .label("THEME")
+    let row_think = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row_think.add_css_class("settings-dropdown-row");
+    let lbl_th = gtk4::Label::builder()
+        .label("Reasoning")
         .css_classes(["clean-popover-item-desc"])
-        .margin_start(8)
-        .margin_top(6)
         .xalign(0.0)
+        .hexpand(true)
         .build();
-    more_box.append(&theme_section_title);
+    row_think.append(&lbl_th);
+    row_think.append(&dd_think);
+    more_box.append(&row_think);
 
-    let theme_check_labels: Rc<RefCell<Vec<(String, gtk4::Label)>>> = Rc::new(RefCell::new(Vec::new()));
+    // 3. Theme Dropdown
+    let theme_labels: Vec<&str> = THEMES.iter().map(|(_, name, _)| *name).collect();
+    let dd_theme = gtk4::DropDown::from_strings(&theme_labels);
+    dd_theme.add_css_class("clean-dropdown");
+    let selected_theme_idx = THEMES
+        .iter()
+        .position(|(id, _, _)| id == &initial_settings.theme)
+        .unwrap_or(0);
+    dd_theme.set_selected(selected_theme_idx as u32);
 
-    for (t_id, t_name, _) in THEMES {
-        let is_current = *t_id == initial_settings.theme;
-        let t_btn = gtk4::Button::builder()
-            .css_classes(["clean-popover-item"])
-            .halign(gtk4::Align::Fill)
-            .build();
-
-        let t_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-        let check_lbl = gtk4::Label::builder()
-            .label(if is_current { "✓" } else { " " })
-            .css_classes(["theme-check-icon"])
-            .width_chars(2)
-            .build();
-        let name_lbl = gtk4::Label::builder()
-            .label(*t_name)
-            .xalign(0.0)
-            .hexpand(true)
-            .build();
-        t_row.append(&check_lbl);
-        t_row.append(&name_lbl);
-        t_btn.set_child(Some(&t_row));
-
-        theme_check_labels.borrow_mut().push((t_id.to_string(), check_lbl.clone()));
-
+    {
+        let state_th = state.clone();
         let drawer_theme = drawer.clone();
-        let state_theme = state.clone();
-        let pop_more_close = popover_more.clone();
-        let checks_ref = theme_check_labels.clone();
-        let tid = *t_id;
-
-        t_btn.connect_clicked(move |_| {
-            pop_more_close.popdown();
-            for (other, _, _) in THEMES {
-                drawer_theme.remove_css_class(other);
+        dd_theme.connect_selected_notify(move |dd| {
+            let idx = dd.selected() as usize;
+            if let Some((id, _, _)) = THEMES.get(idx) {
+                for (other, _, _) in THEMES {
+                    drawer_theme.remove_css_class(other);
+                }
+                drawer_theme.add_css_class(id);
+                let mut st = state_th.borrow_mut();
+                st.settings.theme = id.to_string();
+                let _ = st.settings.save();
             }
-            drawer_theme.add_css_class(tid);
-            for (id, lbl) in checks_ref.borrow().iter() {
-                lbl.set_text(if id == tid { "✓" } else { " " });
-            }
-            let mut st = state_theme.borrow_mut();
-            st.settings.theme = tid.to_string();
-            let _ = st.settings.save();
         });
-        more_box.append(&t_btn);
     }
+    let row_theme = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row_theme.add_css_class("settings-dropdown-row");
+    let lbl_t = gtk4::Label::builder()
+        .label("Theme")
+        .css_classes(["clean-popover-item-desc"])
+        .xalign(0.0)
+        .hexpand(true)
+        .build();
+    row_theme.append(&lbl_t);
+    row_theme.append(&dd_theme);
+    more_box.append(&row_theme);
+
+    // 4. UI Scale Dropdown
+    let scale_labels: Vec<String> = settings::UI_SCALE_PRESETS
+        .iter()
+        .map(|p| format!("{} ({})", p.label, p.desc))
+        .collect();
+    let scale_strs: Vec<&str> = scale_labels.iter().map(|s| s.as_str()).collect();
+    let dd_scale = gtk4::DropDown::from_strings(&scale_strs);
+    dd_scale.add_css_class("clean-dropdown");
+    let selected_scale_idx = settings::UI_SCALE_PRESETS
+        .iter()
+        .position(|p| p.scale == initial_settings.ui_scale)
+        .unwrap_or(0);
+    dd_scale.set_selected(selected_scale_idx as u32);
+
+    {
+        let state_sc = state.clone();
+        let scale_provider_ref = scale_css_provider.clone();
+        dd_scale.connect_selected_notify(move |dd| {
+            let idx = dd.selected() as usize;
+            if let Some(preset) = settings::UI_SCALE_PRESETS.get(idx) {
+                let mut st = state_sc.borrow_mut();
+                st.settings.ui_scale = preset.scale;
+                scale::apply_ui_scale(&scale_provider_ref, preset.scale, st.settings.font_size);
+                let _ = st.settings.save();
+            }
+        });
+    }
+    let row_scale = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row_scale.add_css_class("settings-dropdown-row");
+    let lbl_sc = gtk4::Label::builder()
+        .label("UI Scale")
+        .css_classes(["clean-popover-item-desc"])
+        .xalign(0.0)
+        .hexpand(true)
+        .build();
+    row_scale.append(&lbl_sc);
+    row_scale.append(&dd_scale);
+    more_box.append(&row_scale);
+
+    // 5. Font Size Dropdown
+    let font_labels: Vec<String> = settings::FONT_SIZE_PRESETS
+        .iter()
+        .map(|p| format!("{} ({})", p.label, p.desc))
+        .collect();
+    let font_strs: Vec<&str> = font_labels.iter().map(|s| s.as_str()).collect();
+    let dd_font = gtk4::DropDown::from_strings(&font_strs);
+    dd_font.add_css_class("clean-dropdown");
+    let selected_font_idx = settings::FONT_SIZE_PRESETS
+        .iter()
+        .position(|p| p.size == initial_settings.font_size)
+        .unwrap_or(1);
+    dd_font.set_selected(selected_font_idx as u32);
+
+    {
+        let state_fs = state.clone();
+        let scale_provider_ref = scale_css_provider.clone();
+        dd_font.connect_selected_notify(move |dd| {
+            let idx = dd.selected() as usize;
+            if let Some(preset) = settings::FONT_SIZE_PRESETS.get(idx) {
+                let mut st = state_fs.borrow_mut();
+                st.settings.font_size = preset.size;
+                scale::apply_ui_scale(&scale_provider_ref, st.settings.ui_scale, preset.size);
+                let _ = st.settings.save();
+            }
+        });
+    }
+    let row_font = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+    row_font.add_css_class("settings-dropdown-row");
+    let lbl_fs = gtk4::Label::builder()
+        .label("Font Size")
+        .css_classes(["clean-popover-item-desc"])
+        .xalign(0.0)
+        .hexpand(true)
+        .build();
+    row_font.append(&lbl_fs);
+    row_font.append(&dd_font);
+    more_box.append(&row_font);
 
     // Clear Chat Option
     let btn_clear_chat = gtk4::Button::builder()
@@ -1726,25 +1673,6 @@ fn build_ui(
         let req_nc = request_new_chat.clone();
         btn_new_chat.connect_clicked(move |_| {
             req_nc();
-        });
-    }
-
-    // Connect Welcome Pill Buttons to populate prompt
-    {
-        let tv = text_view.clone();
-        pill1.connect_clicked(move |_| {
-            set_text_view_content(&tv, "Please explain the architecture of this workspace.");
-            tv.grab_focus();
-        });
-        let tv2 = text_view.clone();
-        pill2.connect_clicked(move |_| {
-            set_text_view_content(&tv2, "Run the test suite and report any errors.");
-            tv2.grab_focus();
-        });
-        let tv3 = text_view.clone();
-        pill3.connect_clicked(move |_| {
-            set_text_view_content(&tv3, "Review recent git commits and pending changes.");
-            tv3.grab_focus();
         });
     }
 
@@ -2545,9 +2473,10 @@ fn build_ui(
             let model_opt = Some(st.settings.model.clone());
             let thinking_opt = Some(st.settings.thinking_level.clone());
             let mode_opt = Some(st.current_mode.clone());
+            let attached = st.attached_files.clone();
             if let Err(e) =
                 st.runner
-                    .spawn_prompt(prompt.clone(), model_opt, thinking_opt, mode_opt, stream_tx.clone())
+                    .spawn_prompt(prompt.clone(), attached, model_opt, thinking_opt, mode_opt, stream_tx.clone())
             {
                 // On failure, restore prompt to buffer so user doesn't lose draft
                 set_text_view_content(&tv, &prompt);
@@ -2562,23 +2491,15 @@ fn build_ui(
                 is_streaming_submit.set(false);
                 update_btn_submit();
                 scroll_fn();
+            } else {
+                // Clear attached chips after submitting
+                st.attached_files.clear();
+                while let Some(child) = chips_row.first_child() {
+                    chips_row.remove(&child);
+                }
             }
         })
     };
-
-    // Connect Subheader Back Button to scroll to previous turn
-    {
-        let state_back = state.clone();
-        let scroll_widget_back = scroll_to_widget.clone();
-        btn_back.connect_clicked(move |_| {
-            let st = state_back.borrow();
-            if let Some(prev) = st.prompts.iter().rev().nth(1) {
-                scroll_widget_back(&prev.user_card);
-            } else if let Some(first) = st.prompts.first() {
-                scroll_widget_back(&first.user_card);
-            }
-        });
-    }
 
     // Keyboard Controller on Multi-line TextView: Enter sends, Shift+Enter new line
     {
@@ -2731,8 +2652,9 @@ mod tests {
 
     #[test]
     fn test_popular_models_list() {
-        assert!(!POPULAR_MODELS.is_empty());
-        assert_eq!(POPULAR_MODELS[0].0, "default");
+        let models = acp::query_pi_models_sync();
+        assert!(!models.is_empty());
+        assert_eq!(models[0].0, "default");
     }
 
     #[test]
