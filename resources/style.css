@@ -131,14 +131,14 @@ window {
 }
 
 .header-icon-btn {
-    min-width: 22px;
-    min-height: 22px;
-    padding: 1px 4px;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px 5px;
     border-radius: 4px;
     background-color: transparent;
     color: #A7A8BA;
     border: none;
-    font-size: 12px;
+    font-size: 12.5px;
     transition: background-color 120ms ease, color 120ms ease;
 }
 
@@ -162,14 +162,14 @@ window {
 .session-subheader {
     background-color: #1E1E2A;
     border-bottom: 1px solid #424252;
-    padding: 2px 8px;
+    padding: 2.5px 8px;
     min-height: 26px;
 }
 
 .session-back-btn {
-    min-width: 20px;
-    min-height: 20px;
-    padding: 1px;
+    min-width: 22px;
+    min-height: 22px;
+    padding: 1.5px;
     border-radius: 3px;
     background-color: transparent;
     color: #A7A8BA;
@@ -487,14 +487,14 @@ window {
 }
 
 .feedback-btn {
-    min-width: 22px;
-    min-height: 22px;
-    padding: 1px 4px;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px 5px;
     border-radius: 3px;
     background-color: transparent;
     color: #A7A8BA;
     border: none;
-    font-size: 11px;
+    font-size: 11.5px;
     transition: background-color 120ms ease, color 120ms ease;
 }
 
@@ -572,15 +572,15 @@ window {
 }
 
 .composer-chip-del {
-    min-width: 14px;
-    min-height: 14px;
+    min-width: 16px;
+    min-height: 16px;
     padding: 0;
     margin-left: 3px;
-    border-radius: 7px;
+    border-radius: 8px;
     background-color: transparent;
     color: #A7A8BA;
     border: none;
-    font-size: 9px;
+    font-size: 10px;
 }
 
 .composer-chip-del:hover {
@@ -592,11 +592,11 @@ window {
 .composer-text-view {
     background-color: transparent;
     color: #D4D4E0;
-    font-size: 12.5px;
-    line-height: 1.35;
+    font-size: 13px;
+    line-height: 1.4;
     caret-color: #4FC1FF;
-    padding: 1px 0;
-    min-height: 30px;
+    padding: 2px 0;
+    min-height: 32px;
 }
 
 .composer-text-view:focus {
@@ -611,13 +611,13 @@ window {
 
 .composer-placeholder {
     color: #A7A8BA;
-    font-size: 12.5px;
+    font-size: 13px;
     font-style: normal;
 }
 
 /* Composer Bottom Toolbar */
 .composer-toolbar {
-    margin-top: 3px;
+    margin-top: 4px;
     padding-top: 2px;
 }
 
@@ -626,11 +626,12 @@ window {
     background-image: none;
     border: 1px solid #424252;
     border-radius: 4px;
-    padding: 1.5px 6px;
+    padding: 2px 7px;
     color: #D4D4E0;
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 500;
     margin-right: 3px;
+    min-height: 24px;
     outline: none;
     box-shadow: none;
     transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
@@ -661,15 +662,15 @@ window {
 }
 
 .composer-icon-btn {
-    min-width: 22px;
-    min-height: 22px;
-    padding: 1px;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px;
     border-radius: 3px;
     background-color: transparent;
     background-image: none;
     color: #A7A8BA;
     border: none;
-    font-size: 12px;
+    font-size: 12.5px;
     margin-right: 3px;
     outline: none;
     box-shadow: none;
@@ -691,13 +692,13 @@ window {
 }
 
 .composer-send-btn {
-    min-width: 24px;
-    min-height: 24px;
-    border-radius: 12px;
+    min-width: 26px;
+    min-height: 26px;
+    border-radius: 13px;
     background-color: #4FC1FF;
     background-image: none;
     color: #1E1E2A;
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 700;
     padding: 0;
     border: none;

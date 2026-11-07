@@ -5,6 +5,7 @@ mod format;
 mod ipc;
 mod overlay;
 mod render;
+mod scale;
 mod settings;
 mod tray;
 
@@ -276,8 +277,8 @@ fn main() -> glib::ExitCode {
     let app_ctx_clone = app_ctx.clone();
     app.connect_activate(move |application| {
         if app_ctx_clone.borrow().is_none() {
-            load_css();
-            let ctx = build_ui(application, is_window_mode, is_daemon);
+            let scale_provider = load_css();
+            let ctx = build_ui(application, is_window_mode, is_daemon, scale_provider);
             *app_ctx_clone.borrow_mut() = Some(ctx);
         }
     });
@@ -315,10 +316,12 @@ fn ensure_desktop_integration() {
     }
 }
 
-fn load_css() {
+fn load_css() -> gtk4::CssProvider {
     let provider = gtk4::CssProvider::new();
     let css_bytes = include_bytes!("../resources/style.css");
     provider.load_from_data(std::str::from_utf8(css_bytes).unwrap_or(""));
+
+    let scale_provider = gtk4::CssProvider::new();
 
     if let Some(display) = gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
@@ -326,12 +329,30 @@ fn load_css() {
             &provider,
             gtk4::STYLE_PROVIDER_PRIORITY_USER,
         );
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &scale_provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_USER + 10,
+        );
     }
+
+    scale_provider
 }
 
-fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> AppContext {
+fn build_ui(
+    app: &gtk4::Application,
+    is_window_mode: bool,
+    is_daemon: bool,
+    scale_css_provider: gtk4::CssProvider,
+) -> AppContext {
     let hold_guard = app.hold();
     let initial_settings = AppSettings::load();
+
+    scale::apply_ui_scale(
+        &scale_css_provider,
+        initial_settings.ui_scale,
+        initial_settings.font_size,
+    );
 
     let window = gtk4::ApplicationWindow::builder()
         .application(app)
@@ -1134,7 +1155,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     popover_more.set_parent(&btn_more);
 
     let more_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    more_box.set_width_request(220);
+    more_box.set_width_request(250);
 
     let more_title = gtk4::Label::builder()
         .label("MORE ACTIONS")
@@ -1143,12 +1164,69 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         .build();
     more_box.append(&more_title);
 
+    // ── UI Scale & Font Size Section ─────────────────────────────────────────
+    let scale_section_title = gtk4::Label::builder()
+        .label("UI SCALE & FONT SIZE")
+        .css_classes(["clean-popover-item-desc"])
+        .margin_start(8)
+        .margin_top(4)
+        .xalign(0.0)
+        .build();
+    more_box.append(&scale_section_title);
+
+    let scale_check_labels: Rc<RefCell<Vec<(u32, gtk4::Label)>>> = Rc::new(RefCell::new(Vec::new()));
+
+    for preset in settings::UI_SCALE_PRESETS {
+        let is_current = preset.scale == initial_settings.ui_scale;
+        let s_btn = gtk4::Button::builder()
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let s_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        let check_lbl = gtk4::Label::builder()
+            .label(if is_current { "✓" } else { " " })
+            .css_classes(["theme-check-icon"])
+            .width_chars(2)
+            .build();
+        let name_lbl = gtk4::Label::builder()
+            .label(format!("{}  •  {}", preset.label, preset.desc))
+            .xalign(0.0)
+            .hexpand(true)
+            .build();
+        s_row.append(&check_lbl);
+        s_row.append(&name_lbl);
+        s_btn.set_child(Some(&s_row));
+
+        scale_check_labels.borrow_mut().push((preset.scale, check_lbl.clone()));
+
+        let state_scale = state.clone();
+        let pop_more_close = popover_more.clone();
+        let checks_ref = scale_check_labels.clone();
+        let scale_provider_ref = scale_css_provider.clone();
+        let sc_val = preset.scale;
+        let fs_val = preset.font_size;
+
+        s_btn.connect_clicked(move |_| {
+            pop_more_close.popdown();
+            scale::apply_ui_scale(&scale_provider_ref, sc_val, fs_val);
+            for (sc, lbl) in checks_ref.borrow().iter() {
+                lbl.set_text(if *sc == sc_val { "✓" } else { " " });
+            }
+            let mut st = state_scale.borrow_mut();
+            st.settings.ui_scale = sc_val;
+            st.settings.font_size = fs_val;
+            let _ = st.settings.save();
+        });
+        more_box.append(&s_btn);
+    }
+
     // Appearance Theme Section
     let theme_section_title = gtk4::Label::builder()
         .label("THEME")
         .css_classes(["clean-popover-item-desc"])
         .margin_start(8)
-        .margin_top(4)
+        .margin_top(6)
         .xalign(0.0)
         .build();
     more_box.append(&theme_section_title);
@@ -1232,7 +1310,16 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         .build();
     more_box.append(&ephemeral_check);
 
-    popover_more.set_child(Some(&more_box));
+    let more_scroll = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Never)
+        .vscrollbar_policy(gtk4::PolicyType::Automatic)
+        .propagate_natural_height(true)
+        .propagate_natural_width(true)
+        .max_content_height(500)
+        .child(&more_box)
+        .build();
+
+    popover_more.set_child(Some(&more_scroll));
 
     {
         let pop_ref = popover_more.clone();
@@ -2620,5 +2707,14 @@ mod tests {
         assert_eq!(model_display_name("default"), "Auto");
         assert_eq!(thinking_display_name("medium"), "Balance");
         assert_eq!(mode_display_name("agent"), "Agent");
+    }
+
+    #[test]
+    fn test_ui_scale_presets_integration() {
+        assert_eq!(settings::UI_SCALE_PRESETS.len(), 4);
+        assert_eq!(settings::UI_SCALE_PRESETS[0].scale, 100);
+        assert_eq!(settings::UI_SCALE_PRESETS[1].scale, 115);
+        assert_eq!(settings::UI_SCALE_PRESETS[2].scale, 130);
+        assert_eq!(settings::UI_SCALE_PRESETS[3].scale, 150);
     }
 }

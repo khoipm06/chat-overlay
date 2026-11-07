@@ -10,6 +10,49 @@ pub const DEFAULT_HEIGHT: i32 = 680;
 pub const MIN_HEIGHT: i32 = 360;
 pub const MAX_HEIGHT: i32 = 1600;
 
+pub const DEFAULT_UI_SCALE: u32 = 100;
+pub const MIN_UI_SCALE: u32 = 80;
+pub const MAX_UI_SCALE: u32 = 250;
+
+pub const DEFAULT_FONT_SIZE: u32 = 13;
+pub const MIN_FONT_SIZE: u32 = 9;
+pub const MAX_FONT_SIZE: u32 = 32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UiScalePreset {
+    pub scale: u32,
+    pub font_size: u32,
+    pub label: &'static str,
+    pub desc: &'static str,
+}
+
+pub const UI_SCALE_PRESETS: &[UiScalePreset] = &[
+    UiScalePreset {
+        scale: 100,
+        font_size: 13,
+        label: "100%",
+        desc: "Default (13px)",
+    },
+    UiScalePreset {
+        scale: 115,
+        font_size: 15,
+        label: "115%",
+        desc: "Medium (15px)",
+    },
+    UiScalePreset {
+        scale: 130,
+        font_size: 17,
+        label: "130%",
+        desc: "Large (17px)",
+    },
+    UiScalePreset {
+        scale: 150,
+        font_size: 20,
+        label: "150%",
+        desc: "Extra Large (20px)",
+    },
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default = "default_model")]
@@ -36,6 +79,10 @@ pub struct AppSettings {
     pub margin_bottom: i32,
     #[serde(default = "default_show_chat_head")]
     pub show_chat_head: bool,
+    #[serde(default = "default_ui_scale")]
+    pub ui_scale: u32,
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
 }
 
 fn default_show_chat_head() -> bool {
@@ -86,6 +133,14 @@ fn default_ephemeral() -> bool {
     true
 }
 
+fn default_ui_scale() -> u32 {
+    DEFAULT_UI_SCALE
+}
+
+fn default_font_size() -> u32 {
+    DEFAULT_FONT_SIZE
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -101,6 +156,8 @@ impl Default for AppSettings {
             margin_right: default_margin_right(),
             margin_top: default_margin_top(),
             margin_bottom: default_margin_bottom(),
+            ui_scale: default_ui_scale(),
+            font_size: default_font_size(),
         }
     }
 }
@@ -141,12 +198,19 @@ impl AppSettings {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    pub fn scale_factor(&self) -> f64 {
+        self.ui_scale as f64 / 100.0
+    }
+
     pub fn clamped(mut self) -> Self {
         self.width = self.width.clamp(MIN_WIDTH, MAX_WIDTH);
         self.height = self.height.clamp(MIN_HEIGHT, MAX_HEIGHT);
         self.margin_right = self.margin_right.clamp(0, 3840);
         self.margin_top = self.margin_top.clamp(0, 2160);
         self.margin_bottom = self.margin_bottom.clamp(0, 2160);
+        self.ui_scale = self.ui_scale.clamp(MIN_UI_SCALE, MAX_UI_SCALE);
+        self.font_size = self.font_size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
         self
     }
 }
@@ -165,6 +229,9 @@ mod tests {
         assert!(s.sound_bell_on_done);
         assert!(s.ephemeral);
         assert!(s.show_chat_head);
+        assert_eq!(s.ui_scale, DEFAULT_UI_SCALE);
+        assert_eq!(s.font_size, DEFAULT_FONT_SIZE);
+        assert!((s.scale_factor() - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -172,10 +239,40 @@ mod tests {
         let s = AppSettings {
             width: 100,
             height: 3000,
+            ui_scale: 10,
+            font_size: 100,
             ..Default::default()
         };
         let clamped = s.clamped();
         assert_eq!(clamped.width, MIN_WIDTH);
         assert_eq!(clamped.height, MAX_HEIGHT);
+        assert_eq!(clamped.ui_scale, MIN_UI_SCALE);
+        assert_eq!(clamped.font_size, MAX_FONT_SIZE);
+    }
+
+    #[test]
+    fn test_scale_presets_consistency() {
+        assert!(!UI_SCALE_PRESETS.is_empty());
+        for p in UI_SCALE_PRESETS {
+            assert!(p.scale >= MIN_UI_SCALE && p.scale <= MAX_UI_SCALE);
+            assert!(p.font_size >= MIN_FONT_SIZE && p.font_size <= MAX_FONT_SIZE);
+            assert!(!p.label.is_empty());
+            assert!(!p.desc.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_backward_compatibility_deserialize() {
+        let old_json = r#"{
+            "model": "default",
+            "theme": "theme-oled",
+            "width": 500,
+            "height": 700
+        }"#;
+        let s: AppSettings = serde_json::from_str(old_json).unwrap();
+        assert_eq!(s.ui_scale, DEFAULT_UI_SCALE);
+        assert_eq!(s.font_size, DEFAULT_FONT_SIZE);
+        assert_eq!(s.width, 500);
+        assert_eq!(s.theme, "theme-oled");
     }
 }
