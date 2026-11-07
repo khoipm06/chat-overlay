@@ -106,16 +106,49 @@ struct ProgressDisclosureState {
     expander: gtk4::Expander,
     steps_box: gtk4::Box,
     steps_count: usize,
+    has_error: bool,
     start_time: std::time::Instant,
     items: HashMap<String, StepItemEntry>,
+}
+
+struct ThinkingDisclosureState {
+    expander: gtk4::Expander,
+    text_view: gtk4::TextView,
+    buffer: gtk4::TextBuffer,
+    content: String,
+    start_time: std::time::Instant,
+    last_elapsed_sec: u64,
 }
 
 struct ActiveStreamTarget {
     turn_body: gtk4::Box,
     full_text: Rc<RefCell<String>>,
+    thinking: Rc<RefCell<Option<ThinkingDisclosureState>>>,
     progress: Rc<RefCell<Option<ProgressDisclosureState>>>,
     active_markdown: Rc<RefCell<Option<(gtk4::Box, String)>>>,
     metrics_badge: gtk4::Label,
+}
+
+fn collapse_and_finalize_thinking(target: &ActiveStreamTarget) {
+    if let Some(th) = target.thinking.borrow_mut().take() {
+        let elapsed = th.start_time.elapsed().as_secs();
+        th.expander.set_label(Some(&format!("Thought for {}s ▾", elapsed.max(1))));
+        th.expander.set_expanded(false);
+    }
+}
+
+fn collapse_and_finalize_progress(target: &ActiveStreamTarget) {
+    if let Some(p) = target.progress.borrow_mut().take() {
+        let total_elapsed = p.start_time.elapsed().as_secs();
+        let dur_str = format::format_duration_sec(total_elapsed);
+        let lbl = if p.has_error {
+            format!("Completed {} steps with errors in {} ▾", p.steps_count, dur_str)
+        } else {
+            format!("Completed {} steps in {} ▾", p.steps_count, dur_str)
+        };
+        p.expander.set_label(Some(&lbl));
+        p.expander.set_expanded(false);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2026,37 +2059,71 @@ fn build_ui(
                 }
 
                 match event {
-                    StreamEvent::ThinkingDelta(_delta) => {
+                    StreamEvent::ThinkingDelta(delta) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            let mut p_opt = target.progress.borrow_mut();
-                            if p_opt.is_none() {
+                            collapse_and_finalize_progress(target);
+                            *target.active_markdown.borrow_mut() = None;
+
+                            let mut th_opt = target.thinking.borrow_mut();
+                            if th_opt.is_none() {
                                 let expander = gtk4::Expander::builder()
                                     .label("Thinking... ▾")
-                                    .css_classes(["progress-steps-disclosure"])
+                                    .css_classes(["chat-thinking-box", "thinking-disclosure"])
                                     .expanded(true)
                                     .build();
-                                let steps_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-                                steps_box.add_css_class("steps-list-box");
-                                expander.set_child(Some(&steps_box));
+
+                                let th_scroll = gtk4::ScrolledWindow::builder()
+                                    .hscrollbar_policy(gtk4::PolicyType::Never)
+                                    .vscrollbar_policy(gtk4::PolicyType::Automatic)
+                                    .max_content_height(140)
+                                    .propagate_natural_height(true)
+                                    .css_classes(["chat-thinking-scroll"])
+                                    .build();
+
+                                let buffer = gtk4::TextBuffer::new(None);
+                                let tv = gtk4::TextView::builder()
+                                    .buffer(&buffer)
+                                    .editable(false)
+                                    .cursor_visible(false)
+                                    .wrap_mode(gtk4::WrapMode::WordChar)
+                                    .css_classes(["chat-thinking-text"])
+                                    .build();
+
+                                th_scroll.set_child(Some(&tv));
+                                expander.set_child(Some(&th_scroll));
                                 target.turn_body.append(&expander);
 
-                                *p_opt = Some(ProgressDisclosureState {
+                                *th_opt = Some(ThinkingDisclosureState {
                                     expander,
-                                    steps_box,
-                                    steps_count: 0,
+                                    text_view: tv,
+                                    buffer,
+                                    content: String::new(),
                                     start_time: std::time::Instant::now(),
-                                    items: HashMap::new(),
+                                    last_elapsed_sec: 0,
                                 });
                             }
-                            if let Some(ref mut p) = *p_opt {
-                                let elapsed = p.start_time.elapsed().as_secs();
-                                p.expander.set_label(Some(&format!("Thinking... ({}s) ▾", elapsed.max(1))));
+
+                            if let Some(ref mut th) = *th_opt {
+                                th.content.push_str(&delta);
+                                let mut end = th.buffer.end_iter();
+                                th.buffer.insert(&mut end, &delta);
+                                let mut end_scroll = th.buffer.end_iter();
+                                th.text_view.scroll_to_iter(&mut end_scroll, 0.0, false, 0.0, 1.0);
+
+                                let elapsed = th.start_time.elapsed().as_secs();
+                                if elapsed != th.last_elapsed_sec {
+                                    th.last_elapsed_sec = elapsed;
+                                    th.expander.set_label(Some(&format!("Thinking... ({}s) ▾", elapsed.max(1))));
+                                }
                             }
                         }
                         scroll_fn();
                     }
                     StreamEvent::ToolStart { id, name, args } => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
+                            collapse_and_finalize_thinking(target);
+                            *target.active_markdown.borrow_mut() = None;
+
                             let mut p_opt = target.progress.borrow_mut();
                             if p_opt.is_none() {
                                 let expander = gtk4::Expander::builder()
@@ -2073,6 +2140,7 @@ fn build_ui(
                                     expander,
                                     steps_box,
                                     steps_count: 0,
+                                    has_error: false,
                                     start_time: std::time::Instant::now(),
                                     items: HashMap::new(),
                                 });
@@ -2091,13 +2159,9 @@ fn build_ui(
                                 item_card.add_css_class("step-item-card");
 
                                 let card_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                                card_hdr.add_css_class("step-item-header");
 
-                                let icon_str = match name.as_str() {
-                                    "bash" | "powershell" => "⚙",
-                                    "read" => "📄",
-                                    "edit" | "write" => "✏",
-                                    _ => "⚡",
-                                };
+                                let icon_str = format::tool_icon_for_name(&name);
                                 let icon_lbl = gtk4::Label::builder()
                                     .label(icon_str)
                                     .css_classes(["step-item-icon"])
@@ -2146,6 +2210,8 @@ fn build_ui(
                         duration_ms,
                     } => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
+                            collapse_and_finalize_thinking(target);
+
                             let mut p_opt = target.progress.borrow_mut();
                             if p_opt.is_none() {
                                 let expander = gtk4::Expander::builder()
@@ -2162,24 +2228,24 @@ fn build_ui(
                                     expander,
                                     steps_box,
                                     steps_count: 0,
+                                    has_error: false,
                                     start_time: std::time::Instant::now(),
                                     items: HashMap::new(),
                                 });
                             }
 
                             if let Some(ref mut p) = *p_opt {
+                                if is_error {
+                                    p.has_error = true;
+                                }
                                 if !p.items.contains_key(&id) {
                                     p.steps_count += 1;
                                     let item_card = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
                                     item_card.add_css_class("step-item-card");
 
                                     let card_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-                                    let icon_str = match name.as_str() {
-                                        "bash" | "powershell" => "⚙",
-                                        "read" => "📄",
-                                        "edit" | "write" => "✏",
-                                        _ => "⚡",
-                                    };
+                                    card_hdr.add_css_class("step-item-header");
+                                    let icon_str = format::tool_icon_for_name(&name);
                                     let icon_lbl = gtk4::Label::builder()
                                         .label(icon_str)
                                         .css_classes(["step-item-icon"])
@@ -2235,7 +2301,8 @@ fn build_ui(
                                         ));
                                     }
 
-                                    let trimmed_res = result.trim();
+                                    let clean_res = format::strip_ansi_escapes(&result);
+                                    let trimmed_res = clean_res.trim();
                                     if !trimmed_res.is_empty() {
                                         let output_expander = gtk4::Expander::builder()
                                             .label("Output ▾")
@@ -2267,11 +2334,13 @@ fn build_ui(
                                     }
                                 }
                                 let total_elapsed = p.start_time.elapsed().as_secs();
-                                p.expander.set_label(Some(&format!(
-                                    "Completed {} steps in {} ▾",
-                                    p.steps_count,
-                                    format::format_duration_sec(total_elapsed)
-                                )));
+                                let dur_str = format::format_duration_sec(total_elapsed);
+                                let lbl = if p.has_error {
+                                    format!("Completed {} steps with errors in {} ▾", p.steps_count, dur_str)
+                                } else {
+                                    format!("Completed {} steps in {} ▾", p.steps_count, dur_str)
+                                };
+                                p.expander.set_label(Some(&lbl));
                             }
                             // Reset active markdown so subsequent assistant text creates a new block below tools
                             *target.active_markdown.borrow_mut() = None;
@@ -2280,6 +2349,8 @@ fn build_ui(
                     }
                     StreamEvent::ToolCall { name, args } => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
+                            collapse_and_finalize_thinking(target);
+
                             let mut p_opt = target.progress.borrow_mut();
                             if p_opt.is_none() {
                                 let expander = gtk4::Expander::builder()
@@ -2296,6 +2367,7 @@ fn build_ui(
                                     expander,
                                     steps_box,
                                     steps_count: 0,
+                                    has_error: false,
                                     start_time: std::time::Instant::now(),
                                     items: HashMap::new(),
                                 });
@@ -2304,6 +2376,13 @@ fn build_ui(
                                 p.steps_count += 1;
                                 let item_card = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
                                 item_card.add_css_class("step-item-card");
+
+                                let icon_str = format::tool_icon_for_name(&name);
+                                let icon_lbl = gtk4::Label::builder()
+                                    .label(icon_str)
+                                    .css_classes(["step-item-icon"])
+                                    .build();
+                                item_card.append(&icon_lbl);
 
                                 let action_lbl = format::format_tool_call_label(&name, &args);
                                 let name_lbl = gtk4::Label::builder()
@@ -2329,6 +2408,8 @@ fn build_ui(
                     }
                     StreamEvent::TextDelta(delta) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
+                            collapse_and_finalize_thinking(target);
+                            collapse_and_finalize_progress(target);
                             target.full_text.borrow_mut().push_str(&delta);
 
                             let mut md_opt = target.active_markdown.borrow_mut();
@@ -2368,6 +2449,8 @@ fn build_ui(
                     }
                     StreamEvent::Content(line) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
+                            collapse_and_finalize_thinking(target);
+                            collapse_and_finalize_progress(target);
                             let mut full = target.full_text.borrow_mut();
                             if !full.is_empty() {
                                 full.push('\n');
@@ -2403,7 +2486,10 @@ fn build_ui(
                     }
                     StreamEvent::Error(err_line) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            let err_msg = format!("[Error] {}", err_line);
+                            collapse_and_finalize_thinking(target);
+                            collapse_and_finalize_progress(target);
+                            let clean_err = format::strip_ansi_escapes(&err_line);
+                            let err_msg = format!("[Error] {}", clean_err);
                             target.full_text.borrow_mut().push_str(&err_msg);
 
                             let mut md_opt = target.active_markdown.borrow_mut();
@@ -2426,14 +2512,8 @@ fn build_ui(
                     }
                     StreamEvent::Done => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
-                            if let Some(ref p) = *target.progress.borrow() {
-                                let total_elapsed = p.start_time.elapsed().as_secs();
-                                p.expander.set_label(Some(&format!(
-                                    "Completed {} steps in {} ▾",
-                                    p.steps_count,
-                                    format::format_duration_sec(total_elapsed)
-                                )));
-                            }
+                            collapse_and_finalize_thinking(target);
+                            collapse_and_finalize_progress(target);
                             if let Some((ref md_box, ref md_text)) = *target.active_markdown.borrow() {
                                 crate::render::render_markdown_blocks_into(md_box, md_text);
                             }
@@ -2501,6 +2581,24 @@ fn build_ui(
             let user_card = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
             user_card.add_css_class("card-user");
             user_card.set_halign(gtk4::Align::End);
+
+            let attached_for_display = state.borrow().attached_files.clone();
+            if !attached_for_display.is_empty() {
+                let chips_row_user = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+                chips_row_user.add_css_class("user-attached-chips");
+                for (p, _) in &attached_for_display {
+                    let fname = std::path::Path::new(p)
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or(p.as_str());
+                    let chip_lbl = gtk4::Label::builder()
+                        .label(format!("📎 {}", fname))
+                        .css_classes(["user-attached-chip"])
+                        .build();
+                    chips_row_user.append(&chip_lbl);
+                }
+                user_card.append(&chips_row_user);
+            }
 
             let user_label = gtk4::Label::builder()
                 .label(&prompt)
@@ -2787,6 +2885,7 @@ fn build_ui(
             *active_stream.borrow_mut() = Some(ActiveStreamTarget {
                 turn_body: turn_body.clone(),
                 full_text: full_text.clone(),
+                thinking: Rc::new(RefCell::new(None)),
                 progress: Rc::new(RefCell::new(None)),
                 active_markdown: Rc::new(RefCell::new(None)),
                 metrics_badge: metrics_badge.clone(),
@@ -2867,6 +2966,7 @@ fn build_ui(
                 // Active streaming: Stop request
                 state_stop.borrow_mut().runner.abort();
                 if let Some(ref target) = *active_stream_stop.borrow() {
+                    collapse_and_finalize_thinking(target);
                     if let Some(ref p) = *target.progress.borrow() {
                         let total_elapsed = p.start_time.elapsed().as_secs();
                         p.expander.set_label(Some(&format!(
@@ -2874,6 +2974,7 @@ fn build_ui(
                             p.steps_count,
                             format::format_duration_sec(total_elapsed)
                         )));
+                        p.expander.set_expanded(false);
                         for entry in p.items.values() {
                             if entry.badge.has_css_class("running") {
                                 entry.badge.remove_css_class("running");

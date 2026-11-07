@@ -112,6 +112,16 @@ pub fn generate_scale_css(scale_percent: u32, base_font_size: u32) -> String {
     font-size: {card_user_badge_fs}px;
 }}
 
+.user-attached-chips {{
+    margin-bottom: {user_chip_row_mb}px;
+}}
+
+.user-attached-chip {{
+    font-size: {user_chip_fs}px;
+    padding: {user_chip_pad_y}px {user_chip_pad_x}px;
+    border-radius: {user_chip_rad}px;
+}}
+
 .card-user-idx {{
     font-size: {card_user_idx_fs}px;
 }}
@@ -151,6 +161,28 @@ pub fn generate_scale_css(scale_percent: u32, base_font_size: u32) -> String {
     font-size: {asst_tt_fs}px;
     padding: {asst_tt_pad_y}px {asst_tt_pad_x}px;
     border-radius: {asst_tt_rad}px;
+}}
+
+.chat-thinking-box,
+.thinking-disclosure {{
+    margin: {disc_m_top}px 0 {disc_m_bot}px 0;
+    border-radius: {disc_rad}px;
+    padding: {disc_pad_y}px {disc_pad_x}px;
+}}
+
+.chat-thinking-box > title,
+.thinking-disclosure > title {{
+    font-size: {disc_title_fs}px;
+    padding: {disc_title_pad_y}px {disc_title_pad_x}px;
+}}
+
+.chat-thinking-scroll {{
+    border-radius: {step_card_rad}px;
+    padding: {step_card_pad_y}px {step_card_pad_x}px;
+}}
+
+.chat-thinking-text {{
+    font-size: {tool_out_fs}px;
 }}
 
 .progress-steps-disclosure {{
@@ -566,6 +598,11 @@ pub fn generate_scale_css(scale_percent: u32, base_font_size: u32) -> String {
         card_user_mb = s(8.0),
         card_user_badge_fs = s(11.0),
         card_user_idx_fs = s(10.0),
+        user_chip_row_mb = s(4.0),
+        user_chip_fs = s(10.5),
+        user_chip_pad_y = s(1.5),
+        user_chip_pad_x = s(5.0),
+        user_chip_rad = s(4.0),
         card_asst_pad_y = s(2.0),
         card_asst_mb = s(8.0),
         asst_avatar_fs = s(12.0),
@@ -827,11 +864,13 @@ mod tests {
         assert!(css.contains(".code-block-copy-btn"));
         assert!(css.contains(".code-block-content"));
         // Thinking / progress disclosure
+        assert!(css.contains(".chat-thinking-box"));
         assert!(css.contains(".progress-steps-disclosure"));
         assert!(css.contains(".step-item-card"));
         assert!(css.contains(".step-item-file-chip"));
         assert!(css.contains(".step-item-status"));
         // Context chips
+        assert!(css.contains(".user-attached-chip"));
         assert!(css.contains(".composer-chip"));
         assert!(css.contains(".composer-chip-icon"));
         assert!(css.contains(".composer-chip-text"));
