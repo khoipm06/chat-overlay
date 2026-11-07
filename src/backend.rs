@@ -112,6 +112,7 @@ impl PiRunner {
         prompt: String,
         model: Option<String>,
         thinking_level: Option<String>,
+        mode: Option<String>,
         tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Abort previous session before launching new prompt
@@ -137,26 +138,15 @@ impl PiRunner {
         };
         cmd.env("PATH", augmented_path);
 
-        cmd.arg("-p")
-            .arg("--mode")
-            .arg("json")
-            .arg("--session-dir")
-            .arg(session_dir);
+        let args = build_pi_command_args(
+            &session_dir,
+            &prompt,
+            model.as_deref(),
+            thinking_level.as_deref(),
+            mode.as_deref(),
+        );
 
-        if let Some(m) = model {
-            if m != "default" && !m.trim().is_empty() {
-                cmd.arg("--model").arg(m);
-            }
-        }
-
-        if let Some(th) = thinking_level {
-            if !th.trim().is_empty() {
-                cmd.arg("--thinking").arg(th);
-            }
-        }
-
-        cmd.arg("--")
-            .arg(prompt)
+        cmd.args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -288,20 +278,10 @@ fn parse_and_dispatch_line(
                     ));
                 }
                 "message_end" | "turn_end" => {
+                    // Tool results and final assistant contents are NOT emitted here:
+                    // assistant text is streamed live via message_update deltas, and tool results
+                    // belong solely in ToolEnd cards. Extract metrics only.
                     if let Some(msg) = v.get("message") {
-                        if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
-                            for item in content_arr {
-                                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                                    let _ = tx.send((gen, StreamEvent::TextDelta(text.to_string())));
-                                }
-                                if let Some(think) = item.get("thinking").and_then(|t| t.as_str()) {
-                                    let _ = tx.send((gen, StreamEvent::ThinkingDelta(think.to_string())));
-                                }
-                            }
-                        } else if let Some(content_str) = msg.get("content").and_then(|c| c.as_str()) {
-                            let _ = tx.send((gen, StreamEvent::TextDelta(content_str.to_string())));
-                        }
-
                         if let Some(usage) = msg.get("usage") {
                             let input_tokens =
                                 usage.get("input").and_then(|n| n.as_u64()).unwrap_or(0);
@@ -348,6 +328,62 @@ fn parse_and_dispatch_line(
     Ok(())
 }
 
+pub fn build_pi_command_args(
+    session_dir: &std::path::Path,
+    prompt: &str,
+    model: Option<&str>,
+    thinking_level: Option<&str>,
+    mode: Option<&str>,
+) -> Vec<String> {
+    let mut args = vec![
+        "-p".to_string(),
+        "--mode".to_string(),
+        "json".to_string(),
+        "--session-dir".to_string(),
+        session_dir.to_string_lossy().to_string(),
+    ];
+
+    if let Some(m) = model {
+        if m != "default" && !m.trim().is_empty() {
+            args.push("--model".to_string());
+            args.push(m.to_string());
+        }
+    }
+
+    if let Some(th) = thinking_level {
+        if !th.trim().is_empty() {
+            args.push("--thinking".to_string());
+            args.push(th.to_string());
+        }
+    }
+
+    if let Some(md) = mode {
+        match md {
+            "ask" => {
+                args.push("--exclude-tools".to_string());
+                args.push("edit,write".to_string());
+                args.push("--append-system-prompt".to_string());
+                args.push("Mode: Ask. Answer questions and analyze code without modifying or creating files.".to_string());
+            }
+            "edit" => {
+                args.push("--append-system-prompt".to_string());
+                args.push("Mode: Edit. Focus on directly modifying and improving the code in the workspace.".to_string());
+            }
+            "plan" => {
+                args.push("--exclude-tools".to_string());
+                args.push("edit,write".to_string());
+                args.push("--append-system-prompt".to_string());
+                args.push("Mode: Plan. Create clear architectural plans and implementation breakdowns before making changes.".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    args.push("--".to_string());
+    args.push(prompt.to_string());
+    args
+}
+
 pub fn extract_tool_result_text(v: &serde_json::Value) -> String {
     if let Some(s) = v.as_str() {
         return s.to_string();
@@ -362,11 +398,24 @@ pub fn extract_tool_result_text(v: &serde_json::Value) -> String {
             return texts.join("\n");
         }
     }
+    if let Some(stdout) = v.get("stdout").and_then(|o| o.as_str()) {
+        let mut out = stdout.to_string();
+        if let Some(stderr) = v.get("stderr").and_then(|e| e.as_str()) {
+            if !stderr.is_empty() {
+                out.push('\n');
+                out.push_str(stderr);
+            }
+        }
+        return out;
+    }
     if let Some(output) = v.get("output").and_then(|o| o.as_str()) {
         return output.to_string();
     }
     if let Some(details) = v.get("details").and_then(|d| d.as_str()) {
         return details.to_string();
+    }
+    if let Some(text) = v.get("text").and_then(|t| t.as_str()) {
+        return text.to_string();
     }
     v.to_string()
 }
@@ -569,5 +618,95 @@ mod tests {
 
         // Ensure no stray events leaked
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_tool_output_does_not_leak_into_assistant_text() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let gen = 99;
+
+        // 1. Tool execution end sends ToolEnd
+        let tool_end_json = r#"{"type":"tool_execution_end","toolCallId":"call_99","toolName":"bash","result":"total 42\nfile.txt","isError":false,"durationMs":10}"#;
+        assert!(parse_and_dispatch_line(tool_end_json, gen, &tx).is_ok());
+
+        let (_, ev) = rx.try_recv().expect("Should have received ToolEnd");
+        match ev {
+            StreamEvent::ToolEnd { id, result, .. } => {
+                assert_eq!(id, "call_99");
+                assert_eq!(result, "total 42\nfile.txt");
+            }
+            other => panic!("Expected ToolEnd, got {:?}", other),
+        }
+
+        // 2. toolResult message_end must NOT leak into TextDelta
+        let tool_result_msg_end = r#"{"type":"message_end","message":{"role":"toolResult","content":[{"type":"text","text":"total 42\nfile.txt"}]}}"#;
+        assert!(parse_and_dispatch_line(tool_result_msg_end, gen, &tx).is_ok());
+
+        // 3. turn_end with toolResults must NOT leak into TextDelta
+        let turn_end_json = r#"{"type":"turn_end","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_99","name":"bash","arguments":{}}]},"toolResults":[{"role":"toolResult","toolCallId":"call_99","toolName":"bash","content":[{"type":"text","text":"total 42\nfile.txt"}],"isError":false,"durationMs":10}]}"#;
+        assert!(parse_and_dispatch_line(turn_end_json, gen, &tx).is_ok());
+
+        // Nothing must have leaked to TextDelta
+        assert!(rx.try_recv().is_err(), "Tool output must NOT leak into receiver");
+    }
+
+    #[test]
+    fn test_build_pi_command_args_matrix() {
+        let dummy_dir = std::path::Path::new("/tmp/test-sessions");
+
+        // 1. Default parameters: no model or mode override, default prompt
+        let args1 = build_pi_command_args(dummy_dir, "Hello", Some("default"), Some("medium"), Some("agent"));
+        assert_eq!(args1[0], "-p");
+        assert_eq!(args1[1], "--mode");
+        assert_eq!(args1[2], "json");
+        assert_eq!(args1[3], "--session-dir");
+        assert_eq!(args1[4], "/tmp/test-sessions");
+        assert!(!args1.contains(&"--model".to_string()));
+        assert!(args1.contains(&"--thinking".to_string()));
+        assert_eq!(args1[args1.iter().position(|r| r == "--thinking").unwrap() + 1], "medium");
+        assert!(!args1.contains(&"--exclude-tools".to_string()));
+        assert!(!args1.contains(&"--append-system-prompt".to_string()));
+        assert_eq!(args1[args1.len() - 2], "--");
+        assert_eq!(args1[args1.len() - 1], "Hello");
+
+        // 2. Specific model and ask mode
+        let args2 = build_pi_command_args(dummy_dir, "Review", Some("claude-3-7-sonnet"), Some("high"), Some("ask"));
+        assert!(args2.contains(&"--model".to_string()));
+        assert_eq!(args2[args2.iter().position(|r| r == "--model").unwrap() + 1], "claude-3-7-sonnet");
+        assert!(args2.contains(&"--thinking".to_string()));
+        assert_eq!(args2[args2.iter().position(|r| r == "--thinking").unwrap() + 1], "high");
+        assert!(args2.contains(&"--exclude-tools".to_string()));
+        assert_eq!(args2[args2.iter().position(|r| r == "--exclude-tools").unwrap() + 1], "edit,write");
+        assert!(args2.contains(&"--append-system-prompt".to_string()));
+
+        // 3. Plan mode
+        let args3 = build_pi_command_args(dummy_dir, "Plan arch", None, Some("off"), Some("plan"));
+        assert!(args3.contains(&"--exclude-tools".to_string()));
+        assert_eq!(args3[args3.iter().position(|r| r == "--exclude-tools").unwrap() + 1], "edit,write");
+        assert!(args3.contains(&"--append-system-prompt".to_string()));
+        assert!(args3.contains(&"--thinking".to_string()));
+        assert_eq!(args3[args3.iter().position(|r| r == "--thinking").unwrap() + 1], "off");
+
+        // 4. Edit mode
+        let args4 = build_pi_command_args(dummy_dir, "Refactor", Some("gpt-4o"), None, Some("edit"));
+        assert!(!args4.contains(&"--exclude-tools".to_string()));
+        assert!(args4.contains(&"--append-system-prompt".to_string()));
+        assert!(args4.contains(&"--model".to_string()));
+        assert_eq!(args4[args4.iter().position(|r| r == "--model").unwrap() + 1], "gpt-4o");
+    }
+
+    #[test]
+    fn test_extract_tool_result_text_formats() {
+        // Plain string
+        let v1 = serde_json::json!("file contents");
+        assert_eq!(extract_tool_result_text(&v1), "file contents");
+
+        // stdout and stderr object
+        let v2 = serde_json::json!({"stdout": "line 1\nline 2", "stderr": "warn: low memory"});
+        assert_eq!(extract_tool_result_text(&v2), "line 1\nline 2\nwarn: low memory");
+
+        // Text field object
+        let v3 = serde_json::json!({"text": "custom tool output"});
+        assert_eq!(extract_tool_result_text(&v3), "custom tool output");
     }
 }

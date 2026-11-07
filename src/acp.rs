@@ -91,6 +91,8 @@ pub struct PromptParams {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
 }
 
 /// ACP session/update notification payload
@@ -138,8 +140,9 @@ mod tests {
             Some(PromptParams {
                 session_id: Some("sess_123".to_string()),
                 prompt: "Hello ACP".to_string(),
-                model: None,
+                model: Some("claude-3-7-sonnet".to_string()),
                 thinking_level: Some("high".to_string()),
+                mode: Some("plan".to_string()),
             }),
         );
 
@@ -147,6 +150,9 @@ mod tests {
         assert!(json.contains("\"jsonrpc\":\"2.0\""));
         assert!(json.contains("\"method\":\"session/prompt\""));
         assert!(json.contains("Hello ACP"));
+        assert!(json.contains("\"model\":\"claude-3-7-sonnet\""));
+        assert!(json.contains("\"thinking_level\":\"high\""));
+        assert!(json.contains("\"mode\":\"plan\""));
     }
 
     #[test]

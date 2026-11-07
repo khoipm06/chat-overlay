@@ -96,6 +96,7 @@ struct TrackedPrompt {
 }
 
 struct StepItemEntry {
+    card: gtk4::Box,
     badge: gtk4::Label,
     start_time: std::time::Instant,
 }
@@ -417,7 +418,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     drawer.set_hexpand(false);
 
     // ── 1. Panel Header (Thanh Panel) ───────────────────────────────────────
-    let panel_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    let panel_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
     panel_header.add_css_class("panel-header");
     panel_header.set_hexpand(false);
 
@@ -454,13 +455,6 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         .build();
     panel_header.append(&btn_more);
 
-    let btn_layout = gtk4::Button::builder()
-        .label("◫")
-        .css_classes(["header-icon-btn"])
-        .tooltip_text("Toggle Layout / Window Mode")
-        .build();
-    panel_header.append(&btn_layout);
-
     let btn_close = gtk4::Button::builder()
         .label("✕")
         .css_classes(["header-icon-btn", "close"])
@@ -471,7 +465,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     drawer.append(&panel_header);
 
     // ── 2. Session Sub-Header (Thanh Phiên) ──────────────────────────────────
-    let session_subheader = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    let session_subheader = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
     session_subheader.add_css_class("session-subheader");
 
     let btn_back = gtk4::Button::builder()
@@ -493,13 +487,6 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     let subheader_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     subheader_spacer.set_hexpand(true);
     session_subheader.append(&subheader_spacer);
-
-    let btn_side = gtk4::Button::builder()
-        .label("◫")
-        .css_classes(["session-side-btn"])
-        .tooltip_text("Open to the Side")
-        .build();
-    session_subheader.append(&btn_side);
 
     drawer.append(&session_subheader);
 
@@ -581,11 +568,11 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     drawer.append(&scrolled_overlay);
 
     // ── 5. Pinned Composer (pinned at bottom) ────────────────────────────────
-    let composer_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    let composer_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
     composer_box.add_css_class("composer-container");
 
     // Context Chips Row
-    let chips_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    let chips_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
     chips_row.add_css_class("composer-chips-row");
 
     // Multi-line Text View with Placeholder in Overlay
@@ -601,7 +588,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     let input_scroll = gtk4::ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
-        .min_content_height(38)
+        .min_content_height(30)
         .max_content_height(120)
         .propagate_natural_height(true)
         .child(&text_view)
@@ -623,7 +610,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
     composer_box.append(&input_overlay);
 
     // Composer Bottom Toolbar (integrated compact controls)
-    let composer_toolbar = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    let composer_toolbar = gtk4::Box::new(gtk4::Orientation::Horizontal, 3);
     composer_toolbar.add_css_class("composer-toolbar");
 
     let btn_attach = gtk4::Button::builder()
@@ -656,23 +643,9 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         .build();
     composer_toolbar.append(&btn_think_pill);
 
-    let btn_swap = gtk4::Button::builder()
-        .label("⇄")
-        .css_classes(["composer-icon-btn"])
-        .tooltip_text("Toggle Agent / Ask Mode")
-        .build();
-    composer_toolbar.append(&btn_swap);
-
     let tb_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     tb_spacer.set_hexpand(true);
     composer_toolbar.append(&tb_spacer);
-
-    let btn_voice = gtk4::Button::builder()
-        .label("🎙")
-        .css_classes(["composer-icon-btn"])
-        .tooltip_text("Voice Input")
-        .build();
-    composer_toolbar.append(&btn_voice);
 
     let btn_send_stop = gtk4::Button::builder()
         .label("↑")
@@ -1006,22 +979,6 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         let pop_ref = popover_mode.clone();
         btn_mode_pill.connect_clicked(move |_| {
             pop_ref.popup();
-        });
-    }
-
-    // Toggle swap button between Agent and Ask
-    {
-        let btn_mode_lbl = btn_mode_pill.clone();
-        let state_m = state.clone();
-        btn_swap.connect_clicked(move |_| {
-            let mut st = state_m.borrow_mut();
-            if st.current_mode == "agent" {
-                st.current_mode = "ask".to_string();
-                btn_mode_lbl.set_label("@ Ask");
-            } else {
-                st.current_mode = "agent".to_string();
-                btn_mode_lbl.set_label("@ Agent");
-            }
         });
     }
 
@@ -1632,34 +1589,6 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
         });
     }
 
-    // Layout Button (◫) in panel header and subheader
-    {
-        let win = window.clone();
-        let state_layout = state.clone();
-        let on_toggle_layout = move || {
-            let is_win = {
-                let mut st = state_layout.borrow_mut();
-                st.is_window_mode = !st.is_window_mode;
-                st.is_window_mode
-            };
-            if is_win {
-                win.set_decorated(true);
-            } else {
-                win.set_decorated(false);
-            }
-        };
-
-        let fn_clone1 = on_toggle_layout.clone();
-        btn_layout.connect_clicked(move |_| {
-            fn_clone1();
-        });
-
-        let fn_clone2 = on_toggle_layout;
-        btn_side.connect_clicked(move |_| {
-            fn_clone2();
-        });
-    }
-
     // Connect Welcome Pill Buttons to populate prompt
     {
         let tv = text_view.clone();
@@ -1697,7 +1626,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                 }
 
                 match event {
-                    StreamEvent::ThinkingDelta(delta) => {
+                    StreamEvent::ThinkingDelta(_delta) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
                             let mut p_opt = target.progress.borrow_mut();
                             if p_opt.is_none() {
@@ -1723,7 +1652,6 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                                 let elapsed = p.start_time.elapsed().as_secs();
                                 p.expander.set_label(Some(&format!("Thinking... ({}s) ▾", elapsed.max(1))));
                             }
-                            target.full_text.borrow_mut().push_str(&delta);
                         }
                         scroll_fn();
                     }
@@ -1759,8 +1687,10 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                                     format::format_duration_sec(elapsed)
                                 )));
 
-                                let item_card = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                                let item_card = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
                                 item_card.add_css_class("step-item-card");
+
+                                let card_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
 
                                 let icon_str = match name.as_str() {
                                     "bash" | "powershell" => "⚙",
@@ -1772,7 +1702,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                                     .label(icon_str)
                                     .css_classes(["step-item-icon"])
                                     .build();
-                                item_card.append(&icon_lbl);
+                                card_hdr.append(&icon_lbl);
 
                                 let action_lbl = format::format_tool_call_label(&name, &args);
                                 let name_lbl = gtk4::Label::builder()
@@ -1783,36 +1713,108 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                                     .hexpand(true)
                                     .halign(gtk4::Align::Start)
                                     .build();
-                                item_card.append(&name_lbl);
+                                card_hdr.append(&name_lbl);
 
                                 let badge = gtk4::Label::builder()
                                     .label("RUNNING")
                                     .css_classes(["step-item-status", "running"])
                                     .build();
-                                item_card.append(&badge);
+                                card_hdr.append(&badge);
+                                item_card.append(&card_hdr);
 
                                 p.steps_box.append(&item_card);
                                 p.items.insert(
                                     id,
                                     StepItemEntry {
+                                        card: item_card,
                                         badge,
                                         start_time: std::time::Instant::now(),
                                     },
                                 );
+
+                                // Reset active markdown so subsequent assistant text creates a new block below tools
+                                *target.active_markdown.borrow_mut() = None;
                             }
                         }
                         scroll_fn();
                     }
                     StreamEvent::ToolEnd {
                         id,
-                        name: _,
-                        result: _,
+                        name,
+                        result,
                         is_error,
                         duration_ms,
                     } => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
                             let mut p_opt = target.progress.borrow_mut();
+                            if p_opt.is_none() {
+                                let expander = gtk4::Expander::builder()
+                                    .label("Running steps... ▾")
+                                    .css_classes(["progress-steps-disclosure"])
+                                    .expanded(true)
+                                    .build();
+                                let steps_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+                                steps_box.add_css_class("steps-list-box");
+                                expander.set_child(Some(&steps_box));
+                                target.turn_body.append(&expander);
+
+                                *p_opt = Some(ProgressDisclosureState {
+                                    expander,
+                                    steps_box,
+                                    steps_count: 0,
+                                    start_time: std::time::Instant::now(),
+                                    items: HashMap::new(),
+                                });
+                            }
+
                             if let Some(ref mut p) = *p_opt {
+                                if !p.items.contains_key(&id) {
+                                    p.steps_count += 1;
+                                    let item_card = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+                                    item_card.add_css_class("step-item-card");
+
+                                    let card_hdr = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                                    let icon_str = match name.as_str() {
+                                        "bash" | "powershell" => "⚙",
+                                        "read" => "📄",
+                                        "edit" | "write" => "✏",
+                                        _ => "⚡",
+                                    };
+                                    let icon_lbl = gtk4::Label::builder()
+                                        .label(icon_str)
+                                        .css_classes(["step-item-icon"])
+                                        .build();
+                                    card_hdr.append(&icon_lbl);
+
+                                    let action_lbl = format::format_tool_call_label(&name, "{}");
+                                    let name_lbl = gtk4::Label::builder()
+                                        .label(&action_lbl)
+                                        .css_classes(["step-item-label"])
+                                        .ellipsize(gtk4::pango::EllipsizeMode::End)
+                                        .max_width_chars(36)
+                                        .hexpand(true)
+                                        .halign(gtk4::Align::Start)
+                                        .build();
+                                    card_hdr.append(&name_lbl);
+
+                                    let badge = gtk4::Label::builder()
+                                        .label("DONE")
+                                        .css_classes(["step-item-status"])
+                                        .build();
+                                    card_hdr.append(&badge);
+                                    item_card.append(&card_hdr);
+
+                                    p.steps_box.append(&item_card);
+                                    p.items.insert(
+                                        id.clone(),
+                                        StepItemEntry {
+                                            card: item_card,
+                                            badge,
+                                            start_time: std::time::Instant::now(),
+                                        },
+                                    );
+                                }
+
                                 if let Some(item) = p.items.get_mut(&id) {
                                     let dur_s = if duration_ms > 0 {
                                         duration_ms / 1000
@@ -1832,6 +1834,37 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                                             format::format_duration_sec(dur_s)
                                         ));
                                     }
+
+                                    let trimmed_res = result.trim();
+                                    if !trimmed_res.is_empty() {
+                                        let output_expander = gtk4::Expander::builder()
+                                            .label("Output ▾")
+                                            .css_classes(["tool-output-expander"])
+                                            .expanded(false)
+                                            .build();
+
+                                        let out_scroll = gtk4::ScrolledWindow::builder()
+                                            .hscrollbar_policy(gtk4::PolicyType::Automatic)
+                                            .vscrollbar_policy(gtk4::PolicyType::Automatic)
+                                            .max_content_height(160)
+                                            .propagate_natural_height(true)
+                                            .build();
+
+                                        let out_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+                                        out_box.add_css_class("tool-output-box");
+                                        let out_lbl = gtk4::Label::builder()
+                                            .label(trimmed_res)
+                                            .selectable(true)
+                                            .wrap(true)
+                                            .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                                            .xalign(0.0)
+                                            .css_classes(["tool-output-label"])
+                                            .build();
+                                        out_box.append(&out_lbl);
+                                        out_scroll.set_child(Some(&out_box));
+                                        output_expander.set_child(Some(&out_scroll));
+                                        item.card.append(&output_expander);
+                                    }
                                 }
                                 let total_elapsed = p.start_time.elapsed().as_secs();
                                 p.expander.set_label(Some(&format!(
@@ -1840,6 +1873,8 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                                     format::format_duration_sec(total_elapsed)
                                 )));
                             }
+                            // Reset active markdown so subsequent assistant text creates a new block below tools
+                            *target.active_markdown.borrow_mut() = None;
                         }
                         scroll_fn();
                     }
@@ -1888,6 +1923,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
                                 item_card.append(&badge);
                                 p.steps_box.append(&item_card);
                             }
+                            *target.active_markdown.borrow_mut() = None;
                         }
                         scroll_fn();
                     }
@@ -2062,7 +2098,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             session_title_submit.set_label(&format!("Local  •  {}", snippet));
 
             // 1. User Message Card (Right-aligned bubble)
-            let user_card = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+            let user_card = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
             user_card.add_css_class("card-user");
             user_card.set_halign(gtk4::Align::End);
 
@@ -2080,19 +2116,20 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             messages_box.append(&user_card);
 
             // 2. Assistant Message Card
-            let asst_card = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+            let asst_card = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
             asst_card.add_css_class("card-assistant");
             asst_card.set_halign(gtk4::Align::Fill);
 
-            let asst_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+            let asst_header = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
             asst_header.add_css_class("card-assistant-header");
 
             let asst_avatar = gtk4::Label::builder()
                 .label("✦")
                 .css_classes(["card-assistant-avatar"])
                 .build();
+            let cur_mode_label = mode_display_name(&state.borrow().current_mode);
             let asst_badge = gtk4::Label::builder()
-                .label("Agent")
+                .label(&cur_mode_label)
                 .css_classes(["card-assistant-badge"])
                 .build();
             asst_header.append(&asst_avatar);
@@ -2105,7 +2142,7 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
 
             asst_card.append(&asst_header);
 
-            let turn_body = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+            let turn_body = gtk4::Box::new(gtk4::Orientation::Vertical, 3);
             asst_card.append(&turn_body);
 
             // Assistant Feedback & Action Bar
@@ -2367,9 +2404,10 @@ fn build_ui(app: &gtk4::Application, is_window_mode: bool, is_daemon: bool) -> A
             let mut st = state.borrow_mut();
             let model_opt = Some(st.settings.model.clone());
             let thinking_opt = Some(st.settings.thinking_level.clone());
+            let mode_opt = Some(st.current_mode.clone());
             if let Err(e) =
                 st.runner
-                    .spawn_prompt(prompt.clone(), model_opt, thinking_opt, stream_tx.clone())
+                    .spawn_prompt(prompt.clone(), model_opt, thinking_opt, mode_opt, stream_tx.clone())
             {
                 // On failure, restore prompt to buffer so user doesn't lose draft
                 set_text_view_content(&tv, &prompt);

@@ -119,26 +119,26 @@ window {
 .panel-header {
     background-color: #1E1E2A;
     border-bottom: 1px solid #424252;
-    padding: 6px 12px;
-    min-height: 36px;
+    padding: 3px 8px;
+    min-height: 28px;
 }
 
 .panel-title {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: #D4D4E0;
     letter-spacing: -0.01em;
 }
 
 .header-icon-btn {
-    min-width: 26px;
-    min-height: 26px;
-    padding: 2px 6px;
+    min-width: 22px;
+    min-height: 22px;
+    padding: 1px 4px;
     border-radius: 4px;
     background-color: transparent;
     color: #A7A8BA;
     border: none;
-    font-size: 13px;
+    font-size: 12px;
     transition: background-color 120ms ease, color 120ms ease;
 }
 
@@ -162,19 +162,19 @@ window {
 .session-subheader {
     background-color: #1E1E2A;
     border-bottom: 1px solid #424252;
-    padding: 6px 12px;
-    min-height: 32px;
+    padding: 2px 8px;
+    min-height: 26px;
 }
 
 .session-back-btn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 2px;
-    border-radius: 4px;
+    min-width: 20px;
+    min-height: 20px;
+    padding: 1px;
+    border-radius: 3px;
     background-color: transparent;
     color: #A7A8BA;
     border: none;
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .session-back-btn:hover {
@@ -183,32 +183,16 @@ window {
 }
 
 .session-title-label {
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 500;
     color: #D4D4E0;
     letter-spacing: -0.01em;
 }
 
-.session-side-btn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 2px;
-    border-radius: 4px;
-    background-color: transparent;
-    color: #A7A8BA;
-    border: none;
-    font-size: 12px;
-}
-
-.session-side-btn:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #D4D4E0;
-}
-
 /* ── 3. Messages Stream (Vùng Hội Thoại) ────────────────────────────────── */
 .chat-scroll {
     background-color: #1E1E2A;
-    padding: 8px 12px;
+    padding: 4px 8px;
 }
 
 .chat-scroll viewport {
@@ -217,7 +201,7 @@ window {
 
 .messages-container {
     background-color: #1E1E2A;
-    padding: 6px 4px;
+    padding: 2px 2px;
 }
 
 /* Welcome Hero */
@@ -235,23 +219,23 @@ window {
     font-size: 16px;
     font-weight: 600;
     color: #D4D4E0;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .welcome-subtitle {
-    font-size: 12px;
+    font-size: 11.5px;
     color: #A7A8BA;
-    margin-bottom: 16px;
+    margin-bottom: 10px;
 }
 
 .welcome-pill-btn {
-    font-size: 12px;
+    font-size: 11.5px;
     color: #D4D4E0;
     background-color: #292936;
     border: 1px solid #424252;
-    border-radius: 6px;
-    padding: 6px 12px;
-    margin: 3px 0;
+    border-radius: 5px;
+    padding: 3px 8px;
+    margin: 2px 0;
 }
 
 .welcome-pill-btn:hover {
@@ -264,97 +248,97 @@ window {
 .card-user {
     background-color: #292936;
     border: 1px solid #424252;
-    border-radius: 8px;
-    padding: 8px 12px;
-    margin-bottom: 14px;
+    border-radius: 6px;
+    padding: 5px 8px;
+    margin-bottom: 8px;
 }
 
 .card-user-header {
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .card-user-badge {
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 600;
     color: #4FC1FF;
 }
 
 .card-user-idx {
-    font-size: 10px;
+    font-size: 9.5px;
     color: #A7A8BA;
 }
 
 .card-user-text {
-    font-size: 13px;
-    line-height: 1.5;
+    font-size: 12px;
+    line-height: 1.35;
     color: #D4D4E0;
 }
 
 /* Assistant Message Card (Transparent background, full width) */
 .card-assistant {
     background-color: transparent;
-    padding: 4px 2px;
-    margin-bottom: 16px;
+    padding: 2px 0;
+    margin-bottom: 8px;
 }
 
 .card-assistant-header {
-    margin-bottom: 6px;
+    margin-bottom: 3px;
 }
 
 .card-assistant-avatar {
-    font-size: 12px;
+    font-size: 11px;
     color: #4FC1FF;
     margin-right: 4px;
 }
 
 .card-assistant-badge {
-    font-size: 12px;
+    font-size: 11.5px;
     font-weight: 600;
     color: #D4D4E0;
 }
 
 .card-metrics-pill {
-    font-size: 10px;
+    font-size: 9.5px;
     font-weight: 500;
     color: #A7A8BA;
     background-color: #292936;
     border: 1px solid #424252;
-    border-radius: 4px;
-    padding: 1px 6px;
-    margin-left: 6px;
+    border-radius: 3px;
+    padding: 1px 4px;
+    margin-left: 4px;
 }
 
 /* Assistant Text Typography */
 .bubble-assistant-text {
-    font-size: 13px;
-    line-height: 1.55;
+    font-size: 12px;
+    line-height: 1.35;
     color: #D4D4E0;
 }
 
 .card-assistant tt {
     font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 12px;
+    font-size: 11px;
     background: #292936;
     border: 1px solid #424252;
-    border-radius: 4px;
-    padding: 1px 5px;
+    border-radius: 3px;
+    padding: 1px 4px;
     color: #D4D4E0;
 }
 
 /* ── Progress & Tool Steps Disclosure (Completed N steps in Xs ▾) ───────── */
 .progress-steps-disclosure {
-    margin: 6px 0 10px 0;
+    margin: 3px 0 5px 0;
     border: 1px solid #424252;
-    border-radius: 6px;
+    border-radius: 5px;
     background-color: rgba(255, 255, 255, 0.03);
-    padding: 4px 8px;
+    padding: 2px 6px;
 }
 
 .progress-steps-disclosure > title {
-    font-size: 11.5px;
+    font-size: 11px;
     font-weight: 500;
     color: #A7A8BA;
-    padding: 2px 4px;
+    padding: 1px 3px;
 }
 
 .progress-steps-disclosure:hover > title {
@@ -362,14 +346,14 @@ window {
 }
 
 .steps-list-box {
-    margin-top: 4px;
-    padding: 4px 2px;
+    margin-top: 2px;
+    padding: 2px 0;
 }
 
 .step-item-card {
-    padding: 4px 8px;
-    margin: 2px 0;
-    border-radius: 4px;
+    padding: 3px 6px;
+    margin: 1px 0;
+    border-radius: 3px;
     background-color: rgba(0, 0, 0, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.04);
 }
@@ -420,91 +404,97 @@ window {
 .tool-call-card {
     background-color: #232330;
     border: 1px solid #424252;
-    border-radius: 6px;
-    margin: 4px 0;
-    padding: 6px 10px;
+    border-radius: 5px;
+    margin: 2px 0;
+    padding: 4px 8px;
 }
 
 .tool-name-label {
     font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11.5px;
+    font-size: 11px;
     font-weight: 500;
     color: #D4D4E0;
 }
 
 .tool-badge-running {
-    font-size: 9.5px;
+    font-size: 9px;
     font-weight: 700;
     color: #4FC1FF;
     background-color: rgba(79, 193, 255, 0.15);
     border-radius: 3px;
-    padding: 1px 5px;
+    padding: 1px 4px;
 }
 
 .tool-badge-done {
-    font-size: 9.5px;
+    font-size: 9px;
     font-weight: 700;
     color: #89D185;
     background-color: rgba(137, 209, 133, 0.15);
     border-radius: 3px;
-    padding: 1px 5px;
+    padding: 1px 4px;
 }
 
 .tool-badge-error {
-    font-size: 9.5px;
+    font-size: 9px;
     font-weight: 700;
     color: #F48771;
     background-color: rgba(244, 135, 113, 0.15);
     border-radius: 3px;
-    padding: 1px 5px;
+    padding: 1px 4px;
 }
 
 .tool-args-box {
-    margin-top: 4px;
+    margin-top: 2px;
     font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11px;
+    font-size: 10.5px;
     color: #A7A8BA;
     background-color: #1a1a24;
-    border-radius: 4px;
-    padding: 4px 8px;
+    border-radius: 3px;
+    padding: 3px 6px;
     border: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .tool-output-expander {
-    margin-top: 4px;
+    margin-top: 2px;
 }
 
 .tool-output-expander > title {
-    font-size: 11px;
+    font-size: 10.5px;
     color: #A7A8BA;
 }
 
 .tool-output-box {
-    margin-top: 3px;
+    margin-top: 2px;
     font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11px;
+    font-size: 10.5px;
     color: #D4D4E0;
     background-color: #1a1a24;
-    border-radius: 4px;
-    padding: 6px 8px;
+    border-radius: 3px;
+    padding: 4px 6px;
     border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.tool-output-label {
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    font-size: 10.5px;
+    color: #D4D4E0;
 }
 
 /* ── 4. Assistant Feedback & Action Bar ────────────────────────────────── */
 .card-feedback-bar {
-    margin-top: 8px;
-    padding-top: 4px;
+    margin-top: 4px;
+    padding-top: 2px;
 }
 
 .feedback-btn {
-    min-width: 26px;
-    min-height: 26px;
-    padding: 2px 6px;
-    border-radius: 4px;
+    min-width: 22px;
+    min-height: 22px;
+    padding: 1px 4px;
+    border-radius: 3px;
     background-color: transparent;
     color: #A7A8BA;
     border: none;
-    font-size: 12px;
+    font-size: 11px;
     transition: background-color 120ms ease, color 120ms ease;
 }
 
@@ -546,9 +536,9 @@ window {
 .composer-container {
     background-color: #343644;
     border: 1px solid #424252;
-    border-radius: 8px;
-    padding: 8px 10px;
-    margin: 8px 12px 4px 12px;
+    border-radius: 6px;
+    padding: 5px 8px;
+    margin: 4px 8px 2px 8px;
 }
 
 .composer-container:focus-within {
@@ -557,40 +547,40 @@ window {
 
 /* Attached Context Chips Row */
 .composer-chips-row {
-    margin-bottom: 6px;
+    margin-bottom: 3px;
 }
 
 .composer-chip {
     background-color: rgba(255, 255, 255, 0.08);
     border: 1px solid #424252;
-    border-radius: 12px;
-    padding: 1px 8px;
-    margin-right: 6px;
+    border-radius: 10px;
+    padding: 1px 6px;
+    margin-right: 4px;
     margin-bottom: 2px;
 }
 
 .composer-chip-icon {
-    font-size: 11px;
+    font-size: 10px;
     color: #4FC1FF;
-    margin-right: 4px;
+    margin-right: 3px;
 }
 
 .composer-chip-text {
     font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11px;
+    font-size: 10.5px;
     color: #D4D4E0;
 }
 
 .composer-chip-del {
-    min-width: 16px;
-    min-height: 16px;
+    min-width: 14px;
+    min-height: 14px;
     padding: 0;
-    margin-left: 4px;
-    border-radius: 8px;
+    margin-left: 3px;
+    border-radius: 7px;
     background-color: transparent;
     color: #A7A8BA;
     border: none;
-    font-size: 10px;
+    font-size: 9px;
 }
 
 .composer-chip-del:hover {
@@ -602,11 +592,11 @@ window {
 .composer-text-view {
     background-color: transparent;
     color: #D4D4E0;
-    font-size: 13px;
-    line-height: 1.45;
+    font-size: 12.5px;
+    line-height: 1.35;
     caret-color: #4FC1FF;
-    padding: 2px 0;
-    min-height: 38px;
+    padding: 1px 0;
+    min-height: 30px;
 }
 
 .composer-text-view:focus {
@@ -621,14 +611,14 @@ window {
 
 .composer-placeholder {
     color: #A7A8BA;
-    font-size: 13px;
+    font-size: 12.5px;
     font-style: normal;
 }
 
 /* Composer Bottom Toolbar */
 .composer-toolbar {
-    margin-top: 6px;
-    padding-top: 4px;
+    margin-top: 3px;
+    padding-top: 2px;
 }
 
 .composer-pill-btn {
@@ -636,11 +626,11 @@ window {
     background-image: none;
     border: 1px solid #424252;
     border-radius: 4px;
-    padding: 2px 7px;
+    padding: 1.5px 6px;
     color: #D4D4E0;
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 500;
-    margin-right: 4px;
+    margin-right: 3px;
     outline: none;
     box-shadow: none;
     transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
@@ -671,16 +661,16 @@ window {
 }
 
 .composer-icon-btn {
-    min-width: 26px;
-    min-height: 26px;
-    padding: 2px;
-    border-radius: 4px;
+    min-width: 22px;
+    min-height: 22px;
+    padding: 1px;
+    border-radius: 3px;
     background-color: transparent;
     background-image: none;
     color: #A7A8BA;
     border: none;
-    font-size: 13px;
-    margin-right: 4px;
+    font-size: 12px;
+    margin-right: 3px;
     outline: none;
     box-shadow: none;
 }
@@ -701,13 +691,13 @@ window {
 }
 
 .composer-send-btn {
-    min-width: 28px;
-    min-height: 28px;
-    border-radius: 14px;
+    min-width: 24px;
+    min-height: 24px;
+    border-radius: 12px;
     background-color: #4FC1FF;
     background-image: none;
     color: #1E1E2A;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 700;
     padding: 0;
     border: none;
@@ -734,7 +724,7 @@ window {
 .composer-send-btn.stop {
     background-color: #F48771;
     color: #1E1E2A;
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .composer-send-btn.stop:hover {
@@ -748,7 +738,7 @@ window {
 
 /* ── 6. Status Footer (Chân Trạng Thái) ─────────────────────────────────── */
 .status-footer {
-    padding: 4px 14px 8px 14px;
+    padding: 2px 10px 4px 10px;
 }
 
 .status-footer-label {
@@ -818,31 +808,31 @@ popover.menu {
 .clean-popover > contents {
     background-color: #292936;
     border: 1px solid #424252;
-    border-radius: 8px;
+    border-radius: 6px;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
-    padding: 6px;
+    padding: 4px;
     color: #D4D4E0;
 }
 
 .clean-popover-title {
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 700;
     color: #A7A8BA;
     letter-spacing: 0.04em;
-    padding: 4px 8px 6px 8px;
+    padding: 2px 6px 4px 6px;
     border-bottom: 1px solid #424252;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .clean-popover-item {
-    padding: 5px 10px;
-    border-radius: 5px;
+    padding: 3px 8px;
+    border-radius: 4px;
     background-color: transparent;
     background-image: none;
     border: none;
     color: #D4D4E0;
-    font-size: 12px;
-    margin-bottom: 2px;
+    font-size: 11.5px;
+    margin-bottom: 1px;
     outline: none;
     box-shadow: none;
 }
@@ -1008,31 +998,31 @@ popover.menu {
 .code-block-container {
     background-color: #121316;
     border: 1px solid #424252;
-    border-radius: 7px;
-    margin: 8px 0;
+    border-radius: 5px;
+    margin: 4px 0;
 }
 
 .code-block-header {
     background-color: #18191e;
     border-bottom: 1px solid #424252;
-    padding: 4px 10px;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
+    padding: 2px 8px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
 }
 
 .code-block-lang {
     font-family: monospace;
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 600;
     color: #A7A8BA;
 }
 
 .code-block-copy-btn {
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 500;
     color: #A7A8BA;
-    padding: 2px 6px;
-    border-radius: 4px;
+    padding: 1px 5px;
+    border-radius: 3px;
     background-color: transparent;
     border: 1px solid transparent;
 }
@@ -1044,10 +1034,10 @@ popover.menu {
 }
 
 .code-block-content {
-    padding: 8px 12px 10px 12px;
+    padding: 4px 8px 6px 8px;
     font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 12px;
-    line-height: 1.5;
+    font-size: 11px;
+    line-height: 1.35;
     color: #D4D4E0;
 }
 
@@ -1055,8 +1045,8 @@ popover.menu {
 .markdown-table-card {
     background-color: #1E1E2A;
     border: 1px solid #424252;
-    border-radius: 6px;
-    margin: 8px 0;
+    border-radius: 5px;
+    margin: 4px 0;
     padding: 0;
 }
 
@@ -1072,17 +1062,17 @@ popover.menu {
 .table-cell-header {
     background-color: #292936;
     border-bottom: 1px solid #424252;
-    padding: 6px 12px;
+    padding: 3px 8px;
 }
 
 .table-header-text {
     font-weight: 700;
-    font-size: 12px;
+    font-size: 11px;
     color: #D4D4E0;
 }
 
 .table-cell {
-    padding: 5px 12px;
+    padding: 2.5px 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -1095,18 +1085,18 @@ popover.menu {
 }
 
 .table-cell-text {
-    font-size: 12px;
+    font-size: 11px;
     color: #D4D4E0;
-    line-height: 1.4;
+    line-height: 1.35;
 }
 
 .table-cell-text tt {
     font-family: monospace;
-    font-size: 11px;
+    font-size: 10.5px;
     background: #292936;
     border: 1px solid #424252;
     border-radius: 3px;
-    padding: 1px 4px;
+    padding: 1px 3px;
     color: #D4D4E0;
 }
 
