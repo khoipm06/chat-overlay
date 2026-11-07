@@ -1164,9 +1164,9 @@ fn build_ui(
         .build();
     more_box.append(&more_title);
 
-    // ── UI Scale & Font Size Section ─────────────────────────────────────────
+    // ── UI Scale Section ─────────────────────────────────────────────────────
     let scale_section_title = gtk4::Label::builder()
-        .label("UI SCALE & FONT SIZE")
+        .label("UI SCALE")
         .css_classes(["clean-popover-item-desc"])
         .margin_start(8)
         .margin_top(4)
@@ -1205,20 +1205,73 @@ fn build_ui(
         let checks_ref = scale_check_labels.clone();
         let scale_provider_ref = scale_css_provider.clone();
         let sc_val = preset.scale;
-        let fs_val = preset.font_size;
 
         s_btn.connect_clicked(move |_| {
             pop_more_close.popdown();
-            scale::apply_ui_scale(&scale_provider_ref, sc_val, fs_val);
             for (sc, lbl) in checks_ref.borrow().iter() {
                 lbl.set_text(if *sc == sc_val { "✓" } else { " " });
             }
             let mut st = state_scale.borrow_mut();
             st.settings.ui_scale = sc_val;
-            st.settings.font_size = fs_val;
+            scale::apply_ui_scale(&scale_provider_ref, sc_val, st.settings.font_size);
             let _ = st.settings.save();
         });
         more_box.append(&s_btn);
+    }
+
+    // ── Font Size Section ────────────────────────────────────────────────────
+    let font_section_title = gtk4::Label::builder()
+        .label("FONT SIZE")
+        .css_classes(["clean-popover-item-desc"])
+        .margin_start(8)
+        .margin_top(6)
+        .xalign(0.0)
+        .build();
+    more_box.append(&font_section_title);
+
+    let font_check_labels: Rc<RefCell<Vec<(u32, gtk4::Label)>>> = Rc::new(RefCell::new(Vec::new()));
+
+    for preset in settings::FONT_SIZE_PRESETS {
+        let is_current = preset.size == initial_settings.font_size;
+        let f_btn = gtk4::Button::builder()
+            .css_classes(["clean-popover-item"])
+            .halign(gtk4::Align::Fill)
+            .build();
+
+        let f_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        let check_lbl = gtk4::Label::builder()
+            .label(if is_current { "✓" } else { " " })
+            .css_classes(["theme-check-icon"])
+            .width_chars(2)
+            .build();
+        let name_lbl = gtk4::Label::builder()
+            .label(format!("{}  •  {}", preset.label, preset.desc))
+            .xalign(0.0)
+            .hexpand(true)
+            .build();
+        f_row.append(&check_lbl);
+        f_row.append(&name_lbl);
+        f_btn.set_child(Some(&f_row));
+
+        font_check_labels.borrow_mut().push((preset.size, check_lbl.clone()));
+
+        let state_font = state.clone();
+        let pop_more_close = popover_more.clone();
+        let checks_ref = font_check_labels.clone();
+        let scale_provider_ref = scale_css_provider.clone();
+        let fs_val = preset.size;
+
+        f_btn.connect_clicked(move |_| {
+            pop_more_close.popdown();
+            for (fs, lbl) in checks_ref.borrow().iter() {
+                lbl.set_text(if *fs == fs_val { "✓" } else { " " });
+            }
+            let mut st = state_font.borrow_mut();
+            st.settings.font_size = fs_val;
+            scale::apply_ui_scale(&scale_provider_ref, st.settings.ui_scale, fs_val);
+            let _ = st.settings.save();
+        });
+        more_box.append(&f_btn);
     }
 
     // Appearance Theme Section
@@ -2716,5 +2769,7 @@ mod tests {
         assert_eq!(settings::UI_SCALE_PRESETS[1].scale, 115);
         assert_eq!(settings::UI_SCALE_PRESETS[2].scale, 130);
         assert_eq!(settings::UI_SCALE_PRESETS[3].scale, 150);
+        assert_eq!(settings::FONT_SIZE_PRESETS.len(), 5);
+        assert_eq!(settings::FONT_SIZE_PRESETS[1].size, 13);
     }
 }

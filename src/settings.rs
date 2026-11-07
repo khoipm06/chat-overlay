@@ -29,27 +29,62 @@ pub struct UiScalePreset {
 pub const UI_SCALE_PRESETS: &[UiScalePreset] = &[
     UiScalePreset {
         scale: 100,
-        font_size: 13,
+        font_size: DEFAULT_FONT_SIZE,
         label: "100%",
         desc: "Default (13px)",
     },
     UiScalePreset {
         scale: 115,
-        font_size: 15,
+        font_size: DEFAULT_FONT_SIZE,
         label: "115%",
-        desc: "Medium (15px)",
+        desc: "Medium (~15px)",
     },
     UiScalePreset {
         scale: 130,
-        font_size: 17,
+        font_size: DEFAULT_FONT_SIZE,
         label: "130%",
-        desc: "Large (17px)",
+        desc: "Large (~17px)",
     },
     UiScalePreset {
         scale: 150,
-        font_size: 20,
+        font_size: DEFAULT_FONT_SIZE,
         label: "150%",
-        desc: "Extra Large (20px)",
+        desc: "Extra Large (~20px)",
+    },
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FontSizePreset {
+    pub size: u32,
+    pub label: &'static str,
+    pub desc: &'static str,
+}
+
+pub const FONT_SIZE_PRESETS: &[FontSizePreset] = &[
+    FontSizePreset {
+        size: 12,
+        label: "12px",
+        desc: "Small",
+    },
+    FontSizePreset {
+        size: 13,
+        label: "13px",
+        desc: "Default",
+    },
+    FontSizePreset {
+        size: 14,
+        label: "14px",
+        desc: "Medium",
+    },
+    FontSizePreset {
+        size: 15,
+        label: "15px",
+        desc: "Large",
+    },
+    FontSizePreset {
+        size: 16,
+        label: "16px",
+        desc: "X-Large",
     },
 ];
 
@@ -203,6 +238,11 @@ impl AppSettings {
         self.ui_scale as f64 / 100.0
     }
 
+    #[allow(dead_code)]
+    pub fn effective_font_size(&self) -> f64 {
+        ((self.font_size as f64) * self.scale_factor() * 10.0).round() / 10.0
+    }
+
     pub fn clamped(mut self) -> Self {
         self.width = self.width.clamp(MIN_WIDTH, MAX_WIDTH);
         self.height = self.height.clamp(MIN_HEIGHT, MAX_HEIGHT);
@@ -259,6 +299,26 @@ mod tests {
             assert!(!p.label.is_empty());
             assert!(!p.desc.is_empty());
         }
+    }
+
+    #[test]
+    fn test_font_size_presets_consistency() {
+        assert!(!FONT_SIZE_PRESETS.is_empty());
+        for p in FONT_SIZE_PRESETS {
+            assert!(p.size >= MIN_FONT_SIZE && p.size <= MAX_FONT_SIZE);
+            assert!(!p.label.is_empty());
+            assert!(!p.desc.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_effective_font_size() {
+        let mut s = AppSettings::default();
+        assert_eq!(s.effective_font_size(), 13.0);
+        s.ui_scale = 150;
+        assert_eq!(s.effective_font_size(), 19.5);
+        s.font_size = 15;
+        assert_eq!(s.effective_font_size(), 22.5);
     }
 
     #[test]

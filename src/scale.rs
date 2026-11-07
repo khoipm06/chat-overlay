@@ -540,7 +540,7 @@ pub fn generate_scale_css(scale_percent: u32, base_font_size: u32) -> String {
         subhead_pad_y = s(2.5),
         subhead_pad_x = s(8.0),
         subhead_h = sm(26.0, 26.0),
-        back_btn_size = sm(22.0, 22.0),
+        back_btn_size = sm(24.0, 24.0),
         back_btn_pad = s(1.5),
         back_btn_fs = sm(12.0, 12.0),
         back_btn_rad = s(3.0),
@@ -651,8 +651,8 @@ pub fn generate_scale_css(scale_percent: u32, base_font_size: u32) -> String {
         comp_chip_icon_fs = s(10.5),
         comp_chip_icon_mr = s(3.0),
         comp_chip_text_fs = s(11.0),
-        comp_chip_del_size = sm(16.0, 16.0),
-        comp_chip_del_rad = sm(8.0, 8.0),
+        comp_chip_del_size = sm(18.0, 18.0),
+        comp_chip_del_rad = sm(9.0, 9.0),
         comp_chip_del_ml = s(3.0),
         comp_chip_del_fs = s(10.0),
         comp_tv_pad_y = s(2.0),
@@ -682,7 +682,7 @@ pub fn generate_scale_css(scale_percent: u32, base_font_size: u32) -> String {
         status_btn_pad_y = s(2.0),
         status_btn_pad_x = s(5.0),
         status_btn_fs = s(11.5),
-        status_btn_h = sm(22.0, 22.0),
+        status_btn_h = sm(24.0, 24.0),
         status_sep_fs = s(10.5),
         status_sep_mx = s(1.0),
         status_icon_fs = s(11.5),
@@ -746,7 +746,7 @@ pub fn generate_scale_css(scale_percent: u32, base_font_size: u32) -> String {
         code_copy_pad_y = s(2.0),
         code_copy_pad_x = s(6.0),
         code_copy_rad = s(3.0),
-        code_copy_min_h = sm(20.0, 20.0),
+        code_copy_min_h = sm(22.0, 22.0),
         code_body_pt = s(5.0),
         code_body_px = s(8.0),
         code_body_pb = s(6.0),
@@ -847,5 +847,17 @@ mod tests {
         assert!(css.contains(".chat-head-btn"));
         assert!(css.contains(".btn-scroll-bottom"));
         assert!(css.contains(".confirm-popover"));
+    }
+
+    #[test]
+    fn test_scale_presets_effective_text_proportions() {
+        for preset in crate::settings::UI_SCALE_PRESETS {
+            let css = generate_scale_css(preset.scale, preset.font_size);
+            let factor = preset.scale as f64 / 100.0;
+            let expected_fs = ((preset.font_size as f64) * factor * 10.0).round() / 10.0;
+            // Verify font size is in reasonable bounds (< 25px for standard presets) and not double scaled
+            assert!(expected_fs <= 25.0);
+            assert!(css.contains(&format!("font-size: {}px;", expected_fs)));
+        }
     }
 }

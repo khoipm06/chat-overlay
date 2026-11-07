@@ -167,8 +167,8 @@ window {
 }
 
 .session-back-btn {
-    min-width: 22px;
-    min-height: 22px;
+    min-width: 24px;
+    min-height: 24px;
     padding: 1.5px;
     border-radius: 3px;
     background-color: transparent;
@@ -572,11 +572,11 @@ window {
 }
 
 .composer-chip-del {
-    min-width: 16px;
-    min-height: 16px;
+    min-width: 18px;
+    min-height: 18px;
     padding: 0;
     margin-left: 3px;
-    border-radius: 8px;
+    border-radius: 9px;
     background-color: transparent;
     color: #A7A8BA;
     border: none;
@@ -1023,6 +1023,7 @@ popover.menu {
     font-weight: 500;
     color: #A7A8BA;
     padding: 1px 5px;
+    min-height: 22px;
     border-radius: 3px;
     background-color: transparent;
     border: 1px solid transparent;
