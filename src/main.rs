@@ -454,8 +454,16 @@ fn main() -> glib::ExitCode {
     #[cfg(not(feature = "audit"))]
     let audit_dir: Option<String> = None;
 
-    if audit_dir.is_none() && ipc::try_send_toggle() {
-        return glib::ExitCode::SUCCESS;
+    let is_daemon = args.contains(&"--daemon".to_string()) || args.contains(&"--hidden".to_string());
+
+    if audit_dir.is_none() {
+        if is_daemon {
+            if ipc::is_daemon_running() {
+                return glib::ExitCode::SUCCESS;
+            }
+        } else if ipc::try_send_toggle() {
+            return glib::ExitCode::SUCCESS;
+        }
     }
 
     // Suppress benign GtkGizmo slider sizing warnings
@@ -477,7 +485,6 @@ fn main() -> glib::ExitCode {
     ensure_desktop_integration();
 
     let is_window_mode = args.contains(&"--window".to_string()) || audit_dir.is_some();
-    let is_daemon = args.contains(&"--daemon".to_string()) || args.contains(&"--hidden".to_string());
 
     // Initialize Tokio runtime so background workers and IPC listener can call tokio::spawn
     let rt = tokio::runtime::Builder::new_multi_thread()

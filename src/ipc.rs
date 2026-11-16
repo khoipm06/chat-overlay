@@ -36,6 +36,21 @@ pub fn try_send_toggle() -> bool {
     try_send_command("TOGGLE")
 }
 
+/// Returns true if an active instance is already listening on the IPC socket.
+pub fn is_daemon_running() -> bool {
+    use std::os::unix::net::UnixStream as StdUnixStream;
+
+    let socket_path = get_socket_path();
+    if StdUnixStream::connect(&socket_path).is_ok() {
+        true
+    } else {
+        if socket_path.exists() {
+            let _ = std::fs::remove_file(&socket_path);
+        }
+        false
+    }
+}
+
 pub fn start_ipc_listener(tx: mpsc::UnboundedSender<IpcCommand>) {
     let socket_path = get_socket_path();
     let _ = std::fs::remove_file(&socket_path);

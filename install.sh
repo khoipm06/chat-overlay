@@ -53,7 +53,12 @@ fi
 
 if [[ -n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}" ]]; then
     echo "Starting pi-overlay background daemon for instant Ctrl+Alt+L toggle..."
-    nohup "${BIN_DIR}/pi-overlay" --daemon >/dev/null 2>&1 &
+    if command -v systemd-run >/dev/null 2>&1; then
+        systemd-run --user --quiet --collect --description="Pi Overlay Daemon" \
+            "${BIN_DIR}/pi-overlay" --daemon >/dev/null 2>&1 || true
+    else
+        nohup "${BIN_DIR}/pi-overlay" --daemon </dev/null >/dev/null 2>&1 &
+    fi
 fi
 
 echo "Installation complete."
