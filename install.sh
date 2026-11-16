@@ -34,11 +34,26 @@ update-desktop-database "${APP_DIR}" || true
 echo "Updating icon cache..."
 gtk-update-icon-cache -f "${HOME}/.local/share/icons/hicolor" || true
 
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    echo "Registering KDE Plasma global shortcut (Ctrl+Alt+L)..."
+    kwriteconfig6 --file kglobalshortcutsrc --group services --group pi-overlay.desktop --key _launch "Ctrl+Alt+L,Ctrl+Alt+L,Pi Overlay" || true
+fi
+
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    echo "Refreshing KDE service cache..."
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
+
 if [[ "${1:-}" == "--autostart" ]]; then
     echo "Installing autostart entry to ${AUTOSTART_DIR}/pi-overlay.desktop..."
     mkdir -p "${AUTOSTART_DIR}"
     sed "s|^Exec=pi-overlay$|Exec=${BIN_DIR}/pi-overlay|" "${SCRIPT_DIR}/resources/pi-overlay.desktop" > "${AUTOSTART_DIR}/pi-overlay.desktop"
     chmod 644 "${AUTOSTART_DIR}/pi-overlay.desktop"
+fi
+
+if [[ -n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}" ]]; then
+    echo "Starting pi-overlay background daemon for instant Ctrl+Alt+L toggle..."
+    nohup "${BIN_DIR}/pi-overlay" --daemon >/dev/null 2>&1 &
 fi
 
 echo "Installation complete."

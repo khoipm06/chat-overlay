@@ -547,8 +547,11 @@ fn ensure_desktop_integration() {
             .status();
     } else if exec_path.is_absolute() {
         if let Ok(existing) = std::fs::read_to_string(&target_desktop) {
-            if existing.lines().any(|l| l.trim() == "Exec=pi-overlay") {
-                let updated = existing.replace("Exec=pi-overlay", &exec_line);
+            let needs_exec = existing.lines().any(|l| l.trim() == "Exec=pi-overlay");
+            let needs_shortcut = !existing.contains("X-KDE-Shortcuts=");
+            if needs_exec || needs_shortcut {
+                let updated = include_str!("../resources/pi-overlay.desktop")
+                    .replace("Exec=pi-overlay", &exec_line);
                 let _ = std::fs::write(&target_desktop, updated);
                 let _ = std::process::Command::new("update-desktop-database")
                     .arg(&desktop_dir)
@@ -2079,6 +2082,10 @@ fn build_ui(
             }
             state.borrow_mut().mode = OverlayMode::Visible;
             tv.grab_focus();
+            let tv_idle = tv.clone();
+            glib::idle_add_local_once(move || {
+                tv_idle.grab_focus();
+            });
         })
     };
 
@@ -3394,35 +3401,37 @@ fn build_ui(
         window.add_controller(focus_controller);
     }
 
-    // Start IPC socket listener
-    let (ipc_tx, mut ipc_rx) = mpsc::unbounded_channel::<ipc::IpcCommand>();
-    ipc::start_ipc_listener(ipc_tx);
+    // Start IPC socket listener (skipped in audit mode so it never disturbs a live daemon)
+    if audit_dir.is_none() {
+        let (ipc_tx, mut ipc_rx) = mpsc::unbounded_channel::<ipc::IpcCommand>();
+        ipc::start_ipc_listener(ipc_tx);
 
-    let expand_fn_ipc = expand_overlay_fn.clone();
-    let hide_fn_ipc = hide_overlay_fn.clone();
-    let state_ipc = state.clone();
-    let tv_ipc = text_view.clone();
-    let submit_ipc = submit_prompt.clone();
+        let expand_fn_ipc = expand_overlay_fn.clone();
+        let hide_fn_ipc = hide_overlay_fn.clone();
+        let state_ipc = state.clone();
+        let tv_ipc = text_view.clone();
+        let submit_ipc = submit_prompt.clone();
 
-    glib::spawn_future_local(async move {
-        while let Some(cmd) = ipc_rx.recv().await {
-            match cmd {
-                ipc::IpcCommand::Toggle => {
-                    let current = state_ipc.borrow().mode;
-                    if current == OverlayMode::Visible {
-                        hide_fn_ipc();
-                    } else {
+        glib::spawn_future_local(async move {
+            while let Some(cmd) = ipc_rx.recv().await {
+                match cmd {
+                    ipc::IpcCommand::Toggle => {
+                        let current = state_ipc.borrow().mode;
+                        if current == OverlayMode::Visible {
+                            hide_fn_ipc();
+                        } else {
+                            expand_fn_ipc();
+                        }
+                    }
+                    ipc::IpcCommand::Prompt(text) => {
                         expand_fn_ipc();
+                        set_text_view_content(&tv_ipc, &text);
+                        submit_ipc();
                     }
                 }
-                ipc::IpcCommand::Prompt(text) => {
-                    expand_fn_ipc();
-                    set_text_view_content(&tv_ipc, &text);
-                    submit_ipc();
-                }
             }
-        }
-    });
+        });
+    }
 
     // Expand overlay on startup unless launched as hidden daemon
     if !is_daemon {
