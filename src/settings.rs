@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -96,6 +97,8 @@ pub enum HarnessKind {
     PiJson,
     /// Persistent `agy acp` process speaking JSON-RPC over stdio.
     AgyAcp,
+    /// Persistent `opencode acp` process speaking JSON-RPC over stdio.
+    OpenCodeAcp,
 }
 
 impl HarnessKind {
@@ -103,11 +106,24 @@ impl HarnessKind {
         match self {
             HarnessKind::PiJson => "Pi (JSON)",
             HarnessKind::AgyAcp => "Antigravity (ACP)",
+            HarnessKind::OpenCodeAcp => "OpenCode (ACP)",
         }
     }
 
-    pub fn all() -> [HarnessKind; 2] {
-        [HarnessKind::PiJson, HarnessKind::AgyAcp]
+    pub fn key(self) -> &'static str {
+        match self {
+            HarnessKind::PiJson => "pi_json",
+            HarnessKind::AgyAcp => "agy_acp",
+            HarnessKind::OpenCodeAcp => "opencode_acp",
+        }
+    }
+
+    pub fn is_acp(self) -> bool {
+        matches!(self, HarnessKind::AgyAcp | HarnessKind::OpenCodeAcp)
+    }
+
+    pub fn all() -> [HarnessKind; 3] {
+        [HarnessKind::PiJson, HarnessKind::AgyAcp, HarnessKind::OpenCodeAcp]
     }
 }
 
@@ -120,6 +136,17 @@ pub fn default_acp_command() -> String {
             .to_string(),
         Err(_) => "agy".to_string(),
     }
+}
+
+/// Default OpenCode ACP binary (`~/.opencode/bin/opencode` or `opencode`).
+pub fn default_opencode_command() -> String {
+    if let Ok(home) = std::env::var("HOME") {
+        let candidate = PathBuf::from(&home).join(".opencode/bin/opencode");
+        if candidate.is_file() {
+            return candidate.to_string_lossy().to_string();
+        }
+    }
+    "opencode".to_string()
 }
 
 /// Workspace the agent runs in; defaults to the current directory.
@@ -182,7 +209,14 @@ pub struct AppSettings {
     pub acp_command: String,
     #[serde(default = "default_acp_args")]
     pub acp_args: Vec<String>,
-    /// ACP mode id: `default`, `accept-edits`, `auto`, `plan`.
+    #[serde(default = "default_opencode_command")]
+    pub opencode_command: String,
+    #[serde(default = "default_acp_args")]
+    pub opencode_args: Vec<String>,
+    /// Per-harness remembered model selection (`pi_json`, `agy_acp`, `opencode_acp`).
+    #[serde(default)]
+    pub harness_models: HashMap<String, String>,
+    /// ACP mode id: `default`, `accept-edits`, `auto`, `plan`, `build`.
     #[serde(default = "default_acp_mode")]
     pub acp_mode: String,
     /// Auto-approve tool permission requests instead of prompting inline.
@@ -290,6 +324,9 @@ impl Default for AppSettings {
             workspace_dir: default_workspace_dir(),
             acp_command: default_acp_command(),
             acp_args: default_acp_args(),
+            opencode_command: default_opencode_command(),
+            opencode_args: default_acp_args(),
+            harness_models: HashMap::new(),
             acp_mode: default_acp_mode(),
             auto_approve_permissions: false,
             pin_live_screen: false,
@@ -361,10 +398,31 @@ impl AppSettings {
         if self.acp_args.is_empty() {
             self.acp_args = default_acp_args();
         }
+        if self.opencode_command.trim().is_empty() {
+            self.opencode_command = default_opencode_command();
+        }
+        if self.opencode_args.is_empty() {
+            self.opencode_args = default_acp_args();
+        }
         if self.edge != "left" && self.edge != "right" {
             self.edge = default_edge();
         }
         self
+    }
+
+    pub fn model_for_harness(&self, kind: HarnessKind) -> Option<String> {
+        self.harness_models
+            .get(kind.key())
+            .filter(|m| !m.trim().is_empty())
+            .cloned()
+    }
+
+    pub fn set_model_for_harness(&mut self, kind: HarnessKind, model_id: &str) {
+        self.model = model_id.to_string();
+        if !model_id.trim().is_empty() {
+            self.harness_models
+                .insert(kind.key().to_string(), model_id.to_string());
+        }
     }
 }
 
@@ -426,7 +484,8 @@ mod harness_tests {
     fn test_harness_default_is_pi_json() {
         assert_eq!(HarnessKind::default(), HarnessKind::PiJson);
         assert_eq!(HarnessKind::PiJson.label(), "Pi (JSON)");
-        assert_eq!(HarnessKind::all().len(), 2);
+        assert_eq!(HarnessKind::OpenCodeAcp.label(), "OpenCode (ACP)");
+        assert_eq!(HarnessKind::all().len(), 3);
     }
 
     #[test]

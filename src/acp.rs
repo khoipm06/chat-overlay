@@ -14,9 +14,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::{mpsc, oneshot, Mutex};
 
 use crate::backend::{PermissionRequest, SessionConfig, StreamEvent, UsageMetrics};
 
@@ -25,21 +27,26 @@ static REQUEST_ID_GEN: AtomicU64 = AtomicU64::new(1);
 /// Protocol version advertised during `initialize`.
 pub const PROTOCOL_VERSION: u16 = 1;
 
-/// Resolves the ACP agent binary: the user's configured command, else `agy`.
+/// Resolves the ACP agent binary: configured path, `$PATH`, common user bin dirs, else `agy`.
 pub fn resolve_acp_binary(configured: &str) -> PathBuf {
     let configured = configured.trim();
     if !configured.is_empty() {
         let path = PathBuf::from(configured);
-        if path.is_file() {
-            return path;
-        }
-        // Bare name on PATH, or an explicit path that does not exist yet.
-        if path.is_absolute() {
+        if path.is_file() || path.is_absolute() {
             return path;
         }
         if let Ok(paths) = std::env::var("PATH") {
             for dir in std::env::split_paths(&paths) {
                 let candidate = dir.join(configured);
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let home_path = PathBuf::from(home);
+            for rel in [".local/bin", ".opencode/bin", ".bun/bin", ".cargo/bin"] {
+                let candidate = home_path.join(rel).join(configured);
                 if candidate.is_file() {
                     return candidate;
                 }
@@ -219,7 +226,7 @@ pub fn parse_session_config(result: &serde_json::Value) -> SessionConfig {
                         config.current_mode = opt.current_value.unwrap_or_default();
                     }
                 }
-                "thought_level" => {
+                "thought_level" | "thinking_level" | "reasoning_effort" => {
                     config.thinking_levels =
                         option_pairs(&opt.options).into_iter().map(|(v, _)| v).collect();
                 }
@@ -265,12 +272,23 @@ pub fn build_prompt_blocks(
         }
     }
 
-    let mut text = prompt.to_string();
-    if attached_files
+    let has_screen = attached_files
         .iter()
-        .any(|(name, _)| crate::capture::is_image_path(name))
-    {
+        .any(|(name, _)| crate::capture::is_image_path(name));
+    let mut text = if has_screen {
+        prompt.replace("@screen", "[attached screenshot]")
+    } else {
+        prompt.to_string()
+    };
+    if has_screen {
+        let dims = attached_files
+            .iter()
+            .filter(|(n, _)| crate::capture::is_image_path(n))
+            .find_map(|(n, _)| crate::capture::png_dimensions(Path::new(n)))
+            .map(|(w, h)| format!(" Screenshot dimensions: {w}x{h}px."))
+            .unwrap_or_default();
         text.push_str(crate::backend::SCREEN_MARKUP_HINT);
+        text.push_str(&dims);
     }
     blocks.push(serde_json::json!({ "type": "text", "text": text }));
     blocks
@@ -301,20 +319,12 @@ pub fn session_update_to_event(params: &serde_json::Value) -> Option<StreamEvent
 
     match kind {
         "agent_message_chunk" | "text_delta" => {
-            let text = update
-                .get("content")
-                .and_then(|c| c.get("text"))
-                .and_then(|t| t.as_str())
-                .or_else(|| update.get("text").and_then(|t| t.as_str()))?;
-            Some(StreamEvent::TextDelta(text.to_string()))
+            let text = extract_chunk_text(update)?;
+            Some(StreamEvent::TextDelta(text))
         }
         "agent_thought_chunk" | "thinking_delta" => {
-            let text = update
-                .get("content")
-                .and_then(|c| c.get("text"))
-                .and_then(|t| t.as_str())
-                .or_else(|| update.get("text").and_then(|t| t.as_str()))?;
-            Some(StreamEvent::ThinkingDelta(text.to_string()))
+            let text = extract_chunk_text(update)?;
+            Some(StreamEvent::ThinkingDelta(text))
         }
         "tool_call" => {
             let id = tool_call_id(update);
@@ -391,8 +401,70 @@ pub fn session_update_to_event(params: &serde_json::Value) -> Option<StreamEvent
                 ..Default::default()
             }))
         }
+        "config_option_update" | "config_options_update" => {
+            let cfg = parse_session_config(update);
+            Some(StreamEvent::SessionConfig(cfg))
+        }
+        "current_mode_update" => {
+            let current_mode = update
+                .get("currentModeId")
+                .or_else(|| update.get("modeId"))
+                .and_then(|m| m.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if current_mode.is_empty() {
+                None
+            } else {
+                Some(StreamEvent::SessionConfig(SessionConfig {
+                    current_mode,
+                    ..Default::default()
+                }))
+            }
+        }
+        "session_info_update" => {
+            let title = update
+                .get("title")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !title.is_empty() {
+                Some(StreamEvent::SessionTitle(title))
+            } else {
+                update
+                    .get("_meta")
+                    .and_then(|m| m.get("opencode/retry"))
+                    .and_then(|r| r.get("error"))
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .map(|msg| StreamEvent::ThinkingDelta(format!("Retrying ({msg})…\n")))
+            }
+        }
         _ => None,
     }
+}
+
+fn extract_chunk_text(update: &serde_json::Value) -> Option<String> {
+    if let Some(s) = update
+        .get("content")
+        .and_then(|c| c.get("text"))
+        .and_then(|t| t.as_str())
+    {
+        return Some(s.to_string());
+    }
+    if let Some(arr) = update.get("content").and_then(|c| c.as_array()) {
+        let joined: String = arr
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+            .collect();
+        if !joined.is_empty() {
+            return Some(joined);
+        }
+    }
+    update
+        .get("text")
+        .and_then(|t| t.as_str())
+        .map(ToString::to_string)
 }
 
 fn tool_call_id(update: &serde_json::Value) -> String {
@@ -425,8 +497,17 @@ pub fn extract_content_text(value: &serde_json::Value) -> String {
     if let Some(arr) = value.as_array() {
         let parts: Vec<String> = arr
             .iter()
-            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
-            .map(|t| t.to_string())
+            .filter_map(|item| {
+                item.get("text")
+                    .and_then(|t| t.as_str())
+                    .map(|t| t.to_string())
+                    .or_else(|| {
+                        item.get("content")
+                            .and_then(|c| c.get("text"))
+                            .and_then(|t| t.as_str())
+                            .map(|t| t.to_string())
+                    })
+            })
             .collect();
         if !parts.is_empty() {
             return parts.join("\n");
@@ -526,30 +607,42 @@ pub fn auto_approve_option(request: &PermissionRequest) -> String {
         .unwrap_or_else(|| "allow_once".to_string())
 }
 
-/// A long-lived `agy acp` child process bound to one conversation.
-pub struct AgyAcpClient {
-    child: Child,
-    stdin: ChildStdin,
-    /// stdout reader, held across turns (the pipe can only be taken once)
-    lines: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+type RpcWaiterMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>;
+type EventTarget = Arc<std::sync::Mutex<Option<(u64, mpsc::UnboundedSender<(u64, StreamEvent)>)>>>;
+
+/// Long-lived concurrent ACP client (`agy acp` / `opencode acp`) using JSON-RPC 2.0 over stdio.
+pub struct AcpClient {
+    child: Mutex<Child>,
+    stdin: Arc<Mutex<ChildStdin>>,
+    pending_rpc: RpcWaiterMap,
+    pending_permissions: Arc<Mutex<HashMap<u64, PermissionRequest>>>,
+    event_target: EventTarget,
+    auto_approve: Arc<AtomicBool>,
+    alive: Arc<AtomicBool>,
+    reader_task: tokio::task::JoinHandle<()>,
+    stderr_task: tokio::task::JoinHandle<()>,
+    stderr_tail: Arc<std::sync::Mutex<Vec<String>>>,
     /// session id from `session/new`
     pub session_id: String,
     /// catalogs from `session/new`
     pub config: SessionConfig,
-    /// permission requests awaiting a decision, keyed by JSON-RPC id
-    pub pending_permissions: HashMap<u64, PermissionRequest>,
     #[allow(dead_code)]
     workspace: PathBuf,
 }
 
-impl AgyAcpClient {
-    /// Spawns the agent and performs `initialize` + `session/new`.
+#[allow(dead_code)]
+pub type AgyAcpClient = AcpClient;
+
+impl AcpClient {
+    /// Spawns the agent, starts concurrent stdout/stderr pumps, and performs `initialize` + `session/new`.
     pub async fn spawn(
         command: &str,
         args: &[String],
         workspace: &Path,
         auto_approve: bool,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        gen: u64,
+        tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
+    ) -> Result<Self, String> {
         let bin = resolve_acp_binary(command);
         let mut cmd = Command::new(&bin);
         cmd.args(args)
@@ -559,33 +652,75 @@ impl AgyAcpClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = cmd.spawn()?;
-        let mut stdin = child.stdin.take().ok_or("agy acp: no stdin")?;
-        let stdout = child.stdout.take().ok_or("agy acp: no stdout")?;
-        let mut lines = BufReader::new(stdout).lines();
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("failed to spawn {:?}: {e}", bin))?;
+        let stdin = child.stdin.take().ok_or("acp: no stdin")?;
+        let stdout = child.stdout.take().ok_or("acp: no stdout")?;
+        let stderr = child.stderr.take().ok_or("acp: no stderr")?;
+
+        let stdin = Arc::new(Mutex::new(stdin));
+        let pending_rpc: RpcWaiterMap = Arc::new(Mutex::new(HashMap::new()));
+        let pending_permissions = Arc::new(Mutex::new(HashMap::new()));
+        let event_target: EventTarget = Arc::new(std::sync::Mutex::new(Some((gen, tx))));
+        let auto_approve_flag = Arc::new(AtomicBool::new(auto_approve));
+        let alive = Arc::new(AtomicBool::new(true));
+        let stderr_tail = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let stderr_task = {
+            let tail = stderr_tail.clone();
+            tokio::spawn(async move {
+                let mut err_lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = err_lines.next_line().await {
+                    let trimmed = line.trim().to_string();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if let Ok(mut buf) = tail.lock() {
+                        if buf.len() >= 12 {
+                            buf.remove(0);
+                        }
+                        buf.push(trimmed);
+                    }
+                }
+            })
+        };
+
+        let reader_task = tokio::spawn(run_stdout_pump(
+            stdout,
+            stdin.clone(),
+            pending_rpc.clone(),
+            pending_permissions.clone(),
+            event_target.clone(),
+            auto_approve_flag.clone(),
+            alive.clone(),
+            stderr_tail.clone(),
+            workspace.to_path_buf(),
+        ));
 
         // initialize
-        let init_id = next_id();
-        send_request(
-            &mut stdin,
-            init_id,
+        call_rpc_raw(
+            &stdin,
+            &pending_rpc,
+            &alive,
+            &stderr_tail,
             "initialize",
             serde_json::json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "clientCapabilities": {
-                    "fs": { "readTextFile": true, "writeTextFile": true },
-                    "terminal": true
-                }
+                    "fs": { "readTextFile": true, "writeTextFile": true }
+                },
+                "clientInfo": { "name": "pi-overlay", "version": env!("CARGO_PKG_VERSION") }
             }),
         )
         .await?;
-        read_response(&mut lines, &mut stdin, init_id, auto_approve).await?;
 
         // session/new
-        let new_id = next_id();
-        send_request(
-            &mut stdin,
-            new_id,
+        let result = call_rpc_raw(
+            &stdin,
+            &pending_rpc,
+            &alive,
+            &stderr_tail,
             "session/new",
             serde_json::json!({
                 "cwd": workspace.to_string_lossy(),
@@ -593,7 +728,6 @@ impl AgyAcpClient {
             }),
         )
         .await?;
-        let result = read_response(&mut lines, &mut stdin, new_id, auto_approve).await?;
 
         let session_id = result
             .get("sessionId")
@@ -603,134 +737,98 @@ impl AgyAcpClient {
         let config = parse_session_config(&result);
 
         Ok(Self {
-            child,
+            child: Mutex::new(child),
             stdin,
-            lines,
+            pending_rpc,
+            pending_permissions,
+            event_target,
+            auto_approve: auto_approve_flag,
+            alive,
+            reader_task,
+            stderr_task,
+            stderr_tail,
             session_id,
             config,
-            pending_permissions: HashMap::new(),
             workspace: workspace.to_path_buf(),
         })
     }
 
-    /// Sends one prompt and pumps stdout until its response arrives.
-    ///
-    /// Notifications stream out through `tx` immediately; permission requests
-    /// either auto-resolve or are forwarded and parked in `pending_permissions`
-    /// until [`Self::respond_permission`] answers them.
-    pub async fn prompt(
-        &mut self,
-        blocks: Vec<serde_json::Value>,
-        gen: u64,
-        tx: &tokio::sync::mpsc::UnboundedSender<(u64, StreamEvent)>,
-        auto_approve: bool,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let id = next_id();
-        send_request(
-            &mut self.stdin,
-            id,
-            "session/prompt",
-            serde_json::json!({ "sessionId": self.session_id, "prompt": blocks }),
-        )
-        .await?;
-
-        loop {
-            let Some(line) = self.lines.next_line().await? else {
-                return Err("agy acp closed stdout mid-turn".into());
-            };
-            let Some(msg) = classify_message(&line) else {
-                continue;
-            };
-            match msg {
-                AcpMessage::Notification { params, .. } => {
-                    if let Some(ev) = session_update_to_event(&params) {
-                        if tx.send((gen, ev)).is_err() {
-                            return Ok(());
-                        }
-                    }
-                }
-                AcpMessage::Request { id, method, params } => {
-                    if method == "session/request_permission" {
-                        let request = parse_permission_request(id, &params);
-                        if auto_approve {
-                            let option = auto_approve_option(&request);
-                            let mut reply = serde_json::to_string(&serde_json::json!({
-                                "jsonrpc": "2.0",
-                                "id": id,
-                                "result": permission_response(&option)
-                            }))?;
-                            reply.push('\n');
-                            self.stdin.write_all(reply.as_bytes()).await?;
-                            self.stdin.flush().await?;
-                        } else {
-                            if tx
-                                .send((gen, StreamEvent::PermissionRequest(request.clone())))
-                                .is_err()
-                            {
-                                return Ok(());
-                            }
-                            self.pending_permissions.insert(id, request);
-                        }
-                    }
-                }
-                AcpMessage::Response { id: resp_id, result } => {
-                    if resp_id == id {
-                        if let Some(usage) = result.get("usage") {
-                            let input = usage.get("inputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                            let output = usage.get("outputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                            let total = usage
-                                .get("totalTokens")
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(input + output);
-                            let _ = tx.send((
-                                gen,
-                                StreamEvent::Metrics(UsageMetrics {
-                                    input_tokens: input,
-                                    output_tokens: output,
-                                    total_tokens: total,
-                                    duration_ms: 0,
-                                }),
-                            ));
-                        }
-                        return Ok(());
-                    }
-                }
-                AcpMessage::ErrorResponse { id: resp_id, message } => {
-                    if resp_id == id {
-                        return Err(message.into());
-                    }
-                }
-            }
-        }
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
     }
 
-    /// Sends `session/set_mode`; the agent acknowledges with a response.
-    pub async fn set_mode(
-        &mut self,
-        mode_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let id = next_id();
-        send_request(
-            &mut self.stdin,
-            id,
-            "session/set_mode",
-            serde_json::json!({ "sessionId": self.session_id, "modeId": mode_id }),
+    pub fn set_auto_approve(&self, on: bool) {
+        self.auto_approve.store(on, Ordering::Relaxed);
+    }
+
+    async fn call_rpc(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        call_rpc_raw(
+            &self.stdin,
+            &self.pending_rpc,
+            &self.alive,
+            &self.stderr_tail,
+            method,
+            params,
         )
-        .await?;
-        self.config.current_mode = mode_id.to_string();
+        .await
+    }
+
+    /// Sends `session/prompt` and awaits turn completion; stdout notifications and
+    /// permission requests execute concurrently in the reader pump.
+    pub async fn prompt(
+        &self,
+        blocks: Vec<serde_json::Value>,
+        gen: u64,
+        tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
+    ) -> Result<(), String> {
+        if let Ok(mut guard) = self.event_target.lock() {
+            *guard = Some((gen, tx.clone()));
+        }
+
+        let result = self
+            .call_rpc(
+                "session/prompt",
+                serde_json::json!({ "sessionId": self.session_id, "prompt": blocks }),
+            )
+            .await?;
+
+        if let Some(usage) = result.get("usage") {
+            let input = usage.get("inputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let output = usage.get("outputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let total = usage
+                .get("totalTokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(input + output);
+            let _ = tx.send((
+                gen,
+                StreamEvent::Metrics(UsageMetrics {
+                    input_tokens: input,
+                    output_tokens: output,
+                    total_tokens: total,
+                    duration_ms: 0,
+                }),
+            ));
+        }
         Ok(())
     }
 
-    /// Sends `session/set_config_option` for `model` or `thought_level`.
-    pub async fn set_config_option(
-        &mut self,
-        config_id: &str,
-        value: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let id = next_id();
-        send_request(
-            &mut self.stdin,
-            id,
+    /// Sends `session/set_mode` and waits for server acknowledgement.
+    pub async fn set_mode(&self, mode_id: &str) -> Result<(), String> {
+        self.call_rpc(
+            "session/set_mode",
+            serde_json::json!({ "sessionId": self.session_id, "modeId": mode_id }),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// Sends `session/set_config_option` (`model` or `thought_level`) and awaits acknowledgement.
+    pub async fn set_config_option(&self, config_id: &str, value: &str) -> Result<(), String> {
+        self.call_rpc(
             "session/set_config_option",
             serde_json::json!({
                 "sessionId": self.session_id,
@@ -738,48 +836,49 @@ impl AgyAcpClient {
                 "value": value
             }),
         )
-        .await?;
-        if config_id == "model" {
-            self.config.current_model = value.to_string();
-        }
-        Ok(())
+        .await
+        .map(|_| ())
     }
 
     /// Sends `session/cancel` for the in-flight prompt.
-    pub async fn cancel(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut line = serde_json::to_string(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "session/cancel",
-            "params": { "sessionId": self.session_id }
-        }))?;
-        line.push('\n');
-        self.stdin.write_all(line.as_bytes()).await?;
-        self.stdin.flush().await?;
-        Ok(())
+    pub async fn cancel(&self) -> Result<(), String> {
+        write_json_line(
+            &self.stdin,
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": "session/cancel",
+                "params": { "sessionId": self.session_id }
+            }),
+        )
+        .await
     }
 
-    /// Answers a pending permission request.
-    pub async fn respond_permission(
-        &mut self,
-        request_id: u64,
-        option_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.pending_permissions.remove(&request_id);
-        let mut line = serde_json::to_string(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": permission_response(normalize_option_id(option_id))
-        }))?;
-        line.push('\n');
-        self.stdin.write_all(line.as_bytes()).await?;
-        self.stdin.flush().await?;
-        Ok(())
+    /// Answers a pending permission request cleanly while the turn is running.
+    pub async fn respond_permission(&self, request_id: u64, option_id: &str) -> Result<(), String> {
+        self.pending_permissions.lock().await.remove(&request_id);
+        let normalized = normalize_option_id(option_id);
+        if normalized == "allow_always" {
+            self.auto_approve.store(true, Ordering::Relaxed);
+        }
+        write_json_line(
+            &self.stdin,
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": permission_response(normalized)
+            }),
+        )
+        .await
     }
 
-    /// Kills the agent process.
-    pub async fn shutdown(&mut self) {
-        let _ = self.child.kill().await;
-        let _ = self.child.wait().await;
+    /// Kills the agent process and aborts background pumps.
+    pub async fn shutdown(&self) {
+        self.alive.store(false, Ordering::Relaxed);
+        self.reader_task.abort();
+        self.stderr_task.abort();
+        let mut child = self.child.lock().await;
+        let _ = child.kill().await;
+        let _ = child.wait().await;
     }
 }
 
@@ -787,64 +886,241 @@ fn next_id() -> u64 {
     REQUEST_ID_GEN.fetch_add(1, Ordering::Relaxed)
 }
 
-async fn send_request(
-    stdin: &mut ChildStdin,
-    id: u64,
-    method: &str,
-    params: serde_json::Value,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut line = serde_json::to_string(&serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "method": method,
-        "params": params
-    }))?;
+async fn write_json_line(
+    stdin: &Arc<Mutex<ChildStdin>>,
+    payload: &serde_json::Value,
+) -> Result<(), String> {
+    let mut line = serde_json::to_string(payload).map_err(|e| e.to_string())?;
     line.push('\n');
-    stdin.write_all(line.as_bytes()).await?;
-    stdin.flush().await?;
+    let mut guard = stdin.lock().await;
+    guard
+        .write_all(line.as_bytes())
+        .await
+        .map_err(|e| format!("ACP write failed: {e}"))?;
+    guard
+        .flush()
+        .await
+        .map_err(|e| format!("ACP flush failed: {e}"))?;
     Ok(())
 }
 
-/// Reads until the response with `want_id` arrives, discarding notifications and
-/// auto-answering (or ignoring) permission requests.
-async fn read_response(
-    lines: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    stdin: &mut ChildStdin,
-    want_id: u64,
-    auto_approve: bool,
-) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-    loop {
-        let Some(line) = lines.next_line().await? else {
-            return Err("agy acp closed stdout".into());
-        };
+async fn call_rpc_raw(
+    stdin: &Arc<Mutex<ChildStdin>>,
+    pending_rpc: &RpcWaiterMap,
+    alive: &Arc<AtomicBool>,
+    stderr_tail: &Arc<std::sync::Mutex<Vec<String>>>,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    if !alive.load(Ordering::Relaxed) {
+        let hint = format_stderr_hint(stderr_tail);
+        return Err(format!("ACP agent is not running{hint}"));
+    }
+    let id = next_id();
+    let (tx, rx) = oneshot::channel();
+    pending_rpc.lock().await.insert(id, tx);
+
+    if let Err(e) = write_json_line(
+        stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params
+        }),
+    )
+    .await
+    {
+        pending_rpc.lock().await.remove(&id);
+        return Err(e);
+    }
+
+    rx.await.unwrap_or_else(|_| {
+        let hint = format_stderr_hint(stderr_tail);
+        Err(format!("ACP channel closed during {method}{hint}"))
+    })
+}
+
+fn format_stderr_hint(stderr_tail: &Arc<std::sync::Mutex<Vec<String>>>) -> String {
+    let Ok(buf) = stderr_tail.lock() else {
+        return String::new();
+    };
+    if buf.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", buf.join(" | "))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_stdout_pump(
+    stdout: tokio::process::ChildStdout,
+    stdin: Arc<Mutex<ChildStdin>>,
+    pending_rpc: RpcWaiterMap,
+    pending_permissions: Arc<Mutex<HashMap<u64, PermissionRequest>>>,
+    event_target: EventTarget,
+    auto_approve: Arc<AtomicBool>,
+    alive: Arc<AtomicBool>,
+    stderr_tail: Arc<std::sync::Mutex<Vec<String>>>,
+    workspace: PathBuf,
+) {
+    let mut lines = BufReader::new(stdout).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
         let Some(msg) = classify_message(&line) else {
             continue;
         };
         match msg {
-            AcpMessage::Response { id, result } if id == want_id => return Ok(result),
-            AcpMessage::ErrorResponse { id, message } if id == want_id => {
-                return Err(format!("agy acp error: {message}").into())
-            }
-            AcpMessage::Request { id, method, params }
-                if method == "session/request_permission" && auto_approve =>
-            {
-                {
-                    let request = parse_permission_request(id, &params);
-                    let option = auto_approve_option(&request);
-                    let mut reply = serde_json::to_string(&serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": permission_response(&option)
-                    }))?;
-                    reply.push('\n');
-                    stdin.write_all(reply.as_bytes()).await?;
-                    stdin.flush().await?;
+            AcpMessage::Response { id, result } => {
+                if let Some(waiter) = pending_rpc.lock().await.remove(&id) {
+                    let _ = waiter.send(Ok(result));
                 }
             }
-            // Responses to other calls, and notifications, are not ours here.
-            _ => {}
+            AcpMessage::ErrorResponse { id, message } => {
+                if let Some(waiter) = pending_rpc.lock().await.remove(&id) {
+                    let _ = waiter.send(Err(message));
+                }
+            }
+            AcpMessage::Notification { params, .. } => {
+                if let Some(ev) = session_update_to_event(&params) {
+                    if let Ok(guard) = event_target.lock() {
+                        if let Some((gen, ref tx)) = *guard {
+                            let _ = tx.send((gen, ev));
+                        }
+                    }
+                }
+            }
+            AcpMessage::Request { id, method, params } => {
+                match method.as_str() {
+                    "session/request_permission" => {
+                        let request = parse_permission_request(id, &params);
+                        if auto_approve.load(Ordering::Relaxed) {
+                            let option = auto_approve_option(&request);
+                            let _ = write_json_line(
+                                &stdin,
+                                &serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "result": permission_response(&option)
+                                }),
+                            )
+                            .await;
+                        } else {
+                            pending_permissions.lock().await.insert(id, request.clone());
+                            if let Ok(guard) = event_target.lock() {
+                                if let Some((gen, ref tx)) = *guard {
+                                    let _ = tx.send((gen, StreamEvent::PermissionRequest(request)));
+                                }
+                            }
+                        }
+                    }
+                    "fs/read_text_file" => {
+                        let reply = match handle_fs_read(&params, &workspace) {
+                            Ok(content) => serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": { "content": content }
+                            }),
+                            Err(msg) => serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": { "code": -32000, "message": msg }
+                            }),
+                        };
+                        let _ = write_json_line(&stdin, &reply).await;
+                    }
+                    "fs/write_text_file" => {
+                        let reply = if !auto_approve.load(Ordering::Relaxed) {
+                            serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": { "code": -32000, "message": "Write requires Auto mode" }
+                            })
+                        } else {
+                            match handle_fs_write(&params, &workspace) {
+                                Ok(()) => serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "result": {}
+                                }),
+                                Err(msg) => serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": { "code": -32000, "message": msg }
+                                }),
+                            }
+                        };
+                        let _ = write_json_line(&stdin, &reply).await;
+                    }
+                    _ => {
+                        let _ = write_json_line(
+                            &stdin,
+                            &serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "error": { "code": -32601, "message": format!("Unsupported client method: {method}") }
+                            }),
+                        )
+                        .await;
+                    }
+                }
+            }
         }
     }
+
+    alive.store(false, Ordering::Relaxed);
+    let hint = format_stderr_hint(&stderr_tail);
+    let mut waiters = pending_rpc.lock().await;
+    for (_, waiter) in waiters.drain() {
+        let _ = waiter.send(Err(format!("ACP agent closed stdout{hint}")));
+    }
+}
+
+fn handle_fs_read(params: &serde_json::Value, workspace: &Path) -> Result<String, String> {
+    let raw_path = params
+        .get("path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| "missing path".to_string())?;
+    let candidate = Path::new(raw_path);
+    let full = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        workspace.join(candidate)
+    };
+    let text = std::fs::read_to_string(&full)
+        .map_err(|e| format!("failed to read {}: {e}", full.display()))?;
+
+    let start_line = params.get("line").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
+    let limit = params.get("limit").and_then(|v| v.as_u64()).map(|l| l as usize);
+    if start_line == 1 && limit.is_none() {
+        return Ok(text);
+    }
+    let slice: Vec<&str> = text
+        .lines()
+        .skip(start_line - 1)
+        .take(limit.unwrap_or(usize::MAX))
+        .collect();
+    Ok(slice.join("\n"))
+}
+
+fn handle_fs_write(params: &serde_json::Value, workspace: &Path) -> Result<(), String> {
+    let raw_path = params
+        .get("path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| "missing path".to_string())?;
+    let content = params
+        .get("content")
+        .and_then(|c| c.as_str())
+        .ok_or_else(|| "missing content".to_string())?;
+    let candidate = Path::new(raw_path);
+    let full = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        workspace.join(candidate)
+    };
+    if let Some(parent) = full.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&full, content).map_err(|e| format!("failed to write {}: {e}", full.display()))
 }
 
 #[cfg(test)]
@@ -1207,5 +1483,24 @@ mod tests {
     fn test_resolve_acp_binary_defaults_to_agy() {
         assert_eq!(resolve_acp_binary(""), PathBuf::from("agy"));
         assert_eq!(resolve_acp_binary("   "), PathBuf::from("agy"));
+    }
+
+    #[test]
+    fn test_session_info_and_mode_updates() {
+        let title_update = serde_json::json!({
+            "update": { "sessionUpdate": "session_info_update", "title": "Refactor Plan" }
+        });
+        assert_eq!(
+            session_update_to_event(&title_update),
+            Some(StreamEvent::SessionTitle("Refactor Plan".into()))
+        );
+
+        let mode_update = serde_json::json!({
+            "update": { "sessionUpdate": "current_mode_update", "currentModeId": "plan" }
+        });
+        match session_update_to_event(&mode_update) {
+            Some(StreamEvent::SessionConfig(cfg)) => assert_eq!(cfg.current_mode, "plan"),
+            other => panic!("expected SessionConfig, got {other:?}"),
+        }
     }
 }

@@ -65,6 +65,8 @@ pub enum StreamEvent {
     PermissionRequest(PermissionRequest),
     /// Error message output
     Error(String),
+    /// Dynamic conversation title reported by ACP `session_info_update`.
+    SessionTitle(String),
     /// Final completion of assistant turn
     Done,
 }
@@ -110,6 +112,16 @@ impl Harness {
                     .set_auto_approve(settings.auto_approve_permissions || settings.acp_mode == "auto");
                 Harness::Acp(runner)
             }
+            crate::settings::HarnessKind::OpenCodeAcp => {
+                let mut runner = AgyAcpRunner::new(
+                    settings.opencode_command.clone(),
+                    settings.opencode_args.clone(),
+                    workspace,
+                );
+                runner
+                    .set_auto_approve(settings.auto_approve_permissions || settings.acp_mode == "auto");
+                Harness::Acp(runner)
+            }
         }
     }
 
@@ -124,6 +136,14 @@ impl Harness {
         match self {
             Harness::Pi(r) => r.abort(),
             Harness::Acp(r) => r.abort(),
+        }
+    }
+
+    /// Eagerly spawns the ACP agent so its model/mode/command catalogs hydrate
+    /// before the user submits the first prompt (no-op for Pi JSON).
+    pub fn warmup(&mut self, tx: mpsc::UnboundedSender<(u64, StreamEvent)>) {
+        if let Harness::Acp(r) = self {
+            r.warmup(tx);
         }
     }
 
@@ -185,8 +205,8 @@ impl Harness {
 
     /// Sends one prompt on the active harness.
     ///
-    /// ACP selections are pushed to the live session first, so the harness and
-    /// the UI selectors cannot drift apart.
+    /// ACP selections are reconciled safely against the session's advertised
+    /// catalogs inside the controller before dispatching `session/prompt`.
     pub fn spawn_prompt(
         &mut self,
         prompt: String,
@@ -201,22 +221,7 @@ impl Harness {
                 runner.spawn_prompt(prompt, attached_files, model, thinking_level, mode, tx)
             }
             Harness::Acp(runner) => {
-                if let Some(m) = model.as_deref() {
-                    if !m.is_empty() && m != "default" {
-                        runner.set_config_option("model", m);
-                    }
-                }
-                if let Some(t) = thinking_level.as_deref() {
-                    if !t.is_empty() {
-                        runner.set_config_option("thought_level", t);
-                    }
-                }
-                if let Some(md) = mode.as_deref() {
-                    if !md.is_empty() {
-                        runner.set_mode(md);
-                    }
-                }
-                runner.spawn_prompt(prompt, attached_files, tx)
+                runner.spawn_prompt(prompt, attached_files, model, thinking_level, mode, tx)
             }
         }
     }
@@ -224,6 +229,8 @@ impl Harness {
 
 /// Commands sent to the ACP controller task.
 enum AcpCommand {
+    /// Eagerly spawn the ACP child and hydrate session catalogs.
+    Warmup { gen: u64 },
     /// Apply harness settings; drops the process so the next prompt rebinds.
     Configure {
         command: String,
@@ -231,27 +238,34 @@ enum AcpCommand {
         workspace: std::path::PathBuf,
         auto_approve: bool,
     },
+    /// Update auto-approval on the active session immediately.
+    SetAutoApprove(bool),
     /// Discard the conversation and start a new ACP session.
     NewSession,
+    /// Cancel any currently running ACP turn (`session/cancel`).
+    Cancel,
     /// Answer a parked permission request.
     RespondPermission { request_id: u64, option_id: String },
     /// Change model / thinking level on the live session.
     SetConfigOption { config_id: String, value: String },
     /// Change ACP mode on the live session.
     SetMode { mode_id: String },
-    /// Send a prompt.
+    /// Send a prompt after reconciling selected model / thinking / mode.
     Prompt {
         prompt: String,
         attached_files: Vec<(String, String)>,
+        model: Option<String>,
+        thinking_level: Option<String>,
+        mode: Option<String>,
         gen: u64,
     },
 }
 
-/// Drives a persistent `agy acp` process across turns.
+/// Drives a persistent ACP process (`agy acp` / `opencode acp`) across turns.
 ///
-/// The child process is owned by a detached controller task rather than by this
-/// struct, so the GTK thread can stay fully synchronous: it posts commands into
-/// a channel and receives `StreamEvent`s back.
+/// The child process is owned by a detached controller task that never blocks on
+/// in-flight turns, so permissions, mode switches, and cancellations execute
+/// concurrently without deadlocking.
 pub struct AgyAcpRunner {
     tx: Option<mpsc::UnboundedSender<AcpCommand>>,
     generation: u64,
@@ -279,7 +293,7 @@ impl AgyAcpRunner {
 
     pub fn set_auto_approve(&mut self, on: bool) {
         self.auto_approve = on;
-        self.send_config();
+        self.send(AcpCommand::SetAutoApprove(on));
     }
 
     /// Rebinds the harness: a new workspace or command needs a fresh process.
@@ -303,6 +317,15 @@ impl AgyAcpRunner {
 
     pub fn abort(&mut self) {
         self.generation = self.generation.wrapping_add(1);
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(AcpCommand::Cancel);
+        }
+    }
+
+    pub fn warmup(&mut self, tx: mpsc::UnboundedSender<(u64, StreamEvent)>) {
+        let gen = self.generation;
+        let cmd_tx = self.ensure_controller(tx);
+        let _ = cmd_tx.send(AcpCommand::Warmup { gen });
     }
 
     fn send(&self, cmd: AcpCommand) {
@@ -348,9 +371,12 @@ impl AgyAcpRunner {
         &mut self,
         prompt: String,
         attached_files: Vec<(String, String)>,
+        model: Option<String>,
+        thinking_level: Option<String>,
+        mode: Option<String>,
         tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.abort();
+        self.generation = self.generation.wrapping_add(1);
         let gen = self.generation;
 
         let cmd_tx = self.ensure_controller(tx);
@@ -358,6 +384,9 @@ impl AgyAcpRunner {
             .send(AcpCommand::Prompt {
                 prompt,
                 attached_files,
+                model,
+                thinking_level,
+                mode,
                 gen,
             })
             .map_err(|_| "ACP controller task stopped")?;
@@ -367,7 +396,9 @@ impl AgyAcpRunner {
     /// Starts the controller task if needed and returns its command channel.
     fn ensure_controller(&mut self, tx: mpsc::UnboundedSender<(u64, StreamEvent)>) -> mpsc::UnboundedSender<AcpCommand> {
         if let Some(existing) = &self.tx {
-            return existing.clone();
+            if !existing.is_closed() {
+                return existing.clone();
+            }
         }
 
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<AcpCommand>();
@@ -401,81 +432,189 @@ struct AcpSettings {
     auto_approve: bool,
 }
 
-/// Owns the `agy acp` process for the lifetime of the conversation.
+async fn ensure_acp_client(
+    client: &mut Option<std::sync::Arc<crate::acp::AcpClient>>,
+    settings: &AcpSettings,
+    gen: u64,
+    tx: &mpsc::UnboundedSender<(u64, StreamEvent)>,
+) -> Option<std::sync::Arc<crate::acp::AcpClient>> {
+    if let Some(existing) = client.as_ref() {
+        if existing.is_alive() {
+            return Some(existing.clone());
+        }
+        existing.shutdown().await;
+        *client = None;
+    }
+
+    match crate::acp::AcpClient::spawn(
+        &settings.command,
+        &settings.args,
+        &settings.workspace,
+        settings.auto_approve,
+        gen,
+        tx.clone(),
+    )
+    .await
+    {
+        Ok(c) => {
+            let arc = std::sync::Arc::new(c);
+            let _ = tx.send((gen, StreamEvent::SessionConfig(arc.config.clone())));
+            *client = Some(arc.clone());
+            Some(arc)
+        }
+        Err(e) => {
+            let _ = tx.send((
+                gen,
+                StreamEvent::Error(format!("failed to start ACP agent: {e}")),
+            ));
+            let _ = tx.send((gen, StreamEvent::Done));
+            None
+        }
+    }
+}
+
+/// Applies UI selections only when supported by the connected ACP server.
+async fn reconcile_acp_selections(
+    client: &crate::acp::AcpClient,
+    model: Option<&str>,
+    thinking: Option<&str>,
+    mode: Option<&str>,
+) {
+    if let Some(m) = model.filter(|s| !s.is_empty() && *s != "default") {
+        let supported = client.config.models.iter().any(|(id, _)| id == m);
+        if supported {
+            let _ = client.set_config_option("model", m).await;
+        }
+    }
+    if let Some(t) = thinking.filter(|s| !s.is_empty()) {
+        let supported = client.config.thinking_levels.iter().any(|lvl| lvl == t);
+        if supported {
+            let _ = client.set_config_option("thought_level", t).await;
+        }
+    }
+    if let Some(md) = mode.filter(|s| !s.is_empty()) {
+        let resolved_mode = if client.config.modes.iter().any(|(id, _)| id == md) {
+            Some(md)
+        } else if md != "plan" && client.config.modes.iter().any(|(id, _)| id == "build") {
+            Some("build")
+        } else {
+            None
+        };
+        if let Some(target_mode) = resolved_mode {
+            let _ = client.set_mode(target_mode).await;
+        }
+    }
+}
+
+/// Owns the ACP child process without blocking concurrent commands while a prompt streams.
 async fn acp_controller(
     mut settings: AcpSettings,
     mut cmd_rx: mpsc::UnboundedReceiver<AcpCommand>,
     tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
 ) {
-    let mut client: Option<crate::acp::AgyAcpClient> = None;
+    let mut client: Option<std::sync::Arc<crate::acp::AcpClient>> = None;
+    let mut in_flight: Option<tokio::task::JoinHandle<()>> = None;
 
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
+            AcpCommand::Warmup { gen } => {
+                let _ = ensure_acp_client(&mut client, &settings, gen, &tx).await;
+            }
             AcpCommand::Configure { command, args, workspace, auto_approve } => {
                 settings = AcpSettings { command, args, workspace, auto_approve };
-                // cwd and command are bound at spawn time.
-                if let Some(mut c) = client.take() {
+                if let Some(handle) = in_flight.take() {
+                    handle.abort();
+                }
+                if let Some(c) = client.take() {
                     c.shutdown().await;
+                }
+            }
+            AcpCommand::SetAutoApprove(on) => {
+                settings.auto_approve = on;
+                if let Some(c) = client.as_ref() {
+                    c.set_auto_approve(on);
                 }
             }
             AcpCommand::NewSession => {
-                if let Some(mut c) = client.take() {
+                if let Some(handle) = in_flight.take() {
+                    handle.abort();
+                }
+                if let Some(c) = client.take() {
                     c.shutdown().await;
                 }
             }
+            AcpCommand::Cancel => {
+                if let Some(c) = client.as_ref() {
+                    let _ = c.cancel().await;
+                }
+            }
             AcpCommand::RespondPermission { request_id, option_id } => {
-                if let Some(c) = client.as_mut() {
+                if let Some(c) = client.as_ref() {
                     let _ = c.respond_permission(request_id, &option_id).await;
                 }
             }
             AcpCommand::SetConfigOption { config_id, value } => {
-                if let Some(c) = client.as_mut() {
-                    // Best effort: a rejected change is reported by the agent.
-                    let _ = c.set_config_option(&config_id, &value).await;
+                if let Some(c) = client.as_ref() {
+                    let supported = match config_id.as_str() {
+                        "model" => c.config.models.is_empty() || c.config.models.iter().any(|(id, _)| id == &value),
+                        "thought_level" => c.config.thinking_levels.iter().any(|l| l == &value),
+                        _ => true,
+                    };
+                    if supported {
+                        let _ = c.set_config_option(&config_id, &value).await;
+                    }
                 }
             }
             AcpCommand::SetMode { mode_id } => {
-                if let Some(c) = client.as_mut() {
-                    let _ = c.set_mode(&mode_id).await;
+                if let Some(c) = client.as_ref() {
+                    let target = if c.config.modes.iter().any(|(id, _)| id == &mode_id) {
+                        Some(mode_id)
+                    } else if mode_id != "plan" && c.config.modes.iter().any(|(id, _)| id == "build") {
+                        Some("build".to_string())
+                    } else {
+                        None
+                    };
+                    if let Some(m) = target {
+                        let _ = c.set_mode(&m).await;
+                    }
                 }
             }
-            AcpCommand::Prompt { prompt, attached_files, gen } => {
-                if client.is_none() {
-                    match crate::acp::AgyAcpClient::spawn(
-                        &settings.command,
-                        &settings.args,
-                        &settings.workspace,
-                        settings.auto_approve,
-                    )
-                    .await
-                    {
-                        Ok(c) => {
-                            let _ = tx.send((gen, StreamEvent::SessionConfig(c.config.clone())));
-                            client = Some(c);
+            AcpCommand::Prompt { prompt, attached_files, model, thinking_level, mode, gen } => {
+                if let Some(handle) = in_flight.take() {
+                    if !handle.is_finished() {
+                        if let Some(c) = client.as_ref() {
+                            let _ = c.cancel().await;
                         }
-                        Err(e) => {
-                            let _ = tx.send((
-                                gen,
-                                StreamEvent::Error(format!("failed to start ACP agent: {e}")),
-                            ));
-                            let _ = tx.send((gen, StreamEvent::Done));
-                            continue;
-                        }
+                        handle.abort();
                     }
                 }
+                let Some(active) = ensure_acp_client(&mut client, &settings, gen, &tx).await else {
+                    continue;
+                };
+                reconcile_acp_selections(
+                    &active,
+                    model.as_deref(),
+                    thinking_level.as_deref(),
+                    mode.as_deref(),
+                )
+                .await;
 
-                if let Some(c) = client.as_mut() {
-                    let blocks = crate::acp::build_prompt_blocks(&prompt, &attached_files);
-                    if let Err(e) = c.prompt(blocks, gen, &tx, settings.auto_approve).await {
-                        let _ = tx.send((gen, StreamEvent::Error(e.to_string())));
+                let blocks = crate::acp::build_prompt_blocks(&prompt, &attached_files);
+                let tx_turn = tx.clone();
+                in_flight = Some(tokio::spawn(async move {
+                    if let Err(e) = active.prompt(blocks, gen, tx_turn.clone()).await {
+                        let _ = tx_turn.send((gen, StreamEvent::Error(e)));
                     }
-                    let _ = tx.send((gen, StreamEvent::Done));
-                }
+                    let _ = tx_turn.send((gen, StreamEvent::Done));
+                }));
             }
         }
     }
 
-    if let Some(mut c) = client.take() {
+    if let Some(handle) = in_flight.take() {
+        handle.abort();
+    }
+    if let Some(c) = client.take() {
         c.shutdown().await;
     }
 }

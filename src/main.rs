@@ -83,6 +83,9 @@ pub fn mode_display_name(mode_id: &str) -> String {
             return (*name).to_string();
         }
     }
+    if mode_id == "build" {
+        return "Build".to_string();
+    }
     "Agent".to_string()
 }
 
@@ -1145,6 +1148,8 @@ fn build_ui(
         slash_commands: slash_commands.clone(),
     }));
 
+    let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<(u64, StreamEvent)>();
+
     // ── Workspace picker (the agent's cwd) ──────────────────────────────────
     {
         // Pin live screen capture: every prompt carries a fresh screenshot.
@@ -1227,6 +1232,10 @@ fn build_ui(
                     "Antigravity (ACP)",
                     "agy acp over stdio, with tool permissions",
                 ),
+                settings::HarnessKind::OpenCodeAcp => (
+                    "OpenCode (ACP)",
+                    "opencode acp over stdio, with tool permissions",
+                ),
             };
 
             let item = gtk4::Button::builder()
@@ -1247,8 +1256,10 @@ fn build_ui(
 
             let mh_close = menu_host.clone();
             let lbl_h = lbl_harness.clone();
+            let lbl_mdl_h = lbl_model_pill.clone();
             let state_h = state.clone();
             let index_h = workspace_index.clone();
+            let tx_h = stream_tx.clone();
             item.connect_clicked(move |_| {
                 mh_close.close_menu();
                 lbl_h.set_label(kind.label());
@@ -1258,16 +1269,29 @@ fn build_ui(
                     return;
                 }
                 st.settings.harness = kind;
+                let remembered = st.settings.model_for_harness(kind);
+                if kind == settings::HarnessKind::PiJson {
+                    st.settings.model = remembered.unwrap_or_else(|| "default".to_string());
+                } else {
+                    st.settings.model = remembered.unwrap_or_default();
+                }
                 let _ = st.settings.save();
                 let settings_snapshot = st.settings.clone();
                 st.harness.set_kind(kind, &settings_snapshot);
-                drop(st);
 
-                // ACP may advertise a different catalog; the Pi list is local.
                 if kind == settings::HarnessKind::PiJson {
+                    drop(st);
                     let models = backend::query_pi_models_sync();
-                    state_h.borrow_mut().available_models = models;
+                    let cur_model = {
+                        let mut st = state_h.borrow_mut();
+                        st.available_models = models.clone();
+                        st.settings.model.clone()
+                    };
+                    lbl_mdl_h.set_label(&model_display_name_with_list(&cur_model, &models));
                     let _ = index_h;
+                } else {
+                    lbl_mdl_h.set_label("Connecting…");
+                    st.harness.warmup(tx_h.clone());
                 }
             });
             harness_box.append(&item);
@@ -1591,7 +1615,8 @@ fn build_ui(
             mh_mdl_close.close_menu();
             lbl_mdl.set_label(&short_name);
             let mut st = state_mdl.borrow_mut();
-            st.settings.model = model_key.clone();
+            let harness_kind = st.settings.harness;
+            st.settings.set_model_for_harness(harness_kind, &model_key);
             // Apply immediately so a live ACP session switches model.
             st.harness.set_config_option("model", &model_key);
             let _ = st.settings.save();
@@ -2119,8 +2144,7 @@ fn build_ui(
         });
     }
 
-    // Setup tokio stream channel
-    let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<(u64, StreamEvent)>();
+    // Stream targets and active markup overlay
     let active_stream: Rc<RefCell<Option<ActiveStreamTarget>>> = Rc::new(RefCell::new(None));
     let active_markup_overlay: Rc<RefCell<Option<markup::AgentMarkupOverlay>>> =
         Rc::new(RefCell::new(None));
@@ -2318,6 +2342,9 @@ fn build_ui(
         let update_send_btn_stream = update_send_btn_state.clone();
         let is_streaming_ref = is_streaming.clone();
         let app_clone = app.clone();
+        let session_title_stream = session_title_label.clone();
+        let lbl_model_stream = lbl_model_pill.clone();
+        let lbl_mode_stream = lbl_mode_pill.clone();
 
         glib::spawn_future_local(async move {
             while let Some((gen, event)) = stream_rx.recv().await {
@@ -2331,6 +2358,16 @@ fn build_ui(
                         // Catalogs are owned by the composer; apply them so the
                         // model / mode / thinking pills match this harness.
                         apply_session_config(&state_clone, &cfg);
+                        let st = state_clone.borrow();
+                        if !st.settings.model.is_empty() {
+                            lbl_model_stream.set_label(&model_display_name_with_list(
+                                &st.settings.model,
+                                &st.available_models,
+                            ));
+                        }
+                        if !st.current_mode.is_empty() {
+                            lbl_mode_stream.set_label(&mode_display_name(&st.current_mode));
+                        }
                     }
                     StreamEvent::PermissionRequest(req) => {
                         if let Some(ref target) = *active_stream_clone.borrow() {
@@ -2746,6 +2783,9 @@ fn build_ui(
                         is_streaming_ref.set(false);
                         update_send_btn_stream();
                         scroll_fn();
+                    }
+                    StreamEvent::SessionTitle(title) => {
+                        session_title_stream.set_label(&title);
                     }
                     StreamEvent::Done => {
                         let mut agent_shapes = Vec::new();
@@ -3440,6 +3480,10 @@ fn build_ui(
         });
     }
 
+    if audit_dir.is_none() && initial_settings.harness.is_acp() {
+        state.borrow_mut().harness.warmup(stream_tx.clone());
+    }
+
     // Expand overlay on startup unless launched as hidden daemon
     if !is_daemon {
         expand_overlay_fn();
@@ -3691,6 +3735,19 @@ fn apply_session_config(state: &Rc<RefCell<AppState>>, cfg: &backend::SessionCon
 
     if !cfg.models.is_empty() {
         st.available_models = cfg.models.clone();
+        let current_known = st.available_models.iter().any(|(id, _)| id == &st.settings.model);
+        if (st.settings.model.is_empty() || !current_known) && !cfg.current_model.is_empty() {
+            let kind = st.settings.harness;
+            st.settings.set_model_for_harness(kind, &cfg.current_model);
+        } else if st.settings.model.is_empty() {
+            if let Some((first_id, _)) = st.available_models.first().cloned() {
+                let kind = st.settings.harness;
+                st.settings.set_model_for_harness(kind, &first_id);
+            }
+        }
+    } else if st.settings.model.is_empty() && !cfg.current_model.is_empty() {
+        let kind = st.settings.harness;
+        st.settings.set_model_for_harness(kind, &cfg.current_model);
     }
     if !cfg.modes.is_empty() {
         st.available_modes = cfg.modes.clone();
@@ -3699,14 +3756,9 @@ fn apply_session_config(state: &Rc<RefCell<AppState>>, cfg: &backend::SessionCon
         st.available_thinking_levels = cfg.thinking_levels.clone();
     }
     if !cfg.commands.is_empty() {
-        // Harness commands join the `/` popover alongside the client's own.
         st.slash_commands
             .borrow_mut()
             .clone_from(&mentions::merge_commands(&cfg.commands));
-    }
-
-    if st.settings.model.is_empty() && !cfg.current_model.is_empty() {
-        st.settings.model = cfg.current_model.clone();
     }
     if !cfg.current_mode.is_empty() {
         st.current_mode = cfg.current_mode.clone();
