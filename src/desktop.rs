@@ -27,27 +27,51 @@ pub fn ensure_desktop_integration() {
         format!("Exec={}", exec_str)
     };
 
+    let mut wrote_desktop = false;
     if !target_desktop.exists() {
         let _ = std::fs::create_dir_all(&desktop_dir);
         let content = include_str!("../resources/pi-overlay.desktop")
             .replace("Exec=pi-overlay", &exec_line);
         let _ = std::fs::write(&target_desktop, content);
-        let _ = std::process::Command::new("update-desktop-database")
-            .arg(&desktop_dir)
-            .status();
+        wrote_desktop = true;
     } else if exec_path.is_absolute() {
         if let Ok(existing) = std::fs::read_to_string(&target_desktop) {
             let needs_exec = existing.lines().any(|l| l.trim() == "Exec=pi-overlay");
-            let needs_shortcut = !existing.contains("X-KDE-Shortcuts=");
+            let needs_shortcut = !existing.contains("Meta+Shift+L");
             if needs_exec || needs_shortcut {
                 let updated = include_str!("../resources/pi-overlay.desktop")
                     .replace("Exec=pi-overlay", &exec_line);
                 let _ = std::fs::write(&target_desktop, updated);
-                let _ = std::process::Command::new("update-desktop-database")
-                    .arg(&desktop_dir)
-                    .status();
+                wrote_desktop = true;
             }
         }
+    }
+
+    if wrote_desktop {
+        let _ = std::process::Command::new("update-desktop-database")
+            .arg(&desktop_dir)
+            .status();
+        let _ = std::process::Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "org.kde.kglobalaccel",
+                "/kglobalaccel",
+                "org.kde.KGlobalAccel",
+                "setForeignShortcutKeys",
+                "asa(ai)",
+                "4",
+                "pi-overlay.desktop",
+                "_launch",
+                "Pi Overlay",
+                "Pi Overlay",
+                "2",
+                "1",
+                "201326668",
+                "1",
+                "301989964",
+            ])
+            .spawn();
     }
 
     if !target_icon.exists() {

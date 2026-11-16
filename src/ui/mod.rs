@@ -810,10 +810,13 @@ pub fn build_ui(
         key_controller.connect_key_pressed(move |_, key, _, modifier| {
             let ctrl = modifier.contains(gdk::ModifierType::CONTROL_MASK);
             let alt = modifier.contains(gdk::ModifierType::ALT_MASK);
+            let shift = modifier.contains(gdk::ModifierType::SHIFT_MASK);
             let super_mod = modifier.contains(gdk::ModifierType::SUPER_MASK)
                 || modifier.contains(gdk::ModifierType::META_MASK);
 
-            if ((ctrl && alt) || (super_mod && alt)) && (key == gdk::Key::l || key == gdk::Key::L) {
+            if ((ctrl && alt) || (super_mod && shift) || (super_mod && alt))
+                && (key == gdk::Key::l || key == gdk::Key::L)
+            {
                 hide_fn();
                 return glib::Propagation::Stop;
             }

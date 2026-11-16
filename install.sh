@@ -35,13 +35,18 @@ echo "Updating icon cache..."
 gtk-update-icon-cache -f "${HOME}/.local/share/icons/hicolor" || true
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
-    echo "Registering KDE Plasma global shortcut (Ctrl+Alt+L)..."
-    kwriteconfig6 --file kglobalshortcutsrc --group services --group pi-overlay.desktop --key _launch "Ctrl+Alt+L,Ctrl+Alt+L,Pi Overlay" || true
+    echo "Registering KDE Plasma global shortcuts (Ctrl+Alt+L / Meta+Shift+L)..."
+    kwriteconfig6 --file kglobalshortcutsrc --group services --group pi-overlay.desktop --key _launch "Ctrl+Alt+L	Meta+Shift+L,Ctrl+Alt+L	Meta+Shift+L,Pi Overlay" || true
 fi
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     echo "Refreshing KDE service cache..."
     kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
+
+if command -v busctl >/dev/null 2>&1; then
+    busctl --user call org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel setForeignShortcutKeys \
+        "asa(ai)" 4 "pi-overlay.desktop" "_launch" "Pi Overlay" "Pi Overlay" 2 1 201326668 1 301989964 >/dev/null 2>&1 || true
 fi
 
 if [[ "${1:-}" == "--autostart" ]]; then
