@@ -1,1303 +1,992 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   Agent Chat Sidebar Design System
-   Exact VS Code Copilot Chat Sidebar Spec & Dark Charcoal Palette:
-   --chat-bg:       #181818 (Main sidebar canvas)
-   --chat-surface:  #252526 (User message bubble, subtle surface)
-   --chat-composer: #1F1F1F (Composer background and select controls)
-   --chat-border:   rgba(255, 255, 255, 0.08) (Borders and dividers)
-   --chat-text:     #E4E4E7 (Primary text)
-   --chat-muted:    #9CA3AF (Secondary labels and placeholders)
-   --chat-accent:   #0078D4 (Icons, focus, links, primary actions)
-   --chat-success:  #89D185 (Completion state)
-   --chat-danger:   #F48771 (Errors and warnings)
-   ═══════════════════════════════════════════════════════════════════════════ */
+/*
+ * pi-overlay — VS Code Dark Modern Chat styling.
+ *
+ * Palette matches VS Code Dark Modern:
+ *   #181818 sidebar background      #1f1f1f elevated cards / code blocks
+ *   #262626 unified input surface   #2b2b2b / #3c3c3c hairline borders
+ *   #0078d4 focus & primary action  #cccccc / #e4e4e4 primary text
+ *   #9d9d9d secondary text          #3794ff context / mention accents
+ */
 
-/* ── GTK4 Color Overrides (Prevents System Accent Bleed) ─────────────── */
-@define-color chat-bg #181818;
-@define-color chat-surface #252526;
-@define-color chat-composer #1F1F1F;
-@define-color chat-border rgba(255, 255, 255, 0.08);
-@define-color chat-text #E4E4E7;
-@define-color chat-muted #9CA3AF;
-@define-color chat-accent #0078D4;
-@define-color chat-success #89D185;
-@define-color chat-danger #F48771;
+/* ── Window & Drawer ───────────────────────────────────────────────────── */
 
-@define-color accent_color #0078D4;
-@define-color accent_bg_color #1F1F1F;
-@define-color accent_fg_color #E4E4E7;
-@define-color theme_selected_bg_color #252526;
-@define-color theme_selected_fg_color #E4E4E7;
-@define-color destructive_color #F48771;
-@define-color destructive_bg_color #F48771;
-@define-color destructive_fg_color #181818;
-
-@define-color headerbar_bg_color #181818;
-@define-color headerbar_fg_color #E4E4E7;
-@define-color popover_bg_color #252526;
-@define-color popover_fg_color #E4E4E7;
-@define-color card_bg_color #252526;
-@define-color card_fg_color #E4E4E7;
-@define-color view_bg_color #181818;
-@define-color view_fg_color #E4E4E7;
-@define-color window_bg_color #181818;
-@define-color window_fg_color #E4E4E7;
-
-/* ── Universal Reset & Clean Visual Isolation ──────────────────────────── */
-* {
-    background-image: none;
-    text-shadow: none;
-    -gtk-icon-shadow: none;
-    outline-style: none;
-    outline-width: 0;
-    outline-color: transparent;
-    box-shadow: none;
-    -gtk-secondary-caret-color: transparent;
+window,
+.markup-overlay-window,
+.markup-editor-window {
+  background-color: transparent;
+  color: #cccccc;
+  font-family: "Segoe UI", "Inter", "Noto Sans", system-ui, sans-serif;
+  font-size: 13px;
 }
 
-*:focus,
-*:focus-visible,
-*:focus-within {
-    outline-style: none;
-    outline-width: 0;
-    outline-color: transparent;
-    box-shadow: none;
+.drawer-container {
+  background-color: #181818;
+  border: 1px solid #2b2b2b;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
 }
 
-button,
-button:focus,
-button:focus-visible,
-button:focus-within,
-button:hover,
-button:active,
-button:checked {
-    outline-style: none;
-    outline-width: 0;
-    outline-color: transparent;
-    box-shadow: none;
-    -gtk-secondary-caret-color: transparent;
-}
-
-window {
-    background-color: transparent;
-}
-
-/* ── Main Sidebar Frame ────────────────────────────────────────────────── */
-#drawer-container,
-.drawer-container,
-.window-container {
-    background-color: #181818;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), 0 0 1px rgba(255, 255, 255, 0.08);
-    color: #E4E4E7;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    padding: 0;
-}
-
-/* ── Resize Handles ────────────────────────────────────────────────────── */
 .resize-handle {
-    background: transparent;
-    min-width: 10px;
-    min-height: 10px;
+  background-color: transparent;
+  min-width: 3px;
 }
 
-.resize-grip {
-    min-width: 3px;
-    min-height: 36px;
-    background-color: rgba(255, 255, 255, 0.08);
-    border-radius: 2px;
-    margin: 4px;
-    transition: background-color 150ms ease-out;
+.resize-handle:hover {
+  background-color: #0078d4;
 }
 
-.resize-handle:hover .resize-grip {
-    background-color: rgba(56, 189, 248, 0.4);
-}
+/* ── Panel Header ──────────────────────────────────────────────────────── */
 
-/* ── 1. Panel Header (Thanh Panel) ─────────────────────────────────────── */
 .panel-header {
-    background-color: #181818;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 3px 8px;
-    min-height: 28px;
+  background-color: #181818;
+  min-height: 35px;
+  padding: 0 8px 0 12px;
 }
 
 .panel-title {
-    font-size: 12px;
-    font-weight: 600;
-    color: #E4E4E7;
-    letter-spacing: -0.01em;
+  color: #cccccc;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
 }
 
 .header-icon-btn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 2px 5px;
-    border-radius: 4px;
-    background-color: transparent;
-    color: #9CA3AF;
-    border: none;
-    font-size: 12.5px;
-    transition: background-color 120ms ease, color 120ms ease;
+  background: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 5px;
+  box-shadow: none;
+  color: #cccccc;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
 }
 
 .header-icon-btn:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #E4E4E7;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 
 .header-icon-btn:active,
-.header-icon-btn:checked {
-    background-color: rgba(255, 255, 255, 0.12);
-    color: #38BDF8;
+.header-icon-btn.active {
+  background-color: rgba(255, 255, 255, 0.12);
 }
 
 .header-icon-btn.close:hover {
-    background-color: rgba(244, 135, 113, 0.2);
-    color: #F48771;
+  background-color: #c42b1c;
+  color: #ffffff;
 }
 
-/* ── 2. Session Sub-Header (Thanh Phiên) ────────────────────────────────── */
+/* ── Session Context Bar ───────────────────────────────────────────────── */
+
 .session-subheader {
-    background-color: #181818;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    padding: 2.5px 8px;
-    min-height: 26px;
+  background-color: #181818;
+  border-bottom: 1px solid #252526;
+  color: #9d9d9d;
+  font-size: 11px;
+  min-height: 26px;
+  padding: 2px 10px;
 }
 
-.session-back-btn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 1.5px;
-    border-radius: 3px;
-    background-color: transparent;
-    color: #9CA3AF;
-    border: none;
-    font-size: 12px;
+.session-chip-btn {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #9d9d9d;
+  font-size: 11px;
+  min-height: 20px;
+  padding: 0 6px;
 }
 
-.session-back-btn:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #E4E4E7;
+.session-chip-btn:hover {
+  background-color: rgba(255, 255, 255, 0.07);
+  color: #cccccc;
+}
+
+.session-sep {
+  color: #555555;
+  font-size: 11px;
 }
 
 .session-title-label {
-    font-size: 11.5px;
-    font-weight: 500;
-    color: #9CA3AF;
-    letter-spacing: -0.01em;
+  color: #7d8590;
+  font-size: 11px;
 }
 
-/* ── 3. Messages Stream (Vùng Hội Thoại) ────────────────────────────────── */
-.chat-scroll {
-    background-color: #181818;
-    padding: 4px 8px;
-}
+/* ── Welcome View ──────────────────────────────────────────────────────── */
 
-.chat-scroll viewport {
-    background-color: #181818;
-}
-
-.messages-container {
-    background-color: #181818;
-    padding: 2px 2px;
-}
-
-/* Welcome Hero */
 .welcome-hero {
-    padding: 32px 16px;
+  background-color: #181818;
+  padding: 24px 28px;
 }
 
 .welcome-glyph {
-    font-size: 28px;
-    color: #38BDF8;
-    margin-bottom: 8px;
+  color: #cccccc;
+  margin-bottom: 4px;
 }
 
 .welcome-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: #E4E4E7;
-    margin-bottom: 2px;
+  color: #e4e4e4;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .welcome-subtitle {
-    font-size: 11.5px;
-    color: #9CA3AF;
-    margin-bottom: 10px;
+  color: #9d9d9d;
+  font-size: 12px;
+  margin-bottom: 8px;
 }
 
-.welcome-pill-btn {
-    font-size: 11.5px;
-    color: #E4E4E7;
-    background-color: #252526;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 5px;
-    padding: 3px 8px;
-    margin: 2px 0;
+.welcome-starter-btn {
+  background-color: #1f1f1f;
+  border: 1px solid #2b2b2b;
+  border-radius: 6px;
+  color: #cccccc;
+  font-size: 12px;
+  min-height: 30px;
+  padding: 6px 11px;
 }
 
-.welcome-pill-btn:hover {
-    background-color: #2e2e32;
-    border-color: #38BDF8;
-    color: #ffffff;
+.welcome-starter-btn:hover {
+  background-color: #262626;
+  border-color: #3c3c3c;
+  color: #ffffff;
 }
 
-/* User Message Card (Right-aligned bubble, VS Code chat.requestBubbleBackground) */
+.welcome-starter-icon {
+  color: #3794ff;
+}
+
+/* ── Message Stream ────────────────────────────────────────────────────── */
+
+.messages-container,
+.chat-scroll {
+  background-color: #181818;
+}
+
+.chat-scroll scrollbar slider {
+  background-color: rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  min-width: 6px;
+}
+
+.chat-scroll scrollbar slider:hover {
+  background-color: rgba(255, 255, 255, 0.28);
+}
+
+/* Full-width left-aligned VS Code user request card */
 .card-user {
-    background-color: #252526;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px 8px 2px 8px;
-    padding: 6px 10px;
-    margin-bottom: 8px;
-}
-
-.user-attached-chips {
-    margin-bottom: 4px;
-}
-
-.user-attached-chip {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 10.5px;
-    color: #38BDF8;
-    background-color: rgba(56, 189, 248, 0.12);
-    border: 1px solid rgba(56, 189, 248, 0.25);
-    border-radius: 4px;
-    padding: 1px 5px;
-}
-
-.card-user-header {
-    margin-bottom: 2px;
-}
-
-.card-user-badge {
-    font-size: 10.5px;
-    font-weight: 600;
-    color: #38BDF8;
-}
-
-.card-user-idx {
-    font-size: 9.5px;
-    color: #9CA3AF;
+  background-color: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  margin: 6px 12px 10px 12px;
+  padding: 9px 12px;
 }
 
 .card-user-text {
-    font-size: 12px;
-    line-height: 1.4;
-    color: #E4E4E7;
+  color: #e4e4e4;
+  font-size: 13px;
 }
 
-/* Assistant Message Card (Transparent background, full width) */
+.user-attached-chips {
+  margin-bottom: 4px;
+}
+
+.user-attached-chip {
+  background-color: #1f1f1f;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 11px;
+  min-height: 18px;
+  padding: 1px 6px;
+}
+
+.user-attached-chip-icon {
+  color: #3794ff;
+}
+
+/* Full-width assistant turn */
 .card-assistant {
-    background-color: transparent;
-    padding: 2px 0;
-    margin-bottom: 8px;
+  background-color: transparent;
+  margin: 2px 14px 12px 14px;
 }
 
 .card-assistant-header {
-    margin-bottom: 3px;
+  margin-bottom: 6px;
 }
 
 .card-assistant-avatar {
-    font-size: 12px;
-    color: #38BDF8;
-    margin-right: 4px;
+  background-color: #232323;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: #cccccc;
+  min-width: 24px;
+  min-height: 24px;
 }
 
-.card-assistant-badge {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: #E4E4E7;
+.card-assistant-author {
+  color: #e4e4e4;
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.card-metrics-pill {
-    font-size: 9.5px;
-    font-weight: 500;
-    color: #9CA3AF;
-    background-color: #1F1F1F;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 3px;
-    padding: 1px 4px;
-    margin-left: 4px;
+.card-assistant-model {
+  color: #9d9d9d;
+  font-size: 11px;
 }
 
-/* Assistant Text Typography */
-.bubble-assistant-text {
-    font-size: 12px;
-    line-height: 1.4;
-    color: #E4E4E7;
-}
-
-.card-assistant tt {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11px;
-    background: #1F1F1F;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 3px;
-    padding: 1px 4px;
-    color: #E4E4E7;
-}
-
-/* ── Thinking Box (VS Code Copilot chat-thinking-box) ───────────────────── */
-.chat-thinking-box,
-.thinking-disclosure {
-    margin: 3px 0 5px 0;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 6px;
-    background-color: rgba(255, 255, 255, 0.02);
-    padding: 2px 6px;
-}
-
-.chat-thinking-box > title,
-.thinking-disclosure > title {
-    font-size: 11px;
-    font-weight: 500;
-    color: #9CA3AF;
-    padding: 1px 3px;
-}
-
-.chat-thinking-box:hover,
-.thinking-disclosure:hover {
-    border-color: rgba(255, 255, 255, 0.12);
-    background-color: rgba(255, 255, 255, 0.035);
-}
-
-.chat-thinking-box:hover > title,
-.thinking-disclosure:hover > title {
-    color: #E4E4E7;
-}
-
-.chat-thinking-scroll {
-    background-color: #141414;
-    border-radius: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    margin-top: 3px;
-    padding: 4px 6px;
-}
-
-.chat-thinking-text {
-    background-color: transparent;
-    color: #9CA3AF;
-    font-size: 11px;
-    font-style: italic;
-    line-height: 1.35;
-}
-
-.chat-thinking-text text {
-    background-color: transparent;
-    color: #9CA3AF;
-}
-
-/* ── Progress & Tool Steps Disclosure (Completed N steps in Xs ▾) ───────── */
-.progress-steps-disclosure {
-    margin: 3px 0 5px 0;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    border-radius: 6px;
-    background-color: rgba(255, 255, 255, 0.02);
-    padding: 2px 6px;
-}
-
-.progress-steps-disclosure > title {
-    font-size: 11px;
-    font-weight: 500;
-    color: #9CA3AF;
-    padding: 1px 3px;
-}
-
-.progress-steps-disclosure:hover {
-    border-color: rgba(255, 255, 255, 0.12);
-    background-color: rgba(255, 255, 255, 0.035);
-}
-
-.progress-steps-disclosure:hover > title {
-    color: #E4E4E7;
-}
-
-.steps-list-box {
-    margin-top: 2px;
-    padding: 2px 0;
-}
-
-.step-item-card {
-    padding: 4px 8px;
-    margin: 2px 0;
-    border-radius: 4px;
-    background-color: #1F1F1F;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    transition: background-color 120ms ease, border-color 120ms ease;
-}
-
-.step-item-card:hover {
-    background-color: #252526;
-    border-color: rgba(255, 255, 255, 0.12);
-}
-
-.step-item-header {
-    padding: 1px 0;
-}
-
-.step-item-icon {
-    font-size: 11px;
-    color: #38BDF8;
-    margin-right: 6px;
-}
-
-.step-item-label {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11.5px;
-    color: #E4E4E7;
-}
-
-.step-item-file-chip {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11px;
-    color: #38BDF8;
-    background-color: rgba(56, 189, 248, 0.12);
-    border: 1px solid rgba(56, 189, 248, 0.25);
-    border-radius: 3px;
-    padding: 1px 5px;
-    margin-left: 4px;
-}
-
-.step-item-status {
-    font-size: 9.5px;
-    font-weight: 600;
-    padding: 1px 5px;
-    border-radius: 3px;
-    color: #89D185;
-    background-color: rgba(137, 209, 133, 0.15);
-}
-
-.step-item-status.running {
-    color: #38BDF8;
-    background-color: rgba(56, 189, 248, 0.15);
-}
-
-.step-item-status.error {
-    color: #F48771;
-    background-color: rgba(244, 135, 113, 0.15);
-}
-
-.tool-output-expander {
-    margin-top: 3px;
-}
-
-.tool-output-expander > title {
-    font-size: 10.5px;
-    color: #9CA3AF;
-    font-weight: 500;
-}
-
-.tool-output-expander:hover > title {
-    color: #E4E4E7;
-}
-
-.tool-output-box {
-    margin-top: 2px;
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 10.5px;
-    color: #CCCCCC;
-    background-color: #141414;
-    border-radius: 4px;
-    padding: 4px 8px;
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    transition: border-color 120ms ease;
-}
-
-.tool-output-box:hover {
-    border-color: rgba(255, 255, 255, 0.09);
-}
-
-.tool-output-label {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 10.5px;
-    line-height: 1.35;
-    color: #CCCCCC;
-}
-
-/* Backward compatible tool call card styling */
-.tool-call-card {
-    background-color: #1F1F1F;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 5px;
-    margin: 2px 0;
-    padding: 4px 8px;
-}
-
-.tool-name-label {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11px;
-    font-weight: 500;
-    color: #E4E4E7;
-}
-
-.tool-badge-running {
-    font-size: 9px;
-    font-weight: 700;
-    color: #38BDF8;
-    background-color: rgba(56, 189, 248, 0.15);
-    border-radius: 3px;
-    padding: 1px 4px;
-}
-
-.tool-badge-done {
-    font-size: 9px;
-    font-weight: 700;
-    color: #89D185;
-    background-color: rgba(137, 209, 133, 0.15);
-    border-radius: 3px;
-    padding: 1px 4px;
-}
-
-.tool-badge-error {
-    font-size: 9px;
-    font-weight: 700;
-    color: #F48771;
-    background-color: rgba(244, 135, 113, 0.15);
-    border-radius: 3px;
-    padding: 1px 4px;
-}
-
-.tool-args-box {
-    margin-top: 2px;
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 10.5px;
-    color: #9CA3AF;
-    background-color: #141414;
-    border-radius: 3px;
-    padding: 3px 6px;
-    border: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-/* ── 4. Assistant Feedback & Action Bar ────────────────────────────────── */
 .card-feedback-bar {
-    margin-top: 4px;
-    padding-top: 2px;
+  margin-top: 2px;
 }
 
 .feedback-btn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 2px 5px;
-    border-radius: 4px;
-    background-color: transparent;
-    color: #9CA3AF;
-    border: none;
-    font-size: 11.5px;
-    transition: background-color 120ms ease, color 120ms ease;
+  background: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #9d9d9d;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
 }
 
 .feedback-btn:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #E4E4E7;
-}
-
-.feedback-btn:active,
-.feedback-btn.active {
-    color: #38BDF8;
-    background-color: rgba(56, 189, 248, 0.15);
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 
 .feedback-btn.copied {
-    color: #89D185;
+  color: #3fb950;
 }
 
-/* Floating Scroll-to-Bottom Button */
-.btn-scroll-bottom {
-    min-width: 30px;
-    min-height: 30px;
-    border-radius: 15px;
-    background-color: #252526;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: #E4E4E7;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-    font-size: 14px;
-    padding: 0;
+.card-metrics-pill {
+  color: #7d8590;
+  font-size: 11px;
 }
 
-.btn-scroll-bottom:hover {
-    background-color: #2e2e32;
-    border-color: #38BDF8;
-    color: #ffffff;
+/* Assistant markdown typography */
+.bubble-assistant-text {
+  color: #cccccc;
+  font-size: 13px;
 }
 
-/* ── 5. Pinned Composer (pinned at bottom) ──────────────────────────────── */
-.composer-container {
-    background-color: #1F1F1F;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 6px 8px 4px 8px;
-    margin: 4px 8px 3px 8px;
-    transition: border-color 150ms ease, box-shadow 150ms ease;
+.bubble-assistant-heading {
+  color: #ffffff;
 }
 
-.composer-container:focus-within {
-    border-color: #0078D4;
-    box-shadow: 0 0 0 1px rgba(0, 120, 212, 0.35);
+.markdown-stream {
+  margin: 2px 0;
 }
 
-/* Attached Context Chips Row */
-.composer-chips-row {
-    margin-bottom: 3px;
+.markdown-list {
+  margin: 2px 0;
 }
 
-.composer-chip {
-    background-color: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    padding: 1px 6px;
-    margin-right: 4px;
-    margin-bottom: 2px;
+.markdown-list-marker {
+  color: #9d9d9d;
 }
 
-.composer-chip-icon {
-    font-size: 10px;
-    color: #38BDF8;
-    margin-right: 3px;
+.markdown-quote {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-left: 3px solid #616161;
+  border-radius: 2px;
+  color: #cccccc;
+  margin: 4px 0;
+  padding: 4px 10px;
 }
 
-.composer-chip-text {
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 10.5px;
-    color: #E4E4E7;
+.markdown-rule {
+  background-color: #2b2b2b;
+  min-height: 1px;
 }
 
-.composer-chip-del {
-    min-width: 18px;
-    min-height: 18px;
-    padding: 0;
-    margin-left: 3px;
-    border-radius: 9px;
-    background-color: transparent;
-    color: #9CA3AF;
-    border: none;
-    font-size: 10px;
-}
-
-.composer-chip.image-chip {
-    border-color: rgba(56, 189, 248, 0.45);
-    background-color: rgba(56, 189, 248, 0.12);
-}
-
-.dictation-btn {
-    min-width: 28px;
-    transition: all 150ms ease;
-}
-
-.dictation-recording {
-    background-color: rgba(239, 68, 68, 0.25) !important;
-    border-color: #ef4444 !important;
-    color: #fca5a5 !important;
-    animation: dictation-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes dictation-pulse {
-    0% {
-        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
-    }
-    70% {
-        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
-    }
-}
-
-/* Multi-line Composer Text View */
-.composer-text-view {
-    background-color: transparent;
-    color: #E4E4E7;
-    font-size: 13px;
-    line-height: 1.4;
-    caret-color: #38BDF8;
-    padding: 2px 0;
-    min-height: 32px;
-}
-
-.composer-text-view:focus {
-    background-color: transparent;
-    box-shadow: none;
-}
-
-.composer-text-view text {
-    background-color: transparent;
-    color: #E4E4E7;
-}
-
-.composer-placeholder {
-    color: #9CA3AF;
-    font-size: 13px;
-    font-style: normal;
-}
-
-/* Composer Bottom Toolbar */
-.composer-toolbar {
-    margin-top: 4px;
-    padding-top: 2px;
-}
-
-.composer-pill-btn {
-    background-color: rgba(255, 255, 255, 0.05);
-    background-image: none;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 4px;
-    padding: 2px 7px;
-    color: #CCCCCC;
-    font-size: 11px;
-    font-weight: 500;
-    margin-right: 3px;
-    min-height: 24px;
-    outline: none;
-    box-shadow: none;
-    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-
-.composer-pill-btn:hover {
-    background-color: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.16);
-    color: #ffffff;
-    box-shadow: none;
-    outline: none;
-}
-
-.composer-pill-btn:active,
-.composer-pill-btn:checked {
-    background-color: rgba(255, 255, 255, 0.16);
-    background-image: none;
-    border-color: #38BDF8;
-    color: #38BDF8;
-    box-shadow: none;
-    outline: none;
-}
-
-.composer-pill-btn:focus,
-.composer-pill-btn:focus-visible {
-    outline: none;
-    box-shadow: none;
-}
-
-.composer-icon-btn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 2px;
-    border-radius: 3px;
-    background-color: transparent;
-    background-image: none;
-    color: #9CA3AF;
-    border: none;
-    font-size: 12.5px;
-    margin-right: 3px;
-    outline: none;
-    box-shadow: none;
-}
-
-.composer-icon-btn:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #E4E4E7;
-    outline: none;
-    box-shadow: none;
-}
-
-.composer-icon-btn:active,
-.composer-icon-btn:checked {
-    background-color: rgba(255, 255, 255, 0.12);
-    color: #38BDF8;
-    outline: none;
-    box-shadow: none;
-}
-
-.composer-send-btn {
-    min-width: 26px;
-    min-height: 26px;
-    border-radius: 13px;
-    background-color: #0078D4;
-    background-image: none;
-    color: #FFFFFF;
-    font-size: 12.5px;
-    font-weight: 700;
-    padding: 0;
-    border: none;
-    outline: none;
-    box-shadow: none;
-    transition: background-color 120ms ease, transform 80ms ease, opacity 120ms ease;
-}
-
-.composer-send-btn:hover {
-    background-color: #0086ea;
-}
-
-.composer-send-btn:active {
-    background-color: #0078D4;
-    transform: scale(0.96);
-}
-
-.composer-send-btn:disabled {
-    background-color: rgba(255, 255, 255, 0.06);
-    color: #52525b;
-    opacity: 0.5;
-}
-
-.composer-send-btn.stop {
-    background-color: #F48771;
-    color: #181818;
-    font-size: 11px;
-}
-
-.composer-send-btn.stop:hover {
-    background-color: #fca5a5;
-}
-
-.composer-send-btn.stop:disabled {
-    background-color: rgba(244, 135, 113, 0.3);
-    color: #181818;
-}
-
-/* ── 6. Status Footer (Chân Trạng Thái) ─────────────────────────────────── */
-.status-footer {
-    background-color: #181818;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    padding: 2.5px 8px;
-    min-height: 22px;
-}
-
-.status-footer-icon {
-    font-size: 11px;
-    color: #9CA3AF;
-    margin-right: 4px;
-}
-
-.status-footer-btn {
-    min-width: 22px;
-    min-height: 20px;
-    padding: 1px 5px;
-    border-radius: 3px;
-    background-color: transparent;
-    color: #9CA3AF;
-    border: none;
-    font-size: 10.5px;
-}
-
-.status-footer-btn:hover {
-    background-color: rgba(255, 255, 255, 0.06);
-    color: #E4E4E7;
-}
-
-.status-dot {
-    min-width: 6px;
-    min-height: 6px;
-    border-radius: 3px;
-    background-color: #89D185;
-    margin-right: 4px;
-}
-
-.status-dot.working {
-    background-color: #38BDF8;
-}
-
-.status-dot.error {
-    background-color: #F48771;
-}
-
-/* ── Clean Compact Dropdowns / Popovers ────────────────────────────────── */
-.clean-popover {
-    background: transparent;
-    padding: 0;
-}
-
-.clean-popover > contents {
-    background-color: #252526;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
-    padding: 3px;
-    color: #E4E4E7;
-}
-
-.clean-popover-title {
-    font-size: 10px;
-    font-weight: 700;
-    color: #9CA3AF;
-    letter-spacing: 0.04em;
-    padding: 2px 4px 3px 4px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    margin-bottom: 2px;
-}
-
-.clean-popover-item {
-    padding: 3px 6px;
-    border-radius: 4px;
-    background-color: transparent;
-    background-image: none;
-    border: none;
-    color: #E4E4E7;
-    font-size: 11px;
-    margin-bottom: 1px;
-    outline: none;
-    box-shadow: none;
-}
-
-.clean-popover-item:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
-}
-
-.clean-settings-row {
-    padding: 3px 6px;
-    border-radius: 4px;
-    background-color: transparent;
-    background-image: none;
-    border: none;
-    box-shadow: none;
-    color: #E4E4E7;
-    margin-bottom: 1px;
-}
-
-.clean-settings-row:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
-}
-
-.clean-settings-val {
-    font-size: 10.5px;
-    color: #38BDF8;
-}
-
-.clean-popover-item:active,
-.clean-popover-item:checked,
-.clean-popover-item.active {
-    background-color: rgba(255, 255, 255, 0.12);
-    background-image: none;
-    color: #38BDF8;
-    outline: none;
-    box-shadow: none;
-}
-
-.clean-popover-item:focus,
-.clean-popover-item:focus-visible {
-    outline: none;
-    box-shadow: none;
-}
-
-.clean-popover-item-desc {
-    font-size: 10px;
-    color: #9CA3AF;
-}
-
-.clean-popover-check {
-    padding: 4px 8px;
-    font-size: 11.5px;
-    color: #E4E4E7;
-}
-
-.clean-popover-check check {
-    min-width: 14px;
-    min-height: 14px;
-    border-radius: 4px;
-    background-color: #1F1F1F;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.clean-popover-check:checked check {
-    background-color: #0078D4;
-    border-color: #0078D4;
-    color: #FFFFFF;
-}
-
-/* ── Session History Items in Popover ───────────────────────────────────── */
-.prompt-row-box {
-    padding: 3px 6px;
-    border-radius: 6px;
-    border: 1px solid transparent;
-}
-
-.prompt-row-box:hover {
-    background-color: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.08);
-}
-
-.prompt-item-btn {
-    background-color: transparent;
-    border: none;
-    box-shadow: none;
-    outline: none;
-    padding: 4px 0;
-    margin: 0;
-}
-
-.prompt-idx-pill {
-    font-size: 10.5px;
-    font-weight: 700;
-    color: #38BDF8;
-    background-color: rgba(56, 189, 248, 0.15);
-    border-radius: 4px;
-    padding: 1px 5px;
-    margin-right: 6px;
-}
-
-.prompt-snippet-text {
-    font-size: 12px;
-    color: #E4E4E7;
-}
-
-.prompt-delete-btn {
-    min-width: 24px;
-    min-height: 24px;
-    padding: 2px 4px;
-    border-radius: 4px;
-    background-color: transparent;
-    color: #9CA3AF;
-    border: none;
-    font-size: 11px;
-    outline: none;
-    box-shadow: none;
-    margin-left: 4px;
-}
-
-.prompt-delete-btn:hover {
-    background-color: rgba(244, 135, 113, 0.2);
-    color: #F48771;
-}
-
-/* ── Destructive Confirmation Dialog Box ───────────────────────────────── */
-.confirm-popover > contents {
-    background-color: #252526;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.9);
-    padding: 12px 14px;
-}
-
-.confirm-dialog-title {
-    font-size: 12.5px;
-    font-weight: 700;
-    color: #E4E4E7;
-    margin-bottom: 3px;
-}
-
-.confirm-dialog-desc {
-    font-size: 11.5px;
-    color: #9CA3AF;
-    margin-bottom: 10px;
-    line-height: 1.4;
-}
-
-.btn-dialog-destructive {
-    background-color: #F48771;
-    color: #181818;
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 4px 12px;
-    border-radius: 5px;
-    border: none;
-    outline: none;
-    box-shadow: none;
-}
-
-.btn-dialog-destructive:hover {
-    background-color: #fca5a5;
-}
-
-.btn-dialog-cancel {
-    background-color: #1F1F1F;
-    color: #E4E4E7;
-    font-size: 11.5px;
-    font-weight: 500;
-    padding: 4px 12px;
-    border-radius: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    outline: none;
-    box-shadow: none;
-}
-
-.btn-dialog-cancel:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #ffffff;
-}
+/* ── Code Blocks ───────────────────────────────────────────────────────── */
 
-/* ── Code Blocks (Rich Syntax Container) ────────────────────────────────── */
 .code-block-container {
-    background-color: #141414;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    margin: 4px 0;
+  background-color: #1f1f1f;
+  border: 1px solid #2b2b2b;
+  border-radius: 6px;
+  margin: 6px 0;
 }
 
 .code-block-header {
-    background-color: #1A1A1A;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    padding: 2px 8px;
-    border-top-left-radius: 5px;
-    border-top-right-radius: 5px;
+  background-color: #232323;
+  border-bottom: 1px solid #2b2b2b;
+  border-radius: 6px 6px 0 0;
+  min-height: 26px;
+  padding: 0 4px 0 10px;
 }
 
 .code-block-lang {
-    font-family: monospace;
-    font-size: 10px;
-    font-weight: 600;
-    color: #9CA3AF;
+  color: #9d9d9d;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .code-block-copy-btn {
-    font-size: 10px;
-    font-weight: 500;
-    color: #9CA3AF;
-    padding: 1px 5px;
-    min-height: 22px;
-    border-radius: 3px;
-    background-color: transparent;
-    border: 1px solid transparent;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #9d9d9d;
+  font-size: 11px;
+  min-height: 20px;
+  padding: 0 8px;
 }
 
 .code-block-copy-btn:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    color: #E4E4E7;
-    border-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 
 .code-block-content {
-    padding: 4px 8px 6px 8px;
-    font-family: "JetBrains Mono", "Fira Code", monospace;
-    font-size: 11px;
-    line-height: 1.35;
-    color: #E4E4E7;
+  background-color: #1f1f1f;
+  color: #d4d4d4;
+  font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 12px;
+  padding: 8px 10px;
 }
 
-/* ── Rich Structured Tables ────────────────────────────────────────────── */
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
 .markdown-table-card {
-    background-color: #181818;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 5px;
-    margin: 4px 0;
-    padding: 0;
-}
-
-.markdown-table-scrolled {
-    background: transparent;
-    padding: 0;
+  background-color: #1f1f1f;
+  border: 1px solid #2b2b2b;
+  border-radius: 6px;
+  margin: 6px 0;
 }
 
 .markdown-table-grid {
-    background: transparent;
+  background-color: transparent;
 }
 
 .table-cell-header {
-    background-color: #252526;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 3px 8px;
+  background-color: #232323;
+  border-bottom: 1px solid #2b2b2b;
+  padding: 5px 9px;
 }
 
 .table-header-text {
-    font-weight: 700;
-    font-size: 11px;
-    color: #E4E4E7;
+  color: #e4e4e4;
 }
 
 .table-cell {
-    padding: 2.5px 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid #232323;
+  padding: 5px 9px;
 }
 
 .table-row-even {
-    background-color: #181818;
+  background-color: transparent;
 }
 
 .table-row-odd {
-    background-color: #1F1F1F;
+  background-color: rgba(255, 255, 255, 0.02);
 }
 
 .table-cell-text {
-    font-size: 11px;
-    color: #E4E4E7;
-    line-height: 1.35;
+  color: #cccccc;
+  font-size: 12px;
 }
 
-.table-cell-text tt {
-    font-family: monospace;
-    font-size: 10.5px;
-    background: #1F1F1F;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 3px;
-    padding: 1px 3px;
-    color: #E4E4E7;
+/* ── Thinking & Tool Progress (VS Code disclosure + vertical rail) ────── */
+
+.disclosure-box {
+  background: transparent;
+  margin: 2px 0;
 }
 
-/* ── Floating Chat Head Bubble ─────────────────────────────────────────── */
-.chat-head-window {
-    background: transparent;
+.disclosure-btn {
+  background: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #9d9d9d;
+  font-size: 12px;
+  min-height: 22px;
+  padding: 1px 4px;
 }
 
-.chat-head-box {
-    background: transparent;
-    padding: 4px;
+.disclosure-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #cccccc;
 }
 
-.chat-head-btn {
-    min-width: 44px;
-    min-height: 44px;
-    border-radius: 22px;
-    background-color: #252526;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-    padding: 0;
+.disclosure-rail {
+  border-left: 1px solid #333333;
+  margin-left: 7px;
+  margin-top: 2px;
+  padding-left: 11px;
 }
 
-.chat-head-btn:hover {
-    background-color: #2e2e32;
-    border-color: #38BDF8;
+.chat-thinking-text,
+.chat-thinking-text text {
+  background-color: transparent;
+  color: #9d9d9d;
+  font-size: 12px;
 }
 
-.chat-head-icon {
-    font-size: 18px;
-    font-weight: 700;
-    color: #38BDF8;
+.steps-list-box {
+  background-color: transparent;
 }
 
-.chat-head-dot {
-    min-width: 8px;
-    min-height: 8px;
-    border-radius: 4px;
-    background-color: #89D185;
-    margin-left: 2px;
+.tool-step-row {
+  background: transparent;
+  border-radius: 4px;
+  color: #b4b4b4;
+  font-size: 12px;
+  padding: 2px 4px;
 }
 
-.chat-head-dot.working {
-    background-color: #38BDF8;
+.tool-step-row:hover {
+  background-color: rgba(255, 255, 255, 0.04);
 }
 
-/* ── Theme Variants ────────────────────────────────────────────────────── */
-.theme-dark-glass #drawer-container,
-.theme-dark-glass.drawer-container {
-    background-color: #181818;
-    border-color: rgba(255, 255, 255, 0.08);
+.tool-step-icon.done {
+  color: #3fb950;
 }
 
-.theme-oled #drawer-container,
-.theme-oled.drawer-container {
-    background-color: #000000;
-    border-color: #222222;
+.tool-step-icon.running {
+  color: #3794ff;
 }
 
-.theme-slate #drawer-container,
-.theme-slate.drawer-container {
-    background-color: #0f172a;
-    border-color: #334155;
+.tool-step-icon.error {
+  color: #f85149;
 }
 
-.theme-tokyo-night #drawer-container,
-.theme-tokyo-night.drawer-container {
-    background-color: #1a1b26;
-    border-color: #292e42;
+.tool-step-label {
+  color: #cccccc;
+  font-size: 12px;
 }
 
-.theme-nord #drawer-container,
-.theme-nord.drawer-container {
-    background-color: #242933;
-    border-color: #3b4252;
+.tool-step-meta {
+  color: #6e7681;
+  font-size: 11px;
 }
 
-.theme-catppuccin-mocha #drawer-container,
-.theme-catppuccin-mocha.drawer-container {
-    background-color: #1e1e2e;
-    border-color: #313244;
+/* ── Tool Permission Card ──────────────────────────────────────────────── */
+
+.chat-permission-card {
+  background-color: #1f1f1f;
+  border: 1px solid #333333;
+  border-radius: 6px;
+  margin: 6px 0;
+  padding: 10px 12px;
+}
+
+.permission-icon {
+  color: #cccccc;
+}
+
+.permission-title {
+  color: #e4e4e4;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.permission-detail {
+  background-color: #181818;
+  border: 1px solid #2b2b2b;
+  border-radius: 4px;
+  color: #d4d4d4;
+  font-family: "JetBrains Mono", "Cascadia Code", monospace;
+  font-size: 11.5px;
+  padding: 6px 8px;
+}
+
+.permission-actions {
+  margin-top: 2px;
+}
+
+.permission-btn {
+  background-color: #2b2b2b;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 12px;
+  min-height: 24px;
+  padding: 0 11px;
+}
+
+.permission-btn:hover {
+  background-color: #37373d;
+  color: #ffffff;
+}
+
+.permission-btn-primary {
+  background-color: #0078d4;
+  border-color: #0078d4;
+  color: #ffffff;
+}
+
+.permission-btn-primary:hover {
+  background-color: #026ec1;
+}
+
+/* ── Unified Composer (.chat-input-container) ──────────────────────────── */
+
+.composer-outer {
+  background-color: #181818;
+  padding: 6px 12px 12px 12px;
+}
+
+.chat-input-container {
+  background-color: #262626;
+  border: 1px solid #3c3c3c;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.chat-input-container:focus-within {
+  border-color: #0078d4;
+}
+
+.composer-context-row {
+  margin-bottom: 2px;
+}
+
+.add-context-btn {
+  background: transparent;
+  background-image: none;
+  border: 1px dashed #3c3c3c;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #9d9d9d;
+  font-size: 11px;
+  min-height: 20px;
+  padding: 0 6px;
+}
+
+.add-context-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: #555555;
+  color: #cccccc;
+}
+
+.composer-text-view,
+.composer-text-view text {
+  background-color: transparent;
+  color: #cccccc;
+  font-size: 13px;
+}
+
+.composer-text-view {
+  border: none;
+  padding: 4px 4px;
+}
+
+.composer-placeholder {
+  color: #858585;
+  font-size: 13px;
+}
+
+.composer-toolbar {
+  margin-top: 2px;
+}
+
+.composer-picker-btn {
+  background: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #cccccc;
+  font-size: 11.5px;
+  min-height: 22px;
+  padding: 0 6px;
+}
+
+.composer-picker-btn:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.composer-tool-btn {
+  background: transparent;
+  background-image: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #cccccc;
+  min-height: 22px;
+  min-width: 22px;
+  padding: 0;
+}
+
+.composer-tool-btn:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.composer-tool-btn.active,
+.composer-tool-btn:checked {
+  background-color: rgba(0, 120, 212, 0.28);
+  border-color: rgba(55, 148, 255, 0.6);
+  color: #85b6ff;
+}
+
+.composer-pill-btn {
+  background-color: #2b2b2b;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 11px;
+  min-height: 22px;
+  padding: 0 8px;
+}
+
+.composer-pill-btn:hover {
+  background-color: #37373d;
+}
+
+.composer-send-btn {
+  background-color: #0078d4;
+  border: none;
+  border-radius: 12px;
+  color: #ffffff;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0;
+}
+
+.composer-send-btn:hover {
+  background-color: #026ec1;
+}
+
+.composer-send-btn:disabled {
+  background-color: transparent;
+  color: #6e7681;
+}
+
+.composer-send-btn.stop {
+  background-color: #c42b1c;
+  color: #ffffff;
+}
+
+/* Context & attachment chips */
+.composer-chip,
+.image-chip {
+  background-color: #1f1f1f;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 11px;
+  min-height: 18px;
+  padding: 0 6px;
+}
+
+.image-chip {
+  border-color: #3794ff;
+}
+
+.composer-chip-icon {
+  color: #3794ff;
+}
+
+.composer-chip-text {
+  color: #cccccc;
+  font-size: 11px;
+}
+
+.composer-chip-del {
+  background: transparent;
+  border: none;
+  color: #9d9d9d;
+  min-height: 14px;
+  min-width: 14px;
+  padding: 0;
+}
+
+.composer-chip-del:hover {
+  color: #f85149;
+}
+
+/* ── Popovers, Menus, Suggest Widget (Single Clean Frame) ──────────────── */
+
+popover.clean-popover > contents,
+popover.mention-popover > contents,
+popover.confirm-popover > contents {
+  background-color: #252526;
+  border: 1px solid #454545;
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  color: #cccccc;
+  padding: 4px;
+}
+
+.clean-popover-title {
+  color: #8d8d8d;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+}
+
+.clean-popover-item {
+  background: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #cccccc;
+  padding: 5px 8px;
+}
+
+.clean-popover-item:hover {
+  background-color: #04395e;
+  color: #ffffff;
+}
+
+.clean-popover-item-desc {
+  color: #8d8d8d;
+  font-size: 11px;
+}
+
+.clean-popover-item:hover .clean-popover-item-desc {
+  color: #b8d8f4;
+}
+
+.clean-popover-item.destructive {
+  color: #f48771;
+}
+
+.clean-popover-item.destructive:hover {
+  background-color: rgba(196, 43, 28, 0.25);
+  color: #ff9c8a;
+}
+
+.menu-sep {
+  background-color: #333333;
+  min-height: 1px;
+  margin: 4px 6px;
+}
+
+.clean-popover-check,
+.clean-settings-row {
+  background: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #cccccc;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.clean-settings-row:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.clean-settings-val {
+  color: #9d9d9d;
+  font-size: 11px;
+}
+
+.mention-list {
+  background: transparent;
+}
+
+.mention-row {
+  background: transparent;
+  border-radius: 4px;
+  color: #cccccc;
+  margin: 1px 0;
+  padding: 2px 4px;
+}
+
+.mention-row:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.mention-row:selected {
+  background-color: #04395e;
+  color: #ffffff;
+}
+
+.mention-row-icon {
+  color: #3794ff;
+}
+
+.mention-row:selected .mention-row-icon {
+  color: #ffffff;
+}
+
+.mention-label {
+  color: #e4e4e4;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.mention-detail {
+  color: #8d8d8d;
+  font-size: 11px;
+}
+
+.mention-row:selected .mention-detail {
+  color: #b8d8f4;
+}
+
+.confirm-dialog-title {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.confirm-dialog-desc {
+  color: #9d9d9d;
+  font-size: 12px;
+}
+
+.btn-dialog-cancel {
+  background-color: #2b2b2b;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  color: #cccccc;
+  min-height: 24px;
+  padding: 0 12px;
+}
+
+.btn-dialog-destructive {
+  background-color: #c42b1c;
+  border: none;
+  border-radius: 4px;
+  color: #ffffff;
+  min-height: 24px;
+  padding: 0 12px;
+}
+
+/* Prompt history */
+.prompt-row-box {
+  border-radius: 4px;
+}
+
+.prompt-item-btn {
+  background: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #cccccc;
+  padding: 5px 8px;
+}
+
+.prompt-item-btn:hover {
+  background-color: #04395e;
+}
+
+.prompt-idx-pill {
+  color: #8d8d8d;
+  font-size: 11px;
+}
+
+.prompt-snippet-text {
+  color: #cccccc;
+  font-size: 12px;
+}
+
+.prompt-delete-btn {
+  background: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 4px;
+  box-shadow: none;
+  color: #6e7681;
+  min-height: 20px;
+  min-width: 20px;
+  padding: 0;
+}
+
+.prompt-delete-btn:hover {
+  background-color: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+}
+
+.btn-scroll-bottom {
+  background-color: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 14px;
+  color: #cccccc;
+  min-height: 26px;
+  min-width: 26px;
+}
+
+.btn-scroll-bottom:hover {
+  background-color: #2b2b2b;
+  color: #ffffff;
+}
+
+/* ── Screen markup overlay ─────────────────────────────────────────────── */
+
+.markup-clear-btn {
+  background-color: rgba(24, 24, 24, 0.94);
+  border: 1px solid #454545;
+  border-radius: 20px;
+  color: #cccccc;
+  margin-top: 8px;
+  padding: 4px 10px;
+}
+
+.markup-clear-btn:hover {
+  background-color: #2a2d2e;
+  color: #ffffff;
+}
+
+.markup-toolbar {
+  background-color: rgba(24, 24, 24, 0.94);
+  border: 1px solid #454545;
+  border-radius: 8px;
+  margin-top: 8px;
+  padding: 6px 8px;
+}
+
+.markup-tool-btn {
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 12px;
+  min-height: 24px;
+  padding: 0 10px;
+}
+
+.markup-tool-btn:hover {
+  background-color: #2a2d2e;
+}
+
+.markup-tool-btn:checked {
+  background-color: #0078d4;
+  color: #ffffff;
+}
+
+.markup-swatch {
+  border: 1px solid #454545;
+  border-radius: 10px;
+  min-height: 20px;
+  min-width: 20px;
+  padding: 0;
+}
+
+.markup-action-btn {
+  background-color: #2b2b2b;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 12px;
+  min-height: 24px;
+  padding: 0 10px;
+}
+
+.markup-action-btn:hover {
+  background-color: #37373d;
+}
+
+.markup-attach-btn {
+  background-color: #0078d4;
+  border-color: #0078d4;
+  color: #ffffff;
+}
+
+.markup-attach-btn:hover {
+  background-color: #026ec1;
 }

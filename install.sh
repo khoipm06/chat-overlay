@@ -25,7 +25,8 @@ install -m 644 "${SCRIPT_DIR}/resources/icons/pi-overlay.svg" "${ICON_DIR}/pi-ov
 
 echo "Installing desktop entry to ${APP_DIR}/pi-overlay.desktop..."
 mkdir -p "${APP_DIR}"
-install -m 644 "${SCRIPT_DIR}/resources/pi-overlay.desktop" "${APP_DIR}/pi-overlay.desktop"
+sed "s|^Exec=pi-overlay$|Exec=${BIN_DIR}/pi-overlay|" "${SCRIPT_DIR}/resources/pi-overlay.desktop" > "${APP_DIR}/pi-overlay.desktop"
+chmod 644 "${APP_DIR}/pi-overlay.desktop"
 
 echo "Updating desktop database..."
 update-desktop-database "${APP_DIR}" || true
@@ -36,7 +37,8 @@ gtk-update-icon-cache -f "${HOME}/.local/share/icons/hicolor" || true
 if [[ "${1:-}" == "--autostart" ]]; then
     echo "Installing autostart entry to ${AUTOSTART_DIR}/pi-overlay.desktop..."
     mkdir -p "${AUTOSTART_DIR}"
-    install -m 644 "${SCRIPT_DIR}/resources/pi-overlay.desktop" "${AUTOSTART_DIR}/pi-overlay.desktop"
+    sed "s|^Exec=pi-overlay$|Exec=${BIN_DIR}/pi-overlay|" "${SCRIPT_DIR}/resources/pi-overlay.desktop" > "${AUTOSTART_DIR}/pi-overlay.desktop"
+    chmod 644 "${AUTOSTART_DIR}/pi-overlay.desktop"
 fi
 
 echo "Installation complete."
