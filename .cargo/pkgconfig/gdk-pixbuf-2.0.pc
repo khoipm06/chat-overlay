@@ -1,0 +1,10 @@
+prefix=/usr
+libdir=/usr/lib64
+includedir=/usr/include
+
+Name: GdkPixbuf
+Description: Image loading and scaling
+Version: 2.44.0
+Requires: gobject-2.0 glib-2.0
+Libs: -L/var/home/khoipm/.local/lib64 -L${libdir} -lgdk_pixbuf-2.0 -lgobject-2.0 -lglib-2.0
+Cflags: -I${includedir}/gdk-pixbuf-2.0
