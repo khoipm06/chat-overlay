@@ -9,6 +9,7 @@ mod icons;
 mod ipc;
 mod markup;
 mod mentions;
+mod menu;
 mod overlay;
 mod render;
 mod settings;
@@ -1051,17 +1052,11 @@ fn build_ui(
     let slash_commands: Rc<RefCell<Vec<mentions::SlashCommand>>> =
         Rc::new(RefCell::new(mentions::builtin_commands()));
 
-    let mention_popup = {
-        let popover = gtk4::Popover::builder()
-            .autohide(false)
-            .has_arrow(false)
-            .position(gtk4::PositionType::Top)
-            .css_classes(["mention-popover"])
-            .build();
-        popover.set_parent(&composer_box);
+    let menu_host = menu::FloatingMenuHost::new(&drawer);
 
+    let mention_popup = {
         let pop_outer = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-        pop_outer.set_width_request(406);
+        pop_outer.set_hexpand(true);
 
         let header_lbl = gtk4::Label::builder()
             .label("SUGGESTIONS")
@@ -1073,6 +1068,7 @@ fn build_ui(
         let list = gtk4::ListBox::new();
         list.set_selection_mode(gtk4::SelectionMode::Single);
         list.add_css_class("mention-list");
+        list.set_hexpand(true);
 
         let scroll = gtk4::ScrolledWindow::builder()
             .hscrollbar_policy(gtk4::PolicyType::Never)
@@ -1082,10 +1078,11 @@ fn build_ui(
             .child(&list)
             .build();
         pop_outer.append(&scroll);
-        popover.set_child(Some(&pop_outer));
 
         let popup = Rc::new(RefCell::new(MentionPopup {
-            popover,
+            menu_host: menu_host.clone(),
+            composer_widget: composer_box.clone().upcast(),
+            container: pop_outer,
             header_lbl,
             list: list.clone(),
             items: Vec::new(),
@@ -1119,7 +1116,7 @@ fn build_ui(
     // Initial button state calculation
     update_send_btn_state();
 
-    root_box.append(&drawer);
+    root_box.append(&menu_host.overlay);
     window.set_child(Some(&root_box));
 
     let state = Rc::new(RefCell::new(AppState {
@@ -1199,16 +1196,9 @@ fn build_ui(
     }
 
     // ── Harness switcher ────────────────────────────────────────────────────
-    let popover_harness = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_harness.set_parent(&btn_harness);
-
-    {
+    let harness_box = {
         let harness_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-        harness_box.set_width_request(230);
+        harness_box.set_hexpand(true);
         harness_box.append(
             &gtk4::Label::builder()
                 .label("AGENT HARNESS")
@@ -1245,12 +1235,12 @@ fn build_ui(
             );
             item.set_child(Some(&inner));
 
-            let pop_close = popover_harness.clone();
+            let mh_close = menu_host.clone();
             let lbl_h = lbl_harness.clone();
             let state_h = state.clone();
             let index_h = workspace_index.clone();
             item.connect_clicked(move |_| {
-                pop_close.popdown();
+                mh_close.close_menu();
                 lbl_h.set_label(kind.label());
 
                 let mut st = state_h.borrow_mut();
@@ -1273,10 +1263,14 @@ fn build_ui(
             harness_box.append(&item);
         }
 
-        popover_harness.set_child(Some(&harness_box));
-        let pop_ref = popover_harness.clone();
-        btn_harness.connect_clicked(move |_| pop_ref.popup());
-    }
+        let mh_ref = menu_host.clone();
+        let hb_ref = harness_box.clone();
+        btn_harness.connect_clicked(move |btn| {
+            mh_ref.toggle_menu("harness", btn, &hb_ref, 240, menu::MenuPlacement::BelowLeft);
+        });
+        harness_box
+    };
+    let _ = &harness_box;
 
     // ── Attach File Context Button ───────────────────────────────────────────
     {
@@ -1324,15 +1318,8 @@ fn build_ui(
     }
 
     // ── Screen Capture Context Button ────────────────────────────────────────
-    let popover_capture = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_capture.set_parent(&btn_capture);
-
     let capture_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    capture_box.set_width_request(215);
+    capture_box.set_hexpand(true);
 
     let capture_title = gtk4::Label::builder()
         .label("SCREEN CONTEXT")
@@ -1438,12 +1425,12 @@ fn build_ui(
         );
         cap_btn.set_child(Some(&cap_inner));
 
-        let pop_cap_close = popover_capture.clone();
+        let mh_cap_close = menu_host.clone();
         let attached = attach_capture.clone();
         let screen_fn = capture_screen_fn.clone();
 
         cap_btn.connect_clicked(move |_| {
-            pop_cap_close.popdown();
+            mh_cap_close.close_menu();
             match mode {
                 // Full screen must not contain the overlay itself, so the
                 // window hides for a frame before the shot is taken.
@@ -1452,8 +1439,8 @@ fn build_ui(
                     let attached = attached.clone();
                     glib::spawn_future_local(async move {
                         let res = tokio::task::spawn_blocking(move || {
-                            // Let the popover unmap before grabbing the screen.
-                            std::thread::sleep(std::time::Duration::from_millis(150));
+                            // Let the floating menu close cleanly before grabbing the screen.
+                            std::thread::sleep(std::time::Duration::from_millis(80));
                             capture::capture_screen(mode)
                         })
                         .await
@@ -1487,34 +1474,26 @@ fn build_ui(
         );
         markup_btn.set_child(Some(&inner));
 
-        let pop_close = popover_capture.clone();
+        let mh_close = menu_host.clone();
         let markup_fn = capture_markup_fn.clone();
         markup_btn.connect_clicked(move |_| {
-            pop_close.popdown();
+            mh_close.close_menu();
             markup_fn();
         });
         capture_box.append(&markup_btn);
     }
 
-    popover_capture.set_child(Some(&capture_box));
-
     {
-        let pop_ref = popover_capture.clone();
-        btn_capture.connect_clicked(move |_| {
-            pop_ref.popup();
+        let mh_ref = menu_host.clone();
+        let cap_box_ref = capture_box.clone();
+        btn_capture.connect_clicked(move |btn| {
+            mh_ref.toggle_menu("capture", btn, &cap_box_ref, 240, menu::MenuPlacement::AboveRight);
         });
     }
 
-    // ── Mode Popover ────────────────────────────────────────────────────────
-    let popover_mode = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_mode.set_parent(&btn_mode_pill);
-
+    // ── Mode Picker Menu ────────────────────────────────────────────────────
     let mode_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    mode_box.set_width_request(190);
+    mode_box.set_hexpand(true);
 
     let mode_title = gtk4::Label::builder()
         .label("SELECT AGENT MODE")
@@ -1543,14 +1522,14 @@ fn build_ui(
         inner_m.append(&lbl_desc);
         m_btn.set_child(Some(&inner_m));
 
-        let pop_m_close = popover_mode.clone();
+        let mh_m_close = menu_host.clone();
         let lbl_mode = lbl_mode_pill.clone();
         let state_m = state.clone();
         let mode_key = m_id.to_string();
         let mode_label_str = (*m_name).to_string();
 
         m_btn.connect_clicked(move |_| {
-            pop_m_close.popdown();
+            mh_m_close.close_menu();
             lbl_mode.set_label(&mode_label_str);
             let mut st = state_m.borrow_mut();
             st.current_mode = mode_key.clone();
@@ -1562,25 +1541,18 @@ fn build_ui(
         });
         mode_box.append(&m_btn);
     }
-    popover_mode.set_child(Some(&mode_box));
 
     {
-        let pop_ref = popover_mode.clone();
-        btn_mode_pill.connect_clicked(move |_| {
-            pop_ref.popup();
+        let mh_ref = menu_host.clone();
+        let m_box_ref = mode_box.clone();
+        btn_mode_pill.connect_clicked(move |btn| {
+            mh_ref.toggle_menu("mode", btn, &m_box_ref, 240, menu::MenuPlacement::AboveLeft);
         });
     }
 
-    // ── Model Popover ───────────────────────────────────────────────────────
-    let popover_model = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_model.set_parent(&btn_model_pill);
-
+    // ── Model Picker Menu ───────────────────────────────────────────────────
     let model_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    model_box.set_width_request(220);
+    model_box.set_hexpand(true);
 
     let model_title = gtk4::Label::builder()
         .label("SELECT MODEL")
@@ -1599,19 +1571,25 @@ fn build_ui(
 
     for (m_id, m_name) in &initial_models {
         let m_btn = gtk4::Button::builder()
-            .label(m_name)
             .css_classes(["clean-popover-item"])
             .halign(gtk4::Align::Fill)
             .build();
+        m_btn.set_child(Some(
+            &gtk4::Label::builder()
+                .label(m_name)
+                .xalign(0.0)
+                .ellipsize(gtk4::pango::EllipsizeMode::End)
+                .build(),
+        ));
 
-        let pop_mdl_close = popover_model.clone();
+        let mh_mdl_close = menu_host.clone();
         let lbl_mdl = lbl_model_pill.clone();
         let state_mdl = state.clone();
         let model_key = m_id.clone();
         let short_name = model_display_name_with_list(m_id, &initial_models);
 
         m_btn.connect_clicked(move |_| {
-            pop_mdl_close.popdown();
+            mh_mdl_close.close_menu();
             lbl_mdl.set_label(&short_name);
             let mut st = state_mdl.borrow_mut();
             st.settings.model = model_key.clone();
@@ -1623,25 +1601,18 @@ fn build_ui(
     }
     model_scroll.set_child(Some(&model_list));
     model_box.append(&model_scroll);
-    popover_model.set_child(Some(&model_box));
 
     {
-        let pop_ref = popover_model.clone();
-        btn_model_pill.connect_clicked(move |_| {
-            pop_ref.popup();
+        let mh_ref = menu_host.clone();
+        let mdl_box_ref = model_box.clone();
+        btn_model_pill.connect_clicked(move |btn| {
+            mh_ref.toggle_menu("model", btn, &mdl_box_ref, 240, menu::MenuPlacement::AboveLeft);
         });
     }
 
-    // ── Thinking Depth Popover ──────────────────────────────────────────────
-    let popover_think = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_think.set_parent(&btn_think_pill);
-
+    // ── Thinking Depth Menu ─────────────────────────────────────────────────
     let think_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    think_box.set_width_request(160);
+    think_box.set_hexpand(true);
 
     let think_title = gtk4::Label::builder()
         .label("REASONING DEPTH")
@@ -1652,19 +1623,19 @@ fn build_ui(
 
     for (th_id, th_name) in THINKING_LEVELS {
         let th_btn = gtk4::Button::builder()
-            .label(*th_name)
             .css_classes(["clean-popover-item"])
             .halign(gtk4::Align::Fill)
             .build();
+        th_btn.set_child(Some(&gtk4::Label::builder().label(*th_name).xalign(0.0).build()));
 
-        let pop_th_close = popover_think.clone();
+        let mh_th_close = menu_host.clone();
         let lbl_th = lbl_think_pill.clone();
         let state_th = state.clone();
         let think_key = th_id.to_string();
         let label_name = th_name.to_string();
 
         th_btn.connect_clicked(move |_| {
-            pop_th_close.popdown();
+            mh_th_close.close_menu();
             lbl_th.set_label(&label_name);
             let mut st = state_th.borrow_mut();
             st.settings.thinking_level = think_key.clone();
@@ -1675,25 +1646,22 @@ fn build_ui(
         });
         think_box.append(&th_btn);
     }
-    popover_think.set_child(Some(&think_box));
 
     {
-        let pop_ref = popover_think.clone();
-        btn_think_pill.connect_clicked(move |_| {
-            pop_ref.popup();
+        let mh_ref = menu_host.clone();
+        let th_box_ref = think_box.clone();
+        btn_think_pill.connect_clicked(move |btn| {
+            mh_ref.toggle_menu("think", btn, &th_box_ref, 240, menu::MenuPlacement::AboveLeft);
         });
     }
 
-    // ── Session History Popover ─────────────────────────────────────────────
-    let popover_session = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_session.set_parent(&btn_session_list);
+    // ── Session History Menu ────────────────────────────────────────────────
+    let session_stack = gtk4::Stack::new();
+    session_stack.set_vhomogeneous(false);
+    session_stack.set_hexpand(true);
 
     let session_box = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-    session_box.set_width_request(240);
+    session_box.set_hexpand(true);
 
     let session_pop_title = gtk4::Label::builder()
         .label("SESSION HISTORY")
@@ -1720,25 +1688,86 @@ fn build_ui(
     prompts_list_box.append(&prompt_empty_label);
     prompts_scroll.set_child(Some(&prompts_list_box));
     session_box.append(&prompts_scroll);
-    popover_session.set_child(Some(&session_box));
+    session_stack.add_named(&session_box, Some("list"));
+
+    // Inline confirmation page for deleting an individual session turn.
+    type DeferredAction = Rc<RefCell<Option<Box<dyn FnOnce()>>>>;
+    let pending_prompt_delete: DeferredAction = Rc::new(RefCell::new(None));
+    {
+        let del_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+        let del_title = gtk4::Label::builder()
+            .label("Delete this message?")
+            .css_classes(["confirm-dialog-title"])
+            .xalign(0.0)
+            .build();
+        del_box.append(&del_title);
+
+        let del_desc = gtk4::Label::builder()
+            .label("Remove this turn and its response from history.")
+            .css_classes(["confirm-dialog-desc"])
+            .wrap(true)
+            .wrap_mode(gtk4::pango::WrapMode::WordChar)
+            .xalign(0.0)
+            .build();
+        del_box.append(&del_desc);
+
+        let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+        btn_row.set_halign(gtk4::Align::End);
+
+        let btn_cancel_item = gtk4::Button::builder()
+            .label("Cancel")
+            .css_classes(["btn-dialog-cancel"])
+            .build();
+        btn_row.append(&btn_cancel_item);
+
+        let btn_confirm_item = gtk4::Button::builder()
+            .label("Delete")
+            .css_classes(["btn-dialog-destructive"])
+            .build();
+        btn_row.append(&btn_confirm_item);
+        del_box.append(&btn_row);
+
+        let ss_cancel = session_stack.clone();
+        let pending_cancel = pending_prompt_delete.clone();
+        btn_cancel_item.connect_clicked(move |_| {
+            *pending_cancel.borrow_mut() = None;
+            ss_cancel.set_visible_child_name("list");
+        });
+
+        let ss_confirm = session_stack.clone();
+        let pending_confirm = pending_prompt_delete.clone();
+        btn_confirm_item.connect_clicked(move |_| {
+            if let Some(action) = pending_confirm.borrow_mut().take() {
+                action();
+            }
+            ss_confirm.set_visible_child_name("list");
+        });
+
+        session_stack.add_named(&del_box, Some("confirm_delete"));
+    }
 
     {
-        let pop_ref = popover_session.clone();
-        btn_session_list.connect_clicked(move |_| {
-            pop_ref.popup();
+        let mh_ref = menu_host.clone();
+        let ss_ref = session_stack.clone();
+        btn_session_list.connect_clicked(move |btn| {
+            ss_ref.set_visible_child_name("list");
+            mh_ref.toggle_menu(
+                "session",
+                btn,
+                &ss_ref,
+                260,
+                menu::MenuPlacement::BelowRight,
+            );
         });
     }
 
-    // ── Settings Popover ─────────────────────────────────────────────────────
-    let popover_more = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_more.set_parent(&btn_more);
+    // ── Settings Menu (In-Drawer Stack, No Wayland Grabs) ───────────────────
+    let more_stack = gtk4::Stack::new();
+    more_stack.set_vhomogeneous(false);
+    more_stack.set_hexpand(true);
 
     let more_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    more_box.set_width_request(220);
+    more_box.set_hexpand(true);
 
     let more_title = gtk4::Label::builder()
         .label("SESSION SETTINGS")
@@ -1747,7 +1776,6 @@ fn build_ui(
         .build();
     more_box.append(&more_title);
 
-    // ── Clean Settings Selector Rows ────────────────────────────────────────
     // 1. UI Scale Selector Row
     let btn_row_scale = gtk4::Button::builder()
         .css_classes(["clean-settings-row"])
@@ -1763,8 +1791,8 @@ fn build_ui(
     let initial_scale_name = settings::UI_SCALE_PRESETS
         .iter()
         .find(|p| p.scale == initial_settings.ui_scale)
-        .map(|p| format!("{} ▾", p.label))
-        .unwrap_or_else(|| "100% ▾".to_string());
+        .map(|p| format!("{} ›", p.label))
+        .unwrap_or_else(|| "100% ›".to_string());
     let lbl_rs_val = gtk4::Label::builder()
         .label(&initial_scale_name)
         .css_classes(["clean-settings-val"])
@@ -1775,30 +1803,40 @@ fn build_ui(
     btn_row_scale.set_child(Some(&box_rs));
     more_box.append(&btn_row_scale);
 
-    let popover_row_scale = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_row_scale.set_parent(&btn_row_scale);
-
+    // Inline UI Scale subpage
     let prs_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    prs_box.set_width_request(160);
-    let prs_title = gtk4::Label::builder()
-        .label("UI SCALE PRESET")
-        .css_classes(["clean-popover-title"])
-        .xalign(0.0)
-        .build();
-    prs_box.append(&prs_title);
+    prs_box.set_hexpand(true);
+    {
+        let back_btn = gtk4::Button::builder()
+            .label("← Session Settings")
+            .css_classes(["floating-menu-back"])
+            .halign(gtk4::Align::Start)
+            .build();
+        let ms_back = more_stack.clone();
+        back_btn.connect_clicked(move |_| ms_back.set_visible_child_name("main"));
+        prs_box.append(&back_btn);
+    }
+    prs_box.append(
+        &gtk4::Label::builder()
+            .label("UI SCALE PRESET")
+            .css_classes(["clean-popover-title"])
+            .xalign(0.0)
+            .build(),
+    );
 
     for preset in settings::UI_SCALE_PRESETS {
         let s_btn = gtk4::Button::builder()
-            .label(format!("{}  •  {}", preset.label, preset.desc))
             .css_classes(["clean-popover-item"])
             .halign(gtk4::Align::Fill)
             .build();
+        s_btn.set_child(Some(
+            &gtk4::Label::builder()
+                .label(format!("{}  •  {}", preset.label, preset.desc))
+                .xalign(0.0)
+                .build(),
+        ));
 
-        let pop_close = popover_row_scale.clone();
+        let ms_done = more_stack.clone();
         let state_sc = state.clone();
         let scale_provider_ref = scale_css_provider.clone();
         let sc_val = preset.scale;
@@ -1806,25 +1844,24 @@ fn build_ui(
         let lbl_val = lbl_rs_val.clone();
 
         s_btn.connect_clicked(move |_| {
-            pop_close.popdown();
             let mut st = state_sc.borrow_mut();
             st.settings.ui_scale = sc_val;
             settings::apply_text_scale(&scale_provider_ref, sc_val, st.settings.font_size);
             let _ = st.settings.save();
-            lbl_val.set_label(&format!("{} ▾", sc_lbl));
+            lbl_val.set_label(&format!("{} ›", sc_lbl));
+            ms_done.set_visible_child_name("main");
         });
         prs_box.append(&s_btn);
     }
-    popover_row_scale.set_child(Some(&prs_box));
 
     {
-        let pop_ref = popover_row_scale.clone();
+        let ms_go = more_stack.clone();
         btn_row_scale.connect_clicked(move |_| {
-            pop_ref.popup();
+            ms_go.set_visible_child_name("scale");
         });
     }
 
-    // 3. Font Size Selector Row
+    // 2. Font Size Selector Row
     let btn_row_font = gtk4::Button::builder()
         .css_classes(["clean-settings-row"])
         .halign(gtk4::Align::Fill)
@@ -1839,8 +1876,8 @@ fn build_ui(
     let initial_font_name = settings::FONT_SIZE_PRESETS
         .iter()
         .find(|p| p.size == initial_settings.font_size)
-        .map(|p| format!("{} ▾", p.label))
-        .unwrap_or_else(|| "13px ▾".to_string());
+        .map(|p| format!("{} ›", p.label))
+        .unwrap_or_else(|| "13px ›".to_string());
     let lbl_rf_val = gtk4::Label::builder()
         .label(&initial_font_name)
         .css_classes(["clean-settings-val"])
@@ -1851,30 +1888,40 @@ fn build_ui(
     btn_row_font.set_child(Some(&box_rf));
     more_box.append(&btn_row_font);
 
-    let popover_row_font = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["clean-popover"])
-        .build();
-    popover_row_font.set_parent(&btn_row_font);
-
+    // Inline Font Size subpage
     let prf_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
-    prf_box.set_width_request(150);
-    let prf_title = gtk4::Label::builder()
-        .label("BASE FONT SIZE")
-        .css_classes(["clean-popover-title"])
-        .xalign(0.0)
-        .build();
-    prf_box.append(&prf_title);
+    prf_box.set_hexpand(true);
+    {
+        let back_btn = gtk4::Button::builder()
+            .label("← Session Settings")
+            .css_classes(["floating-menu-back"])
+            .halign(gtk4::Align::Start)
+            .build();
+        let ms_back = more_stack.clone();
+        back_btn.connect_clicked(move |_| ms_back.set_visible_child_name("main"));
+        prf_box.append(&back_btn);
+    }
+    prf_box.append(
+        &gtk4::Label::builder()
+            .label("BASE FONT SIZE")
+            .css_classes(["clean-popover-title"])
+            .xalign(0.0)
+            .build(),
+    );
 
     for preset in settings::FONT_SIZE_PRESETS {
         let f_btn = gtk4::Button::builder()
-            .label(format!("{}  •  {}", preset.label, preset.desc))
             .css_classes(["clean-popover-item"])
             .halign(gtk4::Align::Fill)
             .build();
+        f_btn.set_child(Some(
+            &gtk4::Label::builder()
+                .label(format!("{}  •  {}", preset.label, preset.desc))
+                .xalign(0.0)
+                .build(),
+        ));
 
-        let pop_close = popover_row_font.clone();
+        let ms_done = more_stack.clone();
         let state_fs = state.clone();
         let scale_provider_ref = scale_css_provider.clone();
         let fs_val = preset.size;
@@ -1882,21 +1929,20 @@ fn build_ui(
         let lbl_val = lbl_rf_val.clone();
 
         f_btn.connect_clicked(move |_| {
-            pop_close.popdown();
             let mut st = state_fs.borrow_mut();
             st.settings.font_size = fs_val;
             settings::apply_text_scale(&scale_provider_ref, st.settings.ui_scale, fs_val);
             let _ = st.settings.save();
-            lbl_val.set_label(&format!("{} ▾", fs_lbl));
+            lbl_val.set_label(&format!("{} ›", fs_lbl));
+            ms_done.set_visible_child_name("main");
         });
         prf_box.append(&f_btn);
     }
-    popover_row_font.set_child(Some(&prf_box));
 
     {
-        let pop_ref = popover_row_font.clone();
+        let ms_go = more_stack.clone();
         btn_row_font.connect_clicked(move |_| {
-            pop_ref.popup();
+            ms_go.set_visible_child_name("font");
         });
     }
 
@@ -1928,13 +1974,16 @@ fn build_ui(
     btn_clear_chat.set_child(Some(&clear_row));
     more_box.append(&btn_clear_chat);
 
-    popover_more.set_position(gtk4::PositionType::Bottom);
-    popover_more.set_child(Some(&more_box));
+    more_stack.add_named(&more_box, Some("main"));
+    more_stack.add_named(&prs_box, Some("scale"));
+    more_stack.add_named(&prf_box, Some("font"));
 
     {
-        let pop_ref = popover_more.clone();
-        btn_more.connect_clicked(move |_| {
-            pop_ref.popup();
+        let mh_ref = menu_host.clone();
+        let ms_ref = more_stack.clone();
+        btn_more.connect_clicked(move |btn| {
+            ms_ref.set_visible_child_name("main");
+            mh_ref.toggle_menu("more", btn, &ms_ref, 260, menu::MenuPlacement::BelowRight);
         });
     }
 
@@ -1999,7 +2048,11 @@ fn build_ui(
     let hide_overlay_fn = {
         let win = window.clone();
         let state = state.clone();
+        let mh = menu_host.clone();
+        let mp = mention_popup.clone();
         Rc::new(move || {
+            mh.close_menu();
+            mp.borrow_mut().close();
             let is_ephemeral = state.borrow().settings.ephemeral;
             let is_win = state.borrow().is_window_mode;
             if !is_win {
@@ -2100,89 +2153,70 @@ fn build_ui(
         })
     };
 
-    // Destructive Confirmation Popover for Clear action
-    let confirm_popover = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["confirm-popover"])
-        .build();
-    confirm_popover.set_parent(&btn_clear_chat);
-
-    let confirm_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
-    let confirm_title = gtk4::Label::builder()
-        .label("Clear Conversation?")
-        .css_classes(["confirm-dialog-title"])
-        .xalign(0.0)
-        .build();
-    confirm_box.append(&confirm_title);
-
-    let confirm_desc = gtk4::Label::builder()
-        .label("This will erase all active messages and session history.")
-        .css_classes(["confirm-dialog-desc"])
-        .wrap(true)
-        .wrap_mode(gtk4::pango::WrapMode::WordChar)
-        .width_chars(1)
-        .max_width_chars(32)
-        .xalign(0.0)
-        .build();
-    confirm_box.append(&confirm_desc);
-
-    let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    btn_row.set_halign(gtk4::Align::End);
-
-    let btn_cancel = gtk4::Button::builder()
-        .label("Cancel")
-        .css_classes(["btn-dialog-cancel"])
-        .build();
-
-    let btn_confirm = gtk4::Button::builder()
-        .label("Clear All")
-        .css_classes(["btn-dialog-destructive"])
-        .build();
-
-    btn_row.append(&btn_cancel);
-    btn_row.append(&btn_confirm);
-    confirm_box.append(&btn_row);
-    confirm_popover.set_child(Some(&confirm_box));
-
+    // Inline confirmation page inside Settings menu for Clear action
     {
-        let pop_ref = confirm_popover.clone();
+        let confirm_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+        confirm_box.set_hexpand(true);
+        let confirm_title = gtk4::Label::builder()
+            .label("Clear Conversation?")
+            .css_classes(["confirm-dialog-title"])
+            .xalign(0.0)
+            .build();
+        confirm_box.append(&confirm_title);
+
+        let confirm_desc = gtk4::Label::builder()
+            .label("This will erase all active messages and session history.")
+            .css_classes(["confirm-dialog-desc"])
+            .wrap(true)
+            .wrap_mode(gtk4::pango::WrapMode::WordChar)
+            .xalign(0.0)
+            .build();
+        confirm_box.append(&confirm_desc);
+
+        let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+        btn_row.set_halign(gtk4::Align::End);
+
+        let btn_cancel = gtk4::Button::builder()
+            .label("Cancel")
+            .css_classes(["btn-dialog-cancel"])
+            .build();
+
+        let btn_confirm = gtk4::Button::builder()
+            .label("Clear All")
+            .css_classes(["btn-dialog-destructive"])
+            .build();
+
+        btn_row.append(&btn_cancel);
+        btn_row.append(&btn_confirm);
+        confirm_box.append(&btn_row);
+        more_stack.add_named(&confirm_box, Some("confirm_clear"));
+
+        let ms_cancel = more_stack.clone();
         btn_cancel.connect_clicked(move |_| {
-            pop_ref.popdown();
+            ms_cancel.set_visible_child_name("main");
         });
-    }
 
-    {
-        let pop_ref = confirm_popover.clone();
         let do_clear = execute_clear.clone();
-        let pop_more_ref = popover_more.clone();
+        let mh_close = menu_host.clone();
+        let ms_reset = more_stack.clone();
         btn_confirm.connect_clicked(move |_| {
-            pop_ref.popdown();
-            pop_more_ref.popdown();
+            mh_close.close_menu();
+            ms_reset.set_visible_child_name("main");
             do_clear();
         });
-    }
 
-    // Clear Button in more menu shows confirmation popover
-    {
-        let pop_ref = confirm_popover.clone();
+        let ms_go = more_stack.clone();
         let state_check = state.clone();
         btn_clear_chat.connect_clicked(move |_| {
             if !state_check.borrow().prompts.is_empty() {
-                pop_ref.popup();
+                ms_go.set_visible_child_name("confirm_clear");
             }
         });
     }
 
-    // New Chat Confirmation Popover (prompts if unsent draft text exists)
-    let popover_new_chat = gtk4::Popover::builder()
-        .autohide(true)
-        .has_arrow(false)
-        .css_classes(["confirm-popover"])
-        .build();
-    popover_new_chat.set_parent(&btn_new_chat);
-
+    // New Chat Confirmation Menu (prompts if unsent draft text exists)
     let new_chat_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
+    new_chat_box.set_hexpand(true);
     let nc_title = gtk4::Label::builder()
         .label("Discard Unsent Draft?")
         .css_classes(["confirm-dialog-title"])
@@ -2195,8 +2229,6 @@ fn build_ui(
         .css_classes(["confirm-dialog-desc"])
         .wrap(true)
         .wrap_mode(gtk4::pango::WrapMode::WordChar)
-        .width_chars(1)
-        .max_width_chars(30)
         .xalign(0.0)
         .build();
     new_chat_box.append(&nc_desc);
@@ -2215,22 +2247,21 @@ fn build_ui(
     nc_btn_row.append(&btn_nc_cancel);
     nc_btn_row.append(&btn_nc_discard);
     new_chat_box.append(&nc_btn_row);
-    popover_new_chat.set_child(Some(&new_chat_box));
 
     {
-        let pop_ref = popover_new_chat.clone();
+        let mh_close = menu_host.clone();
         btn_nc_cancel.connect_clicked(move |_| {
-            pop_ref.popdown();
+            mh_close.close_menu();
         });
     }
 
     {
-        let pop_ref = popover_new_chat.clone();
+        let mh_close = menu_host.clone();
         let do_clear = execute_clear.clone();
         let tv_ref = text_view.clone();
         let update_btn = update_send_btn_state.clone();
         btn_nc_discard.connect_clicked(move |_| {
-            pop_ref.popdown();
+            mh_close.close_menu();
             set_text_view_content(&tv_ref, "");
             update_btn();
             do_clear();
@@ -2239,13 +2270,21 @@ fn build_ui(
     }
 
     let request_new_chat = {
-        let pop_ref = popover_new_chat.clone();
+        let mh_ref = menu_host.clone();
+        let nc_anchor = btn_new_chat.clone();
+        let nc_box_ref = new_chat_box.clone();
         let do_clear = execute_clear.clone();
         let tv_ref = text_view.clone();
         Rc::new(move || {
             let draft = get_text_view_content(&tv_ref);
             if !draft.is_empty() {
-                pop_ref.popup();
+                mh_ref.open_menu(
+                    "new_chat",
+                    &nc_anchor,
+                    &nc_box_ref,
+                    260,
+                    menu::MenuPlacement::BelowRight,
+                );
             } else {
                 do_clear();
                 tv_ref.grab_focus();
@@ -2743,7 +2782,9 @@ fn build_ui(
         let chat_stack = chat_stack.clone();
         let prompts_list_box = prompts_list_box.clone();
         let prompt_empty_label = prompt_empty_label.clone();
-        let popover_session = popover_session.clone();
+        let menu_host_submit = menu_host.clone();
+        let session_stack_submit = session_stack.clone();
+        let pending_delete_submit = pending_prompt_delete.clone();
         let state = state.clone();
         let active_stream = active_stream.clone();
         let stream_tx = stream_tx.clone();
@@ -2970,11 +3011,11 @@ fn build_ui(
             nav_btn.set_child(Some(&nav_row));
 
             let target_widget = user_card.clone();
-            let pop_ref = popover_session.clone();
+            let mh_nav = menu_host_submit.clone();
             let scroll_fn_widget = scroll_to_widget.clone();
 
             nav_btn.connect_clicked(move |_| {
-                pop_ref.popdown();
+                mh_nav.close_menu();
                 scroll_fn_widget(&target_widget);
             });
             row_box.append(&nav_btn);
@@ -2989,7 +3030,7 @@ fn build_ui(
 
             prompts_list_box.append(&row_box);
 
-            // Per-item prompt deletion with safety confirmation
+            // Per-item prompt deletion using inline confirmation page in History menu.
             {
                 let row_ref = row_box.clone();
                 let u_card = user_card.clone();
@@ -3003,81 +3044,43 @@ fn build_ui(
                 let is_str_ref = is_streaming_submit.clone();
                 let update_btn_ref = update_btn_submit.clone();
                 let this_idx = prompt_idx;
+                let ss_del = session_stack_submit.clone();
+                let pending_del = pending_delete_submit.clone();
 
-                let item_popover = gtk4::Popover::builder()
-                    .autohide(true)
-                    .has_arrow(false)
-                    .css_classes(["confirm-popover"])
-                    .build();
-                item_popover.set_parent(&del_btn);
-
-                let del_box = gtk4::Box::new(gtk4::Orientation::Vertical, 6);
-                let del_title = gtk4::Label::builder()
-                    .label("Delete this message?")
-                    .css_classes(["confirm-dialog-title"])
-                    .xalign(0.0)
-                    .build();
-                del_box.append(&del_title);
-
-                let del_desc = gtk4::Label::builder()
-                    .label("Remove this turn and its response from history.")
-                    .css_classes(["confirm-dialog-desc"])
-                    .wrap(true)
-                    .wrap_mode(gtk4::pango::WrapMode::WordChar)
-                    .width_chars(1)
-                    .max_width_chars(28)
-                    .xalign(0.0)
-                    .build();
-                del_box.append(&del_desc);
-
-                let btn_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-                btn_row.set_halign(gtk4::Align::End);
-
-                let btn_cancel_item = gtk4::Button::builder()
-                    .label("Cancel")
-                    .css_classes(["btn-dialog-cancel"])
-                    .build();
-                btn_row.append(&btn_cancel_item);
-
-                let btn_confirm_item = gtk4::Button::builder()
-                    .label("Delete")
-                    .css_classes(["btn-dialog-destructive"])
-                    .build();
-                btn_row.append(&btn_confirm_item);
-                del_box.append(&btn_row);
-                item_popover.set_child(Some(&del_box));
-
-                let pop_close_cancel = item_popover.clone();
-                btn_cancel_item.connect_clicked(move |_| {
-                    pop_close_cancel.popdown();
-                });
-
-                let pop_close_confirm = item_popover.clone();
-                btn_confirm_item.connect_clicked(move |_| {
-                    pop_close_confirm.popdown();
-                    msg_box_ref.remove(&u_card);
-                    msg_box_ref.remove(&a_card);
-                    p_list_box_ref.remove(&row_ref);
-
-                    let mut st = st_ref.borrow_mut();
-                    if st.prompts.last().map(|p| p.index == this_idx).unwrap_or(false) {
-                        st.harness.abort();
-                        *active_stream_ref.borrow_mut() = None;
-                        is_str_ref.set(false);
-                        update_btn_ref();
-                    }
-                    st.prompts.retain(|p| p.index != this_idx);
-                    let remaining = st.prompts.len();
-
-                    if remaining == 0 {
-                        p_empty_lbl.set_visible(true);
-                        chat_stack_ref.set_visible_child_name("welcome");
-                    }
-                });
-
-                let pop_show = item_popover.clone();
                 del_btn.connect_clicked(move |_| {
-                    pop_show.popup();
+                    let row_ref = row_ref.clone();
+                    let u_card = u_card.clone();
+                    let a_card = a_card.clone();
+                    let msg_box_ref = msg_box_ref.clone();
+                    let p_list_box_ref = p_list_box_ref.clone();
+                    let p_empty_lbl = p_empty_lbl.clone();
+                    let chat_stack_ref = chat_stack_ref.clone();
+                    let st_ref = st_ref.clone();
+                    let active_stream_ref = active_stream_ref.clone();
+                    let is_str_ref = is_str_ref.clone();
+                    let update_btn_ref = update_btn_ref.clone();
+
+                    *pending_del.borrow_mut() = Some(Box::new(move || {
+                        msg_box_ref.remove(&u_card);
+                        msg_box_ref.remove(&a_card);
+                        p_list_box_ref.remove(&row_ref);
+
+                        let mut st = st_ref.borrow_mut();
+                        if st.prompts.last().map(|p| p.index == this_idx).unwrap_or(false) {
+                            st.harness.abort();
+                            *active_stream_ref.borrow_mut() = None;
+                            is_str_ref.set(false);
+                            update_btn_ref();
+                        }
+                        st.prompts.retain(|p| p.index != this_idx);
+                        let remaining = st.prompts.len();
+
+                        if remaining == 0 {
+                            p_empty_lbl.set_visible(true);
+                            chat_stack_ref.set_visible_child_name("welcome");
+                        }
+                    }));
+                    ss_del.set_visible_child_name("confirm_delete");
                 });
             }
 
@@ -3291,15 +3294,25 @@ fn build_ui(
         });
     }
 
-    // Global Window Keyboard Shortcuts (Esc to close, Ctrl+N for new chat, Ctrl+Shift+S for capture)
+    // Global Window Keyboard Shortcuts (Esc to close menu/popup/drawer, Ctrl+N for new chat, Ctrl+Shift+S for capture)
     {
         let key_controller = gtk4::EventControllerKey::new();
         let hide_fn = hide_overlay_fn.clone();
+        let mh_esc = menu_host.clone();
+        let mp_esc = mention_popup.clone();
         let req_nc_key = request_new_chat.clone();
         let btn_cap_key = btn_capture.clone();
 
         key_controller.connect_key_pressed(move |_, key, _, modifier| {
             if key == gdk::Key::Escape {
+                if mp_esc.borrow().is_visible() {
+                    mp_esc.borrow_mut().close();
+                    return glib::Propagation::Stop;
+                }
+                if mh_esc.is_menu_open() {
+                    mh_esc.close_menu();
+                    return glib::Propagation::Stop;
+                }
                 hide_fn();
                 return glib::Propagation::Stop;
             }
@@ -3322,6 +3335,8 @@ fn build_ui(
     {
         let focus_controller = gtk4::EventControllerFocus::new();
         let hide_fn = hide_overlay_fn.clone();
+        let mh_focus = menu_host.clone();
+        let mp_focus = mention_popup.clone();
         let state_focus = state.clone();
         let had_focus = Rc::new(Cell::new(false));
 
@@ -3333,6 +3348,8 @@ fn build_ui(
             if prev && !has_focus {
                 let auto_hide = state_focus.borrow().settings.auto_hide_on_blur;
                 if auto_hide {
+                    mh_focus.close_menu();
+                    mp_focus.borrow_mut().close();
                     hide_fn();
                 }
             }
@@ -3384,18 +3401,17 @@ fn build_ui(
         let app_ref = app.clone();
         let win_ref = window.clone();
         let tv_ref = text_view.clone();
-        let composer_ref = composer_box.clone();
         let chips_ref = chips_row.clone();
         let state_ref = state.clone();
         let update_btn_ref = update_send_btn_state.clone();
+        let mh_audit = menu_host.clone();
         let mp_ref = mention_popup.clone();
-        let mp_pop = mention_popup.borrow().popover.clone();
         let btn_cap_ref = btn_capture.clone();
-        let pop_cap_ref = popover_capture.clone();
+        let cap_box_audit = capture_box.clone();
         let btn_more_ref = btn_more.clone();
-        let pop_more_ref = popover_more.clone();
+        let more_stack_audit = more_stack.clone();
         let btn_sess_ref = btn_session_list.clone();
-        let pop_sess_ref = popover_session.clone();
+        let sess_stack_audit = session_stack.clone();
         let msg_box_ref = messages_box.clone();
         let chat_stack_ref = chat_stack.clone();
         let p_empty_ref = prompt_empty_label.clone();
@@ -3422,10 +3438,10 @@ fn build_ui(
                 buf.place_cursor(&buf.end_iter());
             }
             mp_ref.borrow_mut().refresh();
-            let comp_widget: gtk4::Widget = composer_ref.clone().upcast();
+            audit::settle_ui(60);
             let _ = audit::snapshot_window_with_popovers(
                 &win_ref,
-                &[(&mp_pop, &comp_widget, true)],
+                &[],
                 &out_dir.join("after-mention.png"),
             );
             mp_ref.borrow_mut().close();
@@ -3437,36 +3453,35 @@ fn build_ui(
                 buf.place_cursor(&buf.end_iter());
             }
             mp_ref.borrow_mut().refresh();
+            audit::settle_ui(60);
             let _ = audit::snapshot_window_with_popovers(
                 &win_ref,
-                &[(&mp_pop, &comp_widget, true)],
+                &[],
                 &out_dir.join("after-slash.png"),
             );
             mp_ref.borrow_mut().close();
             set_text_view_content(&tv_ref, "");
 
-            // 4. Screen Capture popover
-            let cap_w: gtk4::Widget = btn_cap_ref.clone().upcast();
-            pop_cap_ref.popup();
+            // 4. Screen Capture floating menu
+            mh_audit.open_menu("capture", &btn_cap_ref, &cap_box_audit, 240, menu::MenuPlacement::AboveRight);
+            audit::settle_ui(80);
             let _ = audit::snapshot_window_with_popovers(
                 &win_ref,
-                &[(&pop_cap_ref, &cap_w, true)],
+                &[],
                 &out_dir.join("after-capture.png"),
             );
-            pop_cap_ref.popdown();
+            mh_audit.close_menu();
 
-            // 5. Settings popover
-            let more_w: gtk4::Widget = btn_more_ref.clone().upcast();
-            pop_more_ref.set_autohide(false);
-            pop_more_ref.popup();
-            audit::settle_ui(160);
+            // 5. Settings floating menu
+            more_stack_audit.set_visible_child_name("main");
+            mh_audit.open_menu("more", &btn_more_ref, &more_stack_audit, 260, menu::MenuPlacement::BelowRight);
+            audit::settle_ui(80);
             let _ = audit::snapshot_window_with_popovers(
                 &win_ref,
-                &[(&pop_more_ref, &more_w, false)],
+                &[],
                 &out_dir.join("after-settings.png"),
             );
-            pop_more_ref.popdown();
-            pop_more_ref.set_autohide(true);
+            mh_audit.close_menu();
 
             // 6. Conversation + Tool + Code + Table + Permission (synthetic, no CLI spawn)
             chat_stack_ref.set_visible_child_name("messages");
@@ -3591,15 +3606,16 @@ fn build_ui(
             scroll_ref();
             let _ = audit::snapshot_window_with_popovers(&win_ref, &[], &out_dir.join("after-conversation.png"));
 
-            // 7. History popover
-            let sess_w: gtk4::Widget = btn_sess_ref.clone().upcast();
-            pop_sess_ref.popup();
+            // 7. History floating menu
+            sess_stack_audit.set_visible_child_name("list");
+            mh_audit.open_menu("session", &btn_sess_ref, &sess_stack_audit, 260, menu::MenuPlacement::BelowRight);
+            audit::settle_ui(80);
             let _ = audit::snapshot_window_with_popovers(
                 &win_ref,
-                &[(&pop_sess_ref, &sess_w, false)],
+                &[],
                 &out_dir.join("after-history.png"),
             );
-            pop_sess_ref.popdown();
+            mh_audit.close_menu();
 
             win_ref.close();
             app_ref.quit();
@@ -3721,7 +3737,9 @@ fn build_permission_card(
 /// Owns the list, the selection index and the text replacement, so the text
 /// view only has to forward keys and text changes.
 struct MentionPopup {
-    popover: gtk4::Popover,
+    menu_host: Rc<menu::FloatingMenuHost>,
+    composer_widget: gtk4::Widget,
+    container: gtk4::Box,
     header_lbl: gtk4::Label,
     list: gtk4::ListBox,
     /// Currently offered items, in display order.
@@ -3745,13 +3763,13 @@ enum MentionItemKind {
 
 impl MentionPopup {
     fn is_visible(&self) -> bool {
-        self.popover.is_visible()
+        self.menu_host.is_suggest_visible()
     }
 
     fn close(&mut self) {
         self.selected = 0;
         self.replace_range = None;
-        self.popover.popdown();
+        self.menu_host.hide_suggest();
     }
 
     /// Moves the highlight, wrapping at both ends.
@@ -3850,9 +3868,7 @@ impl MentionPopup {
         self.replace_range = Some((start, end));
         self.selected = 0;
         self.render_rows();
-        if !self.popover.is_visible() {
-            self.popover.popup();
-        }
+        self.menu_host.show_suggest(&self.composer_widget, &self.container);
     }
 
     /// Rebuilds the row widgets for `self.items`.
