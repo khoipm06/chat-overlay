@@ -1,4 +1,3 @@
-pub use crate::render::apply_assistant_markup;
 #[cfg(test)]
 use crate::render::format_markdown_to_pango;
 
@@ -98,7 +97,47 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
     }
 }
 
+/// Resolves the bundled Codicon symbolic icon name for a tool invocation.
+pub fn tool_icon_name(name: &str) -> &'static str {
+    let lower = name.to_lowercase();
+    if lower == "bash"
+        || lower == "powershell"
+        || lower == "terminal"
+        || lower == "exec"
+        || lower == "run_command"
+    {
+        "codicon-terminal-symbolic"
+    } else if lower == "read"
+        || lower == "view"
+        || lower.contains("read_")
+        || lower.contains("view_")
+        || lower.contains("get_file")
+    {
+        "codicon-file-code-symbolic"
+    } else if lower == "edit"
+        || lower == "write"
+        || lower.contains("edit_")
+        || lower.contains("replace_")
+        || lower.contains("patch")
+        || lower.contains("write_")
+    {
+        "codicon-edit-symbolic"
+    } else if lower == "search"
+        || lower == "grep"
+        || lower == "find"
+        || lower.contains("search")
+        || lower.contains("grep")
+        || lower.contains("find_")
+        || lower.contains("list_")
+    {
+        "codicon-search-symbolic"
+    } else {
+        "codicon-sparkle-symbolic"
+    }
+}
+
 /// Resolves standard icon glyph for tool name according to VS Code Copilot Chat taxonomy.
+#[cfg(test)]
 pub fn tool_icon_for_name(name: &str) -> &'static str {
     let lower = name.to_lowercase();
     if lower == "bash" || lower == "powershell" || lower == "terminal" || lower == "exec" || lower == "run_command" {

@@ -1,5 +1,5 @@
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
@@ -9,6 +9,28 @@ pub struct UsageMetrics {
     pub output_tokens: u64,
     pub total_tokens: u64,
     pub duration_ms: u64,
+}
+
+/// Models / modes / thinking levels / slash commands reported by the harness.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct SessionConfig {
+    pub models: Vec<(String, String)>,
+    pub current_model: String,
+    pub modes: Vec<(String, String)>,
+    pub current_mode: String,
+    pub thinking_levels: Vec<String>,
+    pub commands: Vec<(String, String)>,
+}
+
+/// A tool permission request the agent is waiting on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PermissionRequest {
+    /// JSON-RPC id to answer with `respond_permission`.
+    pub request_id: u64,
+    pub title: String,
+    pub detail: String,
+    /// `(option_id, label)`, e.g. `("allow_once", "Allow")`.
+    pub options: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -37,6 +59,10 @@ pub enum StreamEvent {
     Metrics(UsageMetrics),
     /// Backward-compatible full line
     Content(String),
+    /// Model / mode / command catalogs for the composer.
+    SessionConfig(SessionConfig),
+    /// Tool permission request awaiting a user decision.
+    PermissionRequest(PermissionRequest),
     /// Error message output
     Error(String),
     /// Final completion of assistant turn
@@ -46,7 +72,484 @@ pub enum StreamEvent {
 pub struct PiRunner {
     child: Option<Child>,
     generation: u64,
+    /// Session id reused across turns so the agent keeps conversation context.
+    session_id: String,
+    /// Directory the agent runs in (workspace / `cwd`).
+    workspace_dir: std::path::PathBuf,
 }
+
+/// The active agent backend.
+///
+/// Both variants share one interface so the UI never branches on which harness
+/// is running: it builds a `Harness`, calls `spawn_prompt`, and drains events.
+pub enum Harness {
+    Pi(PiRunner),
+    Acp(AgyAcpRunner),
+}
+
+impl Harness {
+    /// Builds the harness named by `kind`, wired to the configured workspace.
+    pub fn from_settings(
+        kind: crate::settings::HarnessKind,
+        settings: &crate::settings::AppSettings,
+    ) -> Self {
+        let workspace = std::path::PathBuf::from(&settings.workspace_dir);
+        match kind {
+            crate::settings::HarnessKind::PiJson => {
+                let mut runner = PiRunner::new();
+                runner.set_workspace_dir(workspace);
+                Harness::Pi(runner)
+            }
+            crate::settings::HarnessKind::AgyAcp => {
+                let mut runner = AgyAcpRunner::new(
+                    settings.acp_command.clone(),
+                    settings.acp_args.clone(),
+                    workspace,
+                );
+                runner
+                    .set_auto_approve(settings.auto_approve_permissions || settings.acp_mode == "auto");
+                Harness::Acp(runner)
+            }
+        }
+    }
+
+    pub fn generation(&self) -> u64 {
+        match self {
+            Harness::Pi(r) => r.generation(),
+            Harness::Acp(r) => r.generation(),
+        }
+    }
+
+    pub fn abort(&mut self) {
+        match self {
+            Harness::Pi(r) => r.abort(),
+            Harness::Acp(r) => r.abort(),
+        }
+    }
+
+    /// Starts a fresh conversation on the current harness.
+    pub fn new_session(&mut self) {
+        match self {
+            Harness::Pi(r) => r.new_session(),
+            Harness::Acp(r) => r.new_session(),
+        }
+    }
+
+    /// Rebinds the working directory. Always starts a new session, because one
+    /// conversation is scoped to one workspace.
+    pub fn set_workspace_dir(&mut self, dir: impl Into<std::path::PathBuf>) {
+        match self {
+            Harness::Pi(r) => r.set_workspace_dir(dir),
+            Harness::Acp(r) => r.set_workspace_dir(dir),
+        }
+    }
+
+    /// Swaps the active harness, discarding the old one's session.
+    pub fn set_kind(
+        &mut self,
+        kind: crate::settings::HarnessKind,
+        settings: &crate::settings::AppSettings,
+    ) {
+        let next = Harness::from_settings(kind, settings);
+        // Replace in place so existing clones (test doubles) stay valid.
+        *self = next;
+    }
+
+    /// Toggles automatic permission approval; ignored by the Pi harness.
+    pub fn set_auto_approve(&mut self, on: bool) {
+        if let Harness::Acp(r) = self {
+            r.set_auto_approve(on);
+        }
+    }
+
+    /// Applies a model / thinking-level change to a live ACP session.
+    pub fn set_config_option(&self, config_id: &str, value: &str) {
+        if let Harness::Acp(r) = self {
+            r.set_config_option(config_id, value);
+        }
+    }
+
+    /// Applies an ACP mode change to a live session.
+    pub fn set_mode(&self, mode_id: &str) {
+        if let Harness::Acp(r) = self {
+            r.set_mode(mode_id);
+        }
+    }
+
+    /// Answers a pending permission request; a no-op for the Pi harness.
+    pub fn respond_permission(&self, request_id: u64, option_id: &str) {
+        if let Harness::Acp(r) = self {
+            r.respond_permission(request_id, option_id);
+        }
+    }
+
+    /// Sends one prompt on the active harness.
+    ///
+    /// ACP selections are pushed to the live session first, so the harness and
+    /// the UI selectors cannot drift apart.
+    pub fn spawn_prompt(
+        &mut self,
+        prompt: String,
+        attached_files: Vec<(String, String)>,
+        model: Option<String>,
+        thinking_level: Option<String>,
+        mode: Option<String>,
+        tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match self {
+            Harness::Pi(runner) => {
+                runner.spawn_prompt(prompt, attached_files, model, thinking_level, mode, tx)
+            }
+            Harness::Acp(runner) => {
+                if let Some(m) = model.as_deref() {
+                    if !m.is_empty() && m != "default" {
+                        runner.set_config_option("model", m);
+                    }
+                }
+                if let Some(t) = thinking_level.as_deref() {
+                    if !t.is_empty() {
+                        runner.set_config_option("thought_level", t);
+                    }
+                }
+                if let Some(md) = mode.as_deref() {
+                    if !md.is_empty() {
+                        runner.set_mode(md);
+                    }
+                }
+                runner.spawn_prompt(prompt, attached_files, tx)
+            }
+        }
+    }
+}
+
+/// Commands sent to the ACP controller task.
+enum AcpCommand {
+    /// Apply harness settings; drops the process so the next prompt rebinds.
+    Configure {
+        command: String,
+        args: Vec<String>,
+        workspace: std::path::PathBuf,
+        auto_approve: bool,
+    },
+    /// Discard the conversation and start a new ACP session.
+    NewSession,
+    /// Answer a parked permission request.
+    RespondPermission { request_id: u64, option_id: String },
+    /// Change model / thinking level on the live session.
+    SetConfigOption { config_id: String, value: String },
+    /// Change ACP mode on the live session.
+    SetMode { mode_id: String },
+    /// Send a prompt.
+    Prompt {
+        prompt: String,
+        attached_files: Vec<(String, String)>,
+        gen: u64,
+    },
+}
+
+/// Drives a persistent `agy acp` process across turns.
+///
+/// The child process is owned by a detached controller task rather than by this
+/// struct, so the GTK thread can stay fully synchronous: it posts commands into
+/// a channel and receives `StreamEvent`s back.
+pub struct AgyAcpRunner {
+    tx: Option<mpsc::UnboundedSender<AcpCommand>>,
+    generation: u64,
+    workspace_dir: std::path::PathBuf,
+    acp_command: String,
+    acp_args: Vec<String>,
+    auto_approve: bool,
+}
+
+impl AgyAcpRunner {
+    pub fn new(acp_command: String, acp_args: Vec<String>, workspace_dir: std::path::PathBuf) -> Self {
+        Self {
+            tx: None,
+            generation: 1,
+            workspace_dir,
+            acp_command,
+            acp_args,
+            auto_approve: false,
+        }
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn set_auto_approve(&mut self, on: bool) {
+        self.auto_approve = on;
+        self.send_config();
+    }
+
+    /// Rebinds the harness: a new workspace or command needs a fresh process.
+    pub fn set_workspace_dir(&mut self, dir: impl Into<std::path::PathBuf>) {
+        let dir = dir.into();
+        if self.workspace_dir == dir {
+            return;
+        }
+        self.workspace_dir = dir;
+        self.generation = self.generation.wrapping_add(1);
+        self.send_config();
+    }
+
+    /// Drops the current conversation; the next prompt starts a new session.
+    pub fn new_session(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(AcpCommand::NewSession);
+        }
+    }
+
+    pub fn abort(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    fn send(&self, cmd: AcpCommand) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(cmd);
+        }
+    }
+
+    fn send_config(&self) {
+        self.send(AcpCommand::Configure {
+            command: self.acp_command.clone(),
+            args: self.acp_args.clone(),
+            workspace: self.workspace_dir.clone(),
+            auto_approve: self.auto_approve,
+        });
+    }
+
+    /// Answers a pending permission request.
+    pub fn respond_permission(&self, request_id: u64, option_id: &str) {
+        self.send(AcpCommand::RespondPermission {
+            request_id,
+            option_id: option_id.to_string(),
+        });
+    }
+
+    /// Applies a model / thinking-level change to the live session.
+    pub fn set_config_option(&self, config_id: &str, value: &str) {
+        self.send(AcpCommand::SetConfigOption {
+            config_id: config_id.to_string(),
+            value: value.to_string(),
+        });
+    }
+
+    /// Applies an ACP mode change to the live session.
+    pub fn set_mode(&self, mode_id: &str) {
+        self.send(AcpCommand::SetMode {
+            mode_id: mode_id.to_string(),
+        });
+    }
+
+    /// Sends one prompt. Starts the controller task on first use.
+    pub fn spawn_prompt(
+        &mut self,
+        prompt: String,
+        attached_files: Vec<(String, String)>,
+        tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.abort();
+        let gen = self.generation;
+
+        let cmd_tx = self.ensure_controller(tx);
+        cmd_tx
+            .send(AcpCommand::Prompt {
+                prompt,
+                attached_files,
+                gen,
+            })
+            .map_err(|_| "ACP controller task stopped")?;
+        Ok(())
+    }
+
+    /// Starts the controller task if needed and returns its command channel.
+    fn ensure_controller(&mut self, tx: mpsc::UnboundedSender<(u64, StreamEvent)>) -> mpsc::UnboundedSender<AcpCommand> {
+        if let Some(existing) = &self.tx {
+            return existing.clone();
+        }
+
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<AcpCommand>();
+        let initial = AcpSettings {
+            command: self.acp_command.clone(),
+            args: self.acp_args.clone(),
+            workspace: self.workspace_dir.clone(),
+            auto_approve: self.auto_approve,
+        };
+        tokio::spawn(acp_controller(initial, cmd_rx, tx));
+        self.tx = Some(cmd_tx.clone());
+        cmd_tx
+    }
+}
+
+impl Default for AgyAcpRunner {
+    fn default() -> Self {
+        Self::new(
+            String::new(),
+            vec!["acp".to_string()],
+            std::env::current_dir().unwrap_or_default(),
+        )
+    }
+}
+
+/// Harness settings the controller task owns.
+struct AcpSettings {
+    command: String,
+    args: Vec<String>,
+    workspace: std::path::PathBuf,
+    auto_approve: bool,
+}
+
+/// Owns the `agy acp` process for the lifetime of the conversation.
+async fn acp_controller(
+    mut settings: AcpSettings,
+    mut cmd_rx: mpsc::UnboundedReceiver<AcpCommand>,
+    tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
+) {
+    let mut client: Option<crate::acp::AgyAcpClient> = None;
+
+    while let Some(cmd) = cmd_rx.recv().await {
+        match cmd {
+            AcpCommand::Configure { command, args, workspace, auto_approve } => {
+                settings = AcpSettings { command, args, workspace, auto_approve };
+                // cwd and command are bound at spawn time.
+                if let Some(mut c) = client.take() {
+                    c.shutdown().await;
+                }
+            }
+            AcpCommand::NewSession => {
+                if let Some(mut c) = client.take() {
+                    c.shutdown().await;
+                }
+            }
+            AcpCommand::RespondPermission { request_id, option_id } => {
+                if let Some(c) = client.as_mut() {
+                    let _ = c.respond_permission(request_id, &option_id).await;
+                }
+            }
+            AcpCommand::SetConfigOption { config_id, value } => {
+                if let Some(c) = client.as_mut() {
+                    // Best effort: a rejected change is reported by the agent.
+                    let _ = c.set_config_option(&config_id, &value).await;
+                }
+            }
+            AcpCommand::SetMode { mode_id } => {
+                if let Some(c) = client.as_mut() {
+                    let _ = c.set_mode(&mode_id).await;
+                }
+            }
+            AcpCommand::Prompt { prompt, attached_files, gen } => {
+                if client.is_none() {
+                    match crate::acp::AgyAcpClient::spawn(
+                        &settings.command,
+                        &settings.args,
+                        &settings.workspace,
+                        settings.auto_approve,
+                    )
+                    .await
+                    {
+                        Ok(c) => {
+                            let _ = tx.send((gen, StreamEvent::SessionConfig(c.config.clone())));
+                            client = Some(c);
+                        }
+                        Err(e) => {
+                            let _ = tx.send((
+                                gen,
+                                StreamEvent::Error(format!("failed to start ACP agent: {e}")),
+                            ));
+                            let _ = tx.send((gen, StreamEvent::Done));
+                            continue;
+                        }
+                    }
+                }
+
+                if let Some(c) = client.as_mut() {
+                    let blocks = crate::acp::build_prompt_blocks(&prompt, &attached_files);
+                    if let Err(e) = c.prompt(blocks, gen, &tx, settings.auto_approve).await {
+                        let _ = tx.send((gen, StreamEvent::Error(e.to_string())));
+                    }
+                    let _ = tx.send((gen, StreamEvent::Done));
+                }
+            }
+        }
+    }
+
+    if let Some(mut c) = client.take() {
+        c.shutdown().await;
+    }
+}
+
+/// Directory holding per-session state for the JSON harness.
+pub fn session_state_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("pi-overlay-sessions")
+}
+
+/// Generates a fresh session id, e.g. `pi-1758000000-42`.
+///
+/// The counter guarantees uniqueness even for bursts within the same second,
+/// which matters because every workspace change mints a new session.
+pub fn new_session_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("pi-{secs}-{n}")
+}
+
+/// Model ids the Pi harness can be pointed at.
+///
+/// Read from the user's local Pi config so the composer offers the same choices
+/// the CLI would.
+pub fn query_pi_models_sync() -> Vec<(String, String)> {
+    let mut results: Vec<(String, String)> = Vec::new();
+
+    if let Ok(home) = std::env::var("HOME") {
+        for rel in [".pi/agent/models.json", ".pi/agent/models-store.json"] {
+            let path = std::path::PathBuf::from(&home).join(rel);
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) else {
+                continue;
+            };
+            // Both files nest models under provider objects.
+            let providers = val
+                .get("providers")
+                .and_then(|p| p.as_object())
+                .or_else(|| val.as_object());
+            let Some(providers) = providers else { continue };
+
+            for (provider_id, provider) in providers {
+                let Some(models) = provider.get("models").and_then(|m| m.as_array()) else {
+                    continue;
+                };
+                for model in models {
+                    let Some(id) = model.get("id").and_then(|i| i.as_str()) else {
+                        continue;
+                    };
+                    let name = model.get("name").and_then(|n| n.as_str()).unwrap_or(id);
+                    let qualified = if id.starts_with(provider_id) {
+                        id.to_string()
+                    } else {
+                        format!("{provider_id}/{id}")
+                    };
+                    if !results.iter().any(|(existing, _)| existing == &qualified) {
+                        results.push((qualified, format!("{provider_id}/{name}")));
+                    }
+                }
+            }
+        }
+    }
+
+    results.insert(0, ("default".to_string(), "Auto (system preset)".to_string()));
+    results
+}
+
 
 pub fn resolve_pi_binary() -> std::path::PathBuf {
     if let Ok(path) = std::env::var("PATH") {
@@ -83,30 +586,48 @@ pub fn resolve_pi_binary() -> std::path::PathBuf {
     std::path::PathBuf::from("pi")
 }
 
-fn which_binary(path: &std::path::Path) -> bool {
-    if path.is_file() {
-        return true;
-    }
-    if let Ok(paths) = std::env::var("PATH") {
-        for p in std::env::split_paths(&paths) {
-            if p.join(path).is_file() {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 impl PiRunner {
     pub fn new() -> Self {
         Self {
             child: None,
             generation: 1,
+            session_id: new_session_id(),
+            workspace_dir: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
         }
+    }
+
+    /// Session id reused across turns; exposed for tests.
+    #[cfg(test)]
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    /// Directory the harness runs in; exposed for tests.
+    #[cfg(test)]
+    pub fn workspace_dir(&self) -> &std::path::Path {
+        &self.workspace_dir
     }
 
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// Starts a fresh conversation: new session id, previous child reaped.
+    pub fn new_session(&mut self) {
+        self.abort();
+        self.session_id = new_session_id();
+    }
+
+    /// Points the harness at a different workspace (the agent's `cwd`).
+    ///
+    /// Resets the session because a conversation is bound to one directory.
+    pub fn set_workspace_dir(&mut self, dir: impl Into<std::path::PathBuf>) {
+        let dir = dir.into();
+        if self.workspace_dir == dir {
+            return;
+        }
+        self.workspace_dir = dir;
+        self.new_session();
     }
 
     /// Immediately abort active task: increment generation synchronously to cancel stale events,
@@ -133,191 +654,32 @@ impl PiRunner {
         // Abort previous session before launching new prompt
         self.abort();
         let gen = self.generation;
+        let session_id = self.session_id.clone();
+        let workspace_dir = self.workspace_dir.clone();
 
-        // Ephemeral temp session directory
-        let session_dir = std::env::temp_dir().join("pi-overlay-sessions");
-        let _ = std::fs::create_dir_all(&session_dir);
+        // Prepend user toolchain directories to PATH for pi and tool executions
+        let augmented_path = augmented_path();
 
-        let acp_bin = crate::acp::resolve_pi_acp_binary();
-        let use_acp = acp_bin.is_file() || which_binary(&acp_bin);
-
-        // Prepend user toolchain directories to PATH for pi, pi-acp and tool executions
-        let current_path = std::env::var("PATH").unwrap_or_default();
-        let augmented_path = if let Ok(home) = std::env::var("HOME") {
-            format!(
-                "{}/.local/share/mise/installs/node/lts/bin:{}/.local/share/mise/shims:{}/.bun/bin:{}/.local/bin:{}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
-                home, home, home, home, home, current_path
-            )
-        } else {
-            format!("/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}", current_path)
-        };
-
-        if use_acp {
-            let mut cmd = Command::new(&acp_bin);
-            cmd.env("PATH", &augmented_path);
-            cmd.stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-
-            let mut child = cmd.spawn()?;
-            let mut stdin = child.stdin.take().ok_or("Failed to capture stdin")?;
-            let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
-            let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
-
-            let tx_out = tx.clone();
-            let session_dir_clone = session_dir.clone();
-            tokio::spawn(async move {
-                let mut reader = BufReader::new(stdout).lines();
-
-                // 1. Handshake initialize
-                let init_req = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "initialize",
-                    "params": {
-                        "protocolVersion": 1,
-                        "clientCapabilities": { "fs": false, "terminal": false }
-                    }
-                });
-                let mut init_line = serde_json::to_string(&init_req).unwrap_or_default();
-                init_line.push('\n');
-                let _ = stdin.write_all(init_line.as_bytes()).await;
-                let _ = stdin.flush().await;
-
-                // Wait for init response
-                let _ = reader.next_line().await;
-
-                // 2. session/new
-                let cwd_str = session_dir_clone.to_str().unwrap_or(".");
-                let sess_req = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "method": "session/new",
-                    "params": {
-                        "cwd": cwd_str,
-                        "mcpServers": []
-                    }
-                });
-                let mut sess_line = serde_json::to_string(&sess_req).unwrap_or_default();
-                sess_line.push('\n');
-                let _ = stdin.write_all(sess_line.as_bytes()).await;
-                let _ = stdin.flush().await;
-
-                let sess_resp = reader.next_line().await.ok().flatten().unwrap_or_default();
-                let sess_val: serde_json::Value = serde_json::from_str(&sess_resp).unwrap_or_default();
-                let session_id = sess_val.get("result")
-                    .and_then(|r| r.get("sessionId"))
-                    .and_then(|s| s.as_str())
-                    .unwrap_or("session-1")
-                    .to_string();
-
-                // 3. Set model if specified
-                if let Some(m) = model.as_deref() {
-                    if m != "default" && !m.is_empty() {
-                        let cfg_req = serde_json::json!({
-                            "jsonrpc": "2.0",
-                            "id": 3,
-                            "method": "session/setConfigOption",
-                            "params": {
-                                "sessionId": session_id,
-                                "configId": "model",
-                                "value": m
-                            }
-                        });
-                        let mut line = serde_json::to_string(&cfg_req).unwrap_or_default();
-                        line.push('\n');
-                        let _ = stdin.write_all(line.as_bytes()).await;
-                        let _ = stdin.flush().await;
-                    }
-                }
-
-                // 4. Set thinking level if specified
-                if let Some(th) = thinking_level.as_deref() {
-                    if !th.is_empty() {
-                        let cfg_req = serde_json::json!({
-                            "jsonrpc": "2.0",
-                            "id": 4,
-                            "method": "session/setConfigOption",
-                            "params": {
-                                "sessionId": session_id,
-                                "configId": "thought_level",
-                                "value": th
-                            }
-                        });
-                        let mut line = serde_json::to_string(&cfg_req).unwrap_or_default();
-                        line.push('\n');
-                        let _ = stdin.write_all(line.as_bytes()).await;
-                        let _ = stdin.flush().await;
-                    }
-                }
-
-                // 5. Build prompt payload with attached context
-                let prompt_blocks = build_acp_prompt_blocks(&prompt, &attached_files);
-
-                let prompt_req = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": 5,
-                    "method": "session/prompt",
-                    "params": {
-                        "sessionId": session_id,
-                        "prompt": prompt_blocks
-                    }
-                });
-                let mut prompt_line = serde_json::to_string(&prompt_req).unwrap_or_default();
-                prompt_line.push('\n');
-                let _ = stdin.write_all(prompt_line.as_bytes()).await;
-                let _ = stdin.flush().await;
-
-                // 6. Read stream events
-                while let Ok(Some(line)) = reader.next_line().await {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    if let Some(ev) = crate::acp::parse_acp_message(trimmed) {
-                        let is_done = matches!(ev, StreamEvent::Done);
-                        let _ = tx_out.send((gen, ev));
-                        if is_done {
-                            return;
-                        }
-                    } else if parse_and_dispatch_line(trimmed, gen, &tx_out).is_err() {
-                        return;
-                    }
-                }
-                let _ = tx_out.send((gen, StreamEvent::Done));
-            });
-
-            let tx_err = tx;
-            tokio::spawn(async move {
-                let mut reader = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = reader.next_line().await {
-                    let trimmed = line.trim();
-                    if !trimmed.is_empty() && !trimmed.contains("DeprecationWarning") {
-                        let _ = tx_err.send((gen, StreamEvent::Error(line)));
-                    }
-                }
-            });
-
-            self.child = Some(child);
-            return Ok(());
+        if !workspace_dir.is_dir() {
+            return Err(format!("workspace directory not found: {}", workspace_dir.display()).into());
         }
 
-        // Fallback: spawn direct pi runner if ACP adapter is absent
         let pi_bin = resolve_pi_binary();
         let mut cmd = Command::new(&pi_bin);
-        cmd.env("PATH", &augmented_path);
+        cmd.env("PATH", &augmented_path)
+            .current_dir(&workspace_dir);
 
         let args = build_pi_command_args(
-            &session_dir,
+            &session_state_dir(),
+            &session_id,
             &prompt,
             model.as_deref(),
             thinking_level.as_deref(),
             mode.as_deref(),
+            &attached_files,
         );
 
-        cmd.args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
 
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
@@ -341,14 +703,30 @@ impl PiRunner {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    let _ = tx_err.send((gen, StreamEvent::Error(line)));
+                if trimmed.is_empty()
+                    || trimmed.starts_with("Warning: No project session found with id")
+                {
+                    continue;
                 }
+                let _ = tx_err.send((gen, StreamEvent::Error(line)));
             }
         });
 
         self.child = Some(child);
         Ok(())
+    }
+}
+
+/// PATH with the user's toolchain directories prepended, so `pi` and the
+/// commands it runs resolve the same binaries as the user's shell.
+pub fn augmented_path() -> String {
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    match std::env::var("HOME") {
+        Ok(home) => format!(
+            "{h}/.local/share/mise/installs/node/lts/bin:{h}/.local/share/mise/shims:{h}/.bun/bin:{h}/.local/bin:{h}/.cargo/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{current_path}",
+            h = home
+        ),
+        Err(_) => format!("/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{current_path}"),
     }
 }
 
@@ -363,12 +741,16 @@ fn parse_and_dispatch_line(
         return Ok(());
     }
 
-    // 1. Check for standard ACP (Agent Client Protocol) JSON-RPC notifications
-    if let Some(acp_event) = crate::acp::parse_acp_message(trimmed) {
-        if tx.send((gen, acp_event)).is_err() {
-            return Err(());
+    // 1. ACP-style JSON-RPC notifications can appear on the same stream.
+    if let Some(crate::acp::AcpMessage::Notification { params, .. }) =
+        crate::acp::classify_message(trimmed)
+    {
+        if let Some(ev) = crate::acp::session_update_to_event(&params) {
+            if tx.send((gen, ev)).is_err() {
+                return Err(());
+            }
+            return Ok(());
         }
-        return Ok(());
     }
 
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
@@ -497,53 +879,19 @@ fn parse_and_dispatch_line(
     Ok(())
 }
 
-pub fn build_acp_prompt_blocks(
-    prompt: &str,
-    attached_files: &[(String, String)],
-) -> Vec<serde_json::Value> {
-    let mut prompt_blocks = Vec::new();
-    for (fname, content) in attached_files {
-        if crate::capture::is_image_path(fname) {
-            let mime = crate::capture::image_mime_type(fname);
-            let base64_data = if content.starts_with("data:image/") {
-                if let Some(pos) = content.find(";base64,") {
-                    content[pos + 8..].to_string()
-                } else {
-                    content.clone()
-                }
-            } else if !content.is_empty() && !std::path::Path::new(fname).exists() {
-                content.clone()
-            } else if let Ok(bytes) = std::fs::read(fname) {
-                crate::capture::base64_encode(&bytes)
-            } else {
-                content.clone()
-            };
-
-            prompt_blocks.push(serde_json::json!({
-                "type": "image",
-                "mimeType": mime,
-                "data": base64_data
-            }));
-        } else {
-            prompt_blocks.push(serde_json::json!({
-                "type": "text",
-                "text": format!("[Attached Context File: {}]\n```\n{}\n```\n", fname, content)
-            }));
-        }
-    }
-    prompt_blocks.push(serde_json::json!({
-        "type": "text",
-        "text": prompt
-    }));
-    prompt_blocks
-}
-
+/// Builds the `pi -p --mode json` argument vector.
+///
+/// Attachments are passed as `@<path>` positional arguments after `--` so the
+/// harness reads them from disk; inline (non-path) content is inlined into the
+/// prompt text instead.
 pub fn build_pi_command_args(
     session_dir: &std::path::Path,
+    session_id: &str,
     prompt: &str,
     model: Option<&str>,
     thinking_level: Option<&str>,
     mode: Option<&str>,
+    attached_files: &[(String, String)],
 ) -> Vec<String> {
     let mut args = vec![
         "-p".to_string(),
@@ -551,6 +899,8 @@ pub fn build_pi_command_args(
         "json".to_string(),
         "--session-dir".to_string(),
         session_dir.to_string_lossy().to_string(),
+        "--session-id".to_string(),
+        session_id.to_string(),
     ];
 
     if let Some(m) = model {
@@ -589,9 +939,51 @@ pub fn build_pi_command_args(
         }
     }
 
+    let has_screen = has_screen_attachment(attached_files);
+    if has_screen {
+        args.push("--append-system-prompt".to_string());
+        args.push(SCREEN_MARKUP_HINT.trim().to_string());
+    }
+
+    let mut prompt_text = if has_screen {
+        prompt.replace("@screen", "[attached screenshot]")
+    } else {
+        prompt.to_string()
+    };
+
+    // `pi` treats any positional argument starting with `@` as `@file`, so guard
+    // prompts like `@main.rs explain` or `@screen ...` from being parsed as a path.
+    if prompt_text.trim_start().starts_with('@') {
+        prompt_text = format!("Use the referenced context for this request: {prompt_text}");
+    }
+
+    // Path-backed attachments become `@file` arguments; inline blobs are inlined.
+    let mut file_args: Vec<String> = Vec::new();
+    for (name, content) in attached_files {
+        if std::path::Path::new(name).is_file() {
+            file_args.push(format!("@{name}"));
+        } else if !content.trim().is_empty() {
+            prompt_text.push_str(&format!("\n\n[Attached: {name}]\n```\n{content}\n```\n"));
+        }
+    }
+
     args.push("--".to_string());
-    args.push(prompt.to_string());
+    args.extend(file_args);
+    args.push(prompt_text);
     args
+}
+
+/// Teaches the agent how to highlight screen regions for the user.
+pub const SCREEN_MARKUP_HINT: &str = "\n\n[Screen context attached. To point at something on the user's screen, \
+emit an inline tag like [[markup: box x=12 y=30 w=25 h=10 label=\"Retry button\"]] or \
+[[markup: arrow x1=50 y1=50 x2=25 y2=30 label=\"here\"]]. Coordinates are percentages \
+of the screen (0-100), origin top-left.]";
+
+/// True when at least one attachment is a screen capture.
+pub fn has_screen_attachment(attached_files: &[(String, String)]) -> bool {
+    attached_files
+        .iter()
+        .any(|(name, _)| crate::capture::is_image_path(name))
 }
 
 pub fn extract_tool_result_text(v: &serde_json::Value) -> String {
@@ -639,6 +1031,7 @@ mod tests {
         let runner = PiRunner::new();
         assert_eq!(runner.generation(), 1);
         assert!(runner.child.is_none());
+        assert!(runner.session_id().starts_with("pi-"));
     }
 
     #[test]
@@ -654,6 +1047,47 @@ mod tests {
         assert_eq!(runner.generation(), 2);
         runner.abort();
         assert_eq!(runner.generation(), 3);
+    }
+
+    #[test]
+    fn test_new_session_changes_id_and_keeps_workspace() {
+        let mut runner = PiRunner::new();
+        let first = runner.session_id().to_string();
+        let ws = runner.workspace_dir().to_path_buf();
+        runner.new_session();
+        assert_ne!(runner.session_id(), first, "new session must mint a new id");
+        assert_eq!(runner.workspace_dir(), ws);
+    }
+
+    #[test]
+    fn test_set_workspace_dir_resets_session() {
+        let mut runner = PiRunner::new();
+        let before = runner.session_id().to_string();
+        let target = std::env::temp_dir();
+        runner.set_workspace_dir(target.clone());
+        assert_eq!(runner.workspace_dir(), target.as_path());
+        assert_ne!(
+            runner.session_id(),
+            before,
+            "changing workspace must start a new session"
+        );
+    }
+
+    #[test]
+    fn test_set_same_workspace_keeps_session() {
+        let mut runner = PiRunner::new();
+        let ws = runner.workspace_dir().to_path_buf();
+        let before = runner.session_id().to_string();
+        runner.set_workspace_dir(ws);
+        assert_eq!(runner.session_id(), before);
+    }
+
+    #[test]
+    fn test_new_session_id_is_unique_within_a_second() {
+        let a = new_session_id();
+        let b = new_session_id();
+        assert_ne!(a, b, "bursts in one second must still be unique");
+        assert!(a.starts_with("pi-"));
     }
 
     #[test]
@@ -861,65 +1295,146 @@ mod tests {
     }
 
     #[test]
-    fn test_build_acp_prompt_blocks() {
-        let attached = vec![
-            ("notes.txt".to_string(), "hello world".to_string()),
-            ("screen.png".to_string(), "Zm9v".to_string()),
-        ];
-        let blocks = build_acp_prompt_blocks("Describe this", &attached);
-        assert_eq!(blocks.len(), 3);
-        assert_eq!(blocks[0]["type"], "text");
-        assert!(blocks[0]["text"].as_str().unwrap().contains("[Attached Context File: notes.txt]"));
-        assert_eq!(blocks[1]["type"], "image");
-        assert_eq!(blocks[1]["mimeType"], "image/png");
-        assert_eq!(blocks[1]["data"], "Zm9v");
-        assert_eq!(blocks[2]["type"], "text");
-        assert_eq!(blocks[2]["text"], "Describe this");
-    }
-
-    #[test]
     fn test_build_pi_command_args_matrix() {
         let dummy_dir = std::path::Path::new("/tmp/test-sessions");
+        let no_files: Vec<(String, String)> = Vec::new();
 
-        // 1. Default parameters: no model or mode override, default prompt
-        let args1 = build_pi_command_args(dummy_dir, "Hello", Some("default"), Some("medium"), Some("agent"));
+        // 1. Default parameters: no model override, default prompt
+        let args1 = build_pi_command_args(
+            dummy_dir,
+            "pi-1",
+            "Hello",
+            Some("default"),
+            Some("medium"),
+            Some("agent"),
+            &no_files,
+        );
         assert_eq!(args1[0], "-p");
         assert_eq!(args1[1], "--mode");
         assert_eq!(args1[2], "json");
         assert_eq!(args1[3], "--session-dir");
         assert_eq!(args1[4], "/tmp/test-sessions");
+        assert_eq!(args1[5], "--session-id");
+        assert_eq!(args1[6], "pi-1");
         assert!(!args1.contains(&"--model".to_string()));
-        assert!(args1.contains(&"--thinking".to_string()));
         assert_eq!(args1[args1.iter().position(|r| r == "--thinking").unwrap() + 1], "medium");
-        assert!(!args1.contains(&"--exclude-tools".to_string()));
-        assert!(!args1.contains(&"--append-system-prompt".to_string()));
         assert_eq!(args1[args1.len() - 2], "--");
         assert_eq!(args1[args1.len() - 1], "Hello");
 
         // 2. Specific model and ask mode
-        let args2 = build_pi_command_args(dummy_dir, "Review", Some("claude-3-7-sonnet"), Some("high"), Some("ask"));
-        assert!(args2.contains(&"--model".to_string()));
+        let args2 = build_pi_command_args(
+            dummy_dir, "pi-2", "Review", Some("claude-3-7-sonnet"), Some("high"), Some("ask"), &no_files,
+        );
         assert_eq!(args2[args2.iter().position(|r| r == "--model").unwrap() + 1], "claude-3-7-sonnet");
-        assert!(args2.contains(&"--thinking".to_string()));
         assert_eq!(args2[args2.iter().position(|r| r == "--thinking").unwrap() + 1], "high");
-        assert!(args2.contains(&"--exclude-tools".to_string()));
         assert_eq!(args2[args2.iter().position(|r| r == "--exclude-tools").unwrap() + 1], "edit,write");
-        assert!(args2.contains(&"--append-system-prompt".to_string()));
 
-        // 3. Plan mode
-        let args3 = build_pi_command_args(dummy_dir, "Plan arch", None, Some("off"), Some("plan"));
-        assert!(args3.contains(&"--exclude-tools".to_string()));
+        // 3. Plan mode disables write tools
+        let args3 = build_pi_command_args(
+            dummy_dir, "pi-3", "Plan arch", None, Some("off"), Some("plan"), &no_files,
+        );
         assert_eq!(args3[args3.iter().position(|r| r == "--exclude-tools").unwrap() + 1], "edit,write");
-        assert!(args3.contains(&"--append-system-prompt".to_string()));
-        assert!(args3.contains(&"--thinking".to_string()));
         assert_eq!(args3[args3.iter().position(|r| r == "--thinking").unwrap() + 1], "off");
 
-        // 4. Edit mode
-        let args4 = build_pi_command_args(dummy_dir, "Refactor", Some("gpt-4o"), None, Some("edit"));
+        // 4. Edit mode keeps tools enabled
+        let args4 = build_pi_command_args(
+            dummy_dir, "pi-4", "Refactor", Some("gpt-4o"), None, Some("edit"), &no_files,
+        );
         assert!(!args4.contains(&"--exclude-tools".to_string()));
-        assert!(args4.contains(&"--append-system-prompt".to_string()));
-        assert!(args4.contains(&"--model".to_string()));
         assert_eq!(args4[args4.iter().position(|r| r == "--model").unwrap() + 1], "gpt-4o");
+    }
+
+    #[test]
+    fn test_build_pi_command_args_passes_existing_attachment_paths() {
+        let temp = std::env::temp_dir().join("pi-overlay-test-attach");
+        std::fs::create_dir_all(&temp).unwrap();
+        let file = temp.join("notes.txt");
+        std::fs::write(&file, "hello").unwrap();
+
+        let attached = vec![(file.to_string_lossy().to_string(), String::new())];
+        let args = build_pi_command_args(
+            std::path::Path::new("/tmp/sessions"),
+            "pi-9",
+            "Summarise",
+            None,
+            None,
+            None,
+            &attached,
+        );
+
+        let dash = args.iter().position(|a| a == "--").expect("must have --");
+        assert_eq!(args[dash + 1], format!("@{}", file.display()));
+        assert_eq!(args[dash + 2], "Summarise");
+        assert_eq!(args.last().unwrap(), "Summarise");
+    }
+
+    #[test]
+    fn test_build_pi_command_args_inlines_non_path_content() {
+        let attached = vec![("pasted snippet".to_string(), "let x = 1;".to_string())];
+        let args = build_pi_command_args(
+            std::path::Path::new("/tmp/sessions"),
+            "pi-10",
+            "Explain",
+            None,
+            None,
+            None,
+            &attached,
+        );
+        let last = args.last().unwrap();
+        assert!(last.contains("[Attached: pasted snippet]"));
+        assert!(last.contains("let x = 1;"));
+        assert!(last.contains("Explain"));
+        // No `@` argument for inline content that has no file on disk.
+        assert!(!args.iter().any(|a| a.starts_with("@pasted")));
+    }
+
+    #[test]
+    fn test_screen_attachment_appends_markup_hint() {
+        let attached = vec![("/tmp/pi-overlay-captures/screen.png".to_string(), String::new())];
+        assert!(has_screen_attachment(&attached));
+
+        let args = build_pi_command_args(
+            std::path::Path::new("/tmp/sessions"),
+            "pi-11",
+            "@screen What is on screen?",
+            None,
+            None,
+            None,
+            &attached,
+        );
+        let sys_idx = args
+            .iter()
+            .position(|a| a == "--append-system-prompt")
+            .expect("markup hint belongs in --append-system-prompt");
+        assert!(args[sys_idx + 1].contains("[[markup: box"));
+
+        let last = args.last().unwrap();
+        assert!(!last.starts_with('@'), "message arg must not start with @");
+        assert!(!last.contains("[[markup: box"), "markup hint must not pollute user prompt");
+        assert!(last.contains("What is on screen?"));
+    }
+
+    #[test]
+    fn test_pi_prompt_starting_with_at_mention_is_guarded() {
+        let args = build_pi_command_args(
+            std::path::Path::new("/tmp/sessions"),
+            "pi-12",
+            "@src/main.rs explain this",
+            None,
+            None,
+            None,
+            &[],
+        );
+        let last = args.last().unwrap();
+        assert!(!last.starts_with('@'));
+        assert!(last.contains("@src/main.rs explain this"));
+    }
+
+    #[test]
+    fn test_has_screen_attachment_false_for_text_files() {
+        let attached = vec![("notes.txt".to_string(), String::new())];
+        assert!(!has_screen_attachment(&attached));
+        assert!(!has_screen_attachment(&[]));
     }
 
     #[test]

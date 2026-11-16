@@ -187,9 +187,68 @@ pub fn capture_screen(mode: CaptureMode) -> Result<PathBuf, String> {
     Ok(out_file)
 }
 
+/// Full-screen capture (alias kept for callers that only need the screen).
+pub fn capture_full_screen() -> Result<PathBuf, String> {
+    capture_screen(CaptureMode::FullScreen)
+}
+
+/// Directory screenshots are written to.
+pub fn capture_dir() -> PathBuf {
+    std::env::temp_dir().join("pi-overlay-captures")
+}
+
+/// Delay between hiding the overlay and taking the shot.
+///
+/// The compositor needs a frame to actually remove our surface from the
+/// scanout, otherwise the capture contains the chat panel itself.
+pub const CAPTURE_HIDE_DELAY_MS: u64 = 120;
+
+/// Captures the screen with the overlay temporarily hidden.
+///
+/// `on_done` runs on the GTK main thread after the window has been restored, so
+/// callers can attach the capture without worrying about ordering.
+pub fn capture_screen_hiding_window<F>(window: &gtk4::ApplicationWindow, on_done: F)
+where
+    F: FnOnce(Result<PathBuf, String>) + 'static,
+{
+    use gtk4::glib;
+    use gtk4::prelude::*;
+
+    let was_visible = window.is_visible();
+    window.set_visible(false);
+
+    let window = window.clone();
+    glib::timeout_add_local_once(
+        std::time::Duration::from_millis(CAPTURE_HIDE_DELAY_MS),
+        move || {
+            let result = capture_full_screen();
+            if was_visible {
+                window.set_visible(true);
+                window.present();
+            }
+            on_done(result);
+        },
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_capture_hide_delay_gives_compositor_a_frame() {
+        // At 60 Hz one frame is ~16 ms; the delay must comfortably exceed it.
+        let frames_at_60hz = CAPTURE_HIDE_DELAY_MS / 16;
+        assert!(frames_at_60hz >= 3, "must allow several frames to repaint");
+    }
+
+    #[test]
+    fn test_capture_dir_is_writable_location() {
+        let dir = capture_dir();
+        assert!(dir.to_string_lossy().contains("pi-overlay"));
+        std::fs::create_dir_all(&dir).expect("capture dir must be creatable");
+        assert!(dir.is_dir());
+    }
 
     #[test]
     fn test_base64_encode() {

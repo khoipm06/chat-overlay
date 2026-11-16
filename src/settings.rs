@@ -88,6 +88,50 @@ pub const FONT_SIZE_PRESETS: &[FontSizePreset] = &[
     },
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum HarnessKind {
+    /// `pi -p --mode json` with a persistent session id.
+    #[default]
+    PiJson,
+    /// Persistent `agy acp` process speaking JSON-RPC over stdio.
+    AgyAcp,
+}
+
+impl HarnessKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            HarnessKind::PiJson => "Pi (JSON)",
+            HarnessKind::AgyAcp => "Antigravity (ACP)",
+        }
+    }
+
+    pub fn all() -> [HarnessKind; 2] {
+        [HarnessKind::PiJson, HarnessKind::AgyAcp]
+    }
+}
+
+/// Default ACP agent binary: the Antigravity CLI.
+pub fn default_acp_command() -> String {
+    match std::env::var("HOME") {
+        Ok(home) => PathBuf::from(home)
+            .join(".local/bin/agy")
+            .to_string_lossy()
+            .to_string(),
+        Err(_) => "agy".to_string(),
+    }
+}
+
+/// Workspace the agent runs in; defaults to the current directory.
+pub fn default_workspace_dir() -> String {
+    std::env::current_dir()
+        .ok()
+        .or_else(|| std::env::var("HOME").ok().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .to_string_lossy()
+        .to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default = "default_model")]
@@ -128,6 +172,40 @@ pub struct AppSettings {
     pub dictation_language: Option<String>,
     #[serde(default)]
     pub dictation_command: Option<String>,
+
+    // --- Dual harness / workspace ---
+    #[serde(default)]
+    pub harness: HarnessKind,
+    #[serde(default = "default_workspace_dir")]
+    pub workspace_dir: String,
+    #[serde(default = "default_acp_command")]
+    pub acp_command: String,
+    #[serde(default = "default_acp_args")]
+    pub acp_args: Vec<String>,
+    /// ACP mode id: `default`, `accept-edits`, `auto`, `plan`.
+    #[serde(default = "default_acp_mode")]
+    pub acp_mode: String,
+    /// Auto-approve tool permission requests instead of prompting inline.
+    #[serde(default)]
+    pub auto_approve_permissions: bool,
+    /// Keep live screen capture attached to every prompt.
+    #[serde(default)]
+    pub pin_live_screen: bool,
+    /// Wayland anchor edge: `right` or `left`.
+    #[serde(default = "default_edge")]
+    pub edge: String,
+}
+
+fn default_acp_args() -> Vec<String> {
+    vec!["acp".to_string()]
+}
+
+fn default_acp_mode() -> String {
+    "default".to_string()
+}
+
+fn default_edge() -> String {
+    "right".to_string()
 }
 
 fn default_show_chat_head() -> bool {
@@ -208,6 +286,14 @@ impl Default for AppSettings {
             dictation_model: None,
             dictation_language: None,
             dictation_command: None,
+            harness: HarnessKind::default(),
+            workspace_dir: default_workspace_dir(),
+            acp_command: default_acp_command(),
+            acp_args: default_acp_args(),
+            acp_mode: default_acp_mode(),
+            auto_approve_permissions: false,
+            pin_live_screen: false,
+            edge: default_edge(),
         }
     }
 }
@@ -266,7 +352,145 @@ impl AppSettings {
         self.margin_bottom = self.margin_bottom.clamp(0, 2160);
         self.ui_scale = self.ui_scale.clamp(MIN_UI_SCALE, MAX_UI_SCALE);
         self.font_size = self.font_size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+        if self.workspace_dir.trim().is_empty() {
+            self.workspace_dir = default_workspace_dir();
+        }
+        if self.acp_command.trim().is_empty() {
+            self.acp_command = default_acp_command();
+        }
+        if self.acp_args.is_empty() {
+            self.acp_args = default_acp_args();
+        }
+        if self.edge != "left" && self.edge != "right" {
+            self.edge = default_edge();
+        }
         self
+    }
+}
+
+/// Element groups whose text size follows the UI-scale setting.
+///
+/// Listed explicitly because GTK CSS does not reliably inherit `font-size`
+/// across every widget type, and the scale control must still work for users
+/// who need larger text.
+const SCALED_SELECTORS: [&str; 12] = [
+    ".panel-header",
+    ".header-icon-btn",
+    ".card-user",
+    ".card-assistant",
+    ".composer-container",
+    ".composer-pill-btn",
+    ".code-block-content",
+    ".table-cell-text",
+    ".clean-popover-item",
+    ".chat-thinking-text",
+    ".step-item-card",
+    ".bubble-assistant-text",
+];
+
+/// Builds the scaled stylesheet for the accessibility settings.
+///
+/// Pure so it can be asserted on without a GTK display.
+pub fn scale_css(scale_percent: u32, base_font_size: u32) -> String {
+    let scale = (scale_percent.clamp(MIN_UI_SCALE, MAX_UI_SCALE) as f64) / 100.0;
+    let font = (base_font_size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE) as f64) * scale;
+
+    let mut css = String::with_capacity(SCALED_SELECTORS.len() * 48);
+    for selector in SCALED_SELECTORS {
+        css.push_str(&format!("{selector} {{ font-size: {font:.1}px; }}\n"));
+    }
+    css
+}
+
+/// Regenerates the user-scale stylesheet from the accessibility settings.
+///
+/// Replaces the previous 900-line hardcoded multiplier with the one rule it
+/// actually needed: a scaled font size across the interactive surfaces.
+pub fn apply_text_scale(provider: &gtk4::CssProvider, scale_percent: u32, base_font_size: u32) {
+    provider.load_from_data(&scale_css(scale_percent, base_font_size));
+}
+
+#[cfg(test)]
+mod harness_tests {
+    use super::*;
+
+    #[test]
+    fn test_harness_kind_serializes_snake_case() {
+        let json = serde_json::to_string(&HarnessKind::AgyAcp).unwrap();
+        assert_eq!(json, "\"agy_acp\"");
+        let back: HarnessKind = serde_json::from_str("\"pi_json\"").unwrap();
+        assert_eq!(back, HarnessKind::PiJson);
+    }
+
+    #[test]
+    fn test_harness_default_is_pi_json() {
+        assert_eq!(HarnessKind::default(), HarnessKind::PiJson);
+        assert_eq!(HarnessKind::PiJson.label(), "Pi (JSON)");
+        assert_eq!(HarnessKind::all().len(), 2);
+    }
+
+    #[test]
+    fn test_legacy_config_gains_harness_defaults() {
+        // A config written before the dual-harness change must still load.
+        let legacy = r#"{"model":"default","theme":"theme-oled","width":500,"height":700}"#;
+        let s: AppSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(s.harness, HarnessKind::PiJson);
+        assert_eq!(s.acp_args, vec!["acp".to_string()]);
+        assert_eq!(s.acp_mode, "default");
+        assert!(!s.auto_approve_permissions);
+        assert!(!s.pin_live_screen);
+        assert_eq!(s.edge, "right");
+        assert!(!s.workspace_dir.is_empty());
+        assert!(s.acp_command.ends_with("agy"));
+    }
+
+    #[test]
+    fn test_clamped_fills_blank_harness_fields() {
+        let s = AppSettings {
+            workspace_dir: "  ".into(),
+            acp_command: String::new(),
+            acp_args: vec![],
+            edge: "sideways".into(),
+            ..Default::default()
+        }
+        .clamped();
+        assert!(!s.workspace_dir.trim().is_empty());
+        assert!(s.acp_command.ends_with("agy"));
+        assert_eq!(s.acp_args, vec!["acp".to_string()]);
+        assert_eq!(s.edge, "right");
+    }
+
+    #[test]
+    fn test_clamped_preserves_left_edge() {
+        let s = AppSettings {
+            edge: "left".into(),
+            ..Default::default()
+        }
+        .clamped();
+        assert_eq!(s.edge, "left");
+    }
+
+    #[test]
+    fn test_scale_css_uses_requested_font_size() {
+        let css = scale_css(100, 13);
+        assert!(css.contains("13.0px"), "got {css}");
+
+        let css = scale_css(150, 13);
+        assert!(css.contains("19.5px"), "got {css}");
+    }
+
+    #[test]
+    fn test_scale_css_clamps_out_of_range_values() {
+        assert!(scale_css(10, 13).contains("10.4px"), "min scale applies");
+        assert!(scale_css(1000, 13).contains("32.5px"), "max scale applies");
+    }
+
+    #[test]
+    fn test_scale_css_covers_every_scaled_selector() {
+        let css = scale_css(100, 13);
+        for selector in SCALED_SELECTORS {
+            assert!(css.contains(selector), "{selector} missing from scale css");
+        }
     }
 }
 
