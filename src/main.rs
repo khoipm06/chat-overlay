@@ -1428,28 +1428,17 @@ fn build_ui(
         let mh_cap_close = menu_host.clone();
         let attached = attach_capture.clone();
         let screen_fn = capture_screen_fn.clone();
+        let window_mode_cap = window.clone();
 
         cap_btn.connect_clicked(move |_| {
             mh_cap_close.close_menu();
             match mode {
-                // Full screen must not contain the overlay itself, so the
-                // window hides for a frame before the shot is taken.
                 capture::CaptureMode::FullScreen => screen_fn(),
                 _ => {
                     let attached = attached.clone();
-                    glib::spawn_future_local(async move {
-                        let res = tokio::task::spawn_blocking(move || {
-                            // Let the floating menu close cleanly before grabbing the screen.
-                            std::thread::sleep(std::time::Duration::from_millis(80));
-                            capture::capture_screen(mode)
-                        })
-                        .await
-                        .unwrap_or_else(|e| Err(format!("Task failed: {e}")));
-
-                        match res {
-                            Ok(path) => attached(&path),
-                            Err(err) => eprintln!("Capture failed: {err}"),
-                        }
+                    capture::capture_mode_hiding_window(&window_mode_cap, mode, move |res| match res {
+                        Ok(path) => attached(&path),
+                        Err(err) => eprintln!("Capture failed: {err}"),
                     });
                 }
             }
@@ -2119,6 +2108,8 @@ fn build_ui(
     // Setup tokio stream channel
     let (stream_tx, mut stream_rx) = mpsc::unbounded_channel::<(u64, StreamEvent)>();
     let active_stream: Rc<RefCell<Option<ActiveStreamTarget>>> = Rc::new(RefCell::new(None));
+    let active_markup_overlay: Rc<RefCell<Option<markup::AgentMarkupOverlay>>> =
+        Rc::new(RefCell::new(None));
 
     // Clear transcript helper
     let execute_clear = {
@@ -2128,6 +2119,7 @@ fn build_ui(
         let prompt_empty_label = prompt_empty_label.clone();
         let state_clear = state.clone();
         let active_stream_clear = active_stream.clone();
+        let active_markup_clear = active_markup_overlay.clone();
         let is_streaming_clear = is_streaming.clone();
         let update_send_btn_clear = update_send_btn_state.clone();
         let session_title_clear = session_title_label.clone();
@@ -2135,6 +2127,9 @@ fn build_ui(
         Rc::new(move || {
             state_clear.borrow_mut().harness.new_session();
             *active_stream_clear.borrow_mut() = None;
+            if let Some(prev) = active_markup_clear.borrow_mut().take() {
+                prev.close();
+            }
             is_streaming_clear.set(false);
             update_send_btn_clear();
 
@@ -2303,6 +2298,7 @@ fn build_ui(
     // Stream consumer loop
     {
         let active_stream_clone = active_stream.clone();
+        let active_markup_clone = active_markup_overlay.clone();
         let state_clone = state.clone();
         let scroll_fn = scroll_to_bottom.clone();
         let update_send_btn_stream = update_send_btn_state.clone();
@@ -2641,7 +2637,11 @@ fn build_ui(
                         if let Some(ref target) = *active_stream_clone.borrow() {
                             collapse_and_finalize_thinking(target);
                             collapse_and_finalize_progress(target);
-                            target.full_text.borrow_mut().push_str(&delta);
+                            let full_snapshot = {
+                                let mut full = target.full_text.borrow_mut();
+                                full.push_str(&delta);
+                                full.clone()
+                            };
 
                             let mut md_opt = target.active_markdown.borrow_mut();
                             if md_opt.is_none() {
@@ -2653,6 +2653,13 @@ fn build_ui(
                             if let Some(stream) = md_opt.as_mut() {
                                 stream.push(&delta);
                             }
+                            if delta.contains("]]") && full_snapshot.contains("[[markup:") {
+                                sync_live_markup_overlay(
+                                    &app_clone,
+                                    &active_markup_clone,
+                                    &full_snapshot,
+                                );
+                            }
                         }
                         scroll_fn();
                     }
@@ -2660,11 +2667,14 @@ fn build_ui(
                         if let Some(ref target) = *active_stream_clone.borrow() {
                             collapse_and_finalize_thinking(target);
                             collapse_and_finalize_progress(target);
-                            let mut full = target.full_text.borrow_mut();
-                            if !full.is_empty() {
-                                full.push('\n');
-                            }
-                            full.push_str(&line);
+                            let full_snapshot = {
+                                let mut full = target.full_text.borrow_mut();
+                                if !full.is_empty() {
+                                    full.push('\n');
+                                }
+                                full.push_str(&line);
+                                full.clone()
+                            };
 
                             let mut md_opt = target.active_markdown.borrow_mut();
                             if md_opt.is_none() {
@@ -2680,6 +2690,13 @@ fn build_ui(
                                 }
                                 delta.push_str(&line);
                                 stream.push(&delta);
+                            }
+                            if line.contains("]]") && full_snapshot.contains("[[markup:") {
+                                sync_live_markup_overlay(
+                                    &app_clone,
+                                    &active_markup_clone,
+                                    &full_snapshot,
+                                );
                             }
                         }
                         scroll_fn();
@@ -2732,12 +2749,17 @@ fn build_ui(
                                     &stream.text,
                                 );
                             }
-                            // Any [[markup: ...]] tags become a screen overlay.
-                            agent_shapes = markup::parse_agent_markup(&full);
+                            // Any [[markup: ...]] tags become a click-through screen overlay.
+                            agent_shapes = sync_live_markup_overlay(
+                                &app_clone,
+                                &active_markup_clone,
+                                &full,
+                            );
                         }
                         if !agent_shapes.is_empty() {
                             let count = agent_shapes.len();
                             let app_overlay = app_clone.clone();
+                            let slot_overlay = active_markup_clone.clone();
                             let shapes_for_btn = agent_shapes.clone();
                             let pill = gtk4::Button::builder()
                                 .css_classes(["composer-pill-btn", "markup-pill"])
@@ -2750,17 +2772,19 @@ fn build_ui(
                             ))));
                             pill.set_child(Some(&pill_row));
                             pill.connect_clicked(move |_| {
+                                if let Some(prev) = slot_overlay.borrow_mut().take() {
+                                    prev.close();
+                                }
                                 let overlay = markup::AgentMarkupOverlay::new(
                                     &app_overlay,
                                     shapes_for_btn.clone(),
                                 );
                                 overlay.present();
+                                *slot_overlay.borrow_mut() = Some(overlay);
                             });
                             if let Some(ref target) = *active_stream_clone.borrow() {
                                 target.turn_body.append(&pill);
                             }
-                            let overlay = markup::AgentMarkupOverlay::new(&app_clone, agent_shapes);
-                            overlay.present();
                         }
                         if state_clone.borrow().settings.sound_bell_on_done {
                             overlay::ring_completion_bell();
@@ -2798,6 +2822,7 @@ fn build_ui(
         // moved into `deliver` below.
         let tv_entry = text_view.clone();
         let state_entry = state.clone();
+        let active_markup_submit = active_markup_overlay.clone();
         let update_btn_entry = update_send_btn_state.clone();
         let is_streaming_entry = is_streaming.clone();
         let clear_fn_entry = execute_clear.clone();
@@ -3169,9 +3194,21 @@ fn build_ui(
                 return;
             }
 
-            let wants_live_screen = {
+            if let Some(prev) = active_markup_submit.borrow_mut().take() {
+                prev.close();
+            }
+
+            let live_capture_mode = {
                 let st = state_entry.borrow();
-                st.settings.pin_live_screen || raw_prompt.contains("@screen")
+                if raw_prompt.contains("@region") {
+                    Some(capture::CaptureMode::Region)
+                } else if raw_prompt.contains("@window") {
+                    Some(capture::CaptureMode::ActiveWindow)
+                } else if st.settings.pin_live_screen || raw_prompt.contains("@screen") {
+                    Some(capture::CaptureMode::FullScreen)
+                } else {
+                    None
+                }
             };
             let has_screen = state_entry
                 .borrow()
@@ -3186,10 +3223,10 @@ fn build_ui(
             set_text_view_content(&tv_entry, "");
             update_btn_entry();
 
-            if wants_live_screen && !has_screen {
+            if let (Some(cap_mode), false) = (live_capture_mode, has_screen) {
                 let state_cap = state_entry.clone();
                 let deliver_after = deliver.clone();
-                capture::capture_screen_hiding_window(&window_submit, move |res| {
+                capture::capture_mode_hiding_window(&window_submit, cap_mode, move |res| {
                     match res {
                         Ok(path) => {
                             let path_str = path.to_string_lossy().to_string();
@@ -3933,6 +3970,30 @@ impl MentionPopup {
 
         self.list.select_row(self.list.row_at_index(0).as_ref());
     }
+}
+
+/// Synchronizes the single active click-through `AgentMarkupOverlay` with any
+/// `[[markup: ...]]` tags parsed from `text` so annotations stream live.
+fn sync_live_markup_overlay(
+    app: &gtk4::Application,
+    slot: &Rc<RefCell<Option<markup::AgentMarkupOverlay>>>,
+    text: &str,
+) -> Vec<markup::MarkupShape> {
+    let shapes = markup::parse_agent_markup(text);
+    if shapes.is_empty() {
+        return shapes;
+    }
+    let mut guard = slot.borrow_mut();
+    if let Some(ref existing) = *guard {
+        if existing.is_open() {
+            existing.update_shapes(shapes.clone());
+            return shapes;
+        }
+    }
+    let overlay = markup::AgentMarkupOverlay::new(app, shapes.clone());
+    overlay.present();
+    *guard = Some(overlay);
+    shapes
 }
 
 /// Character offset of the start of the line containing `offset`.

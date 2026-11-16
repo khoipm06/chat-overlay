@@ -941,8 +941,14 @@ pub fn build_pi_command_args(
 
     let has_screen = has_screen_attachment(attached_files);
     if has_screen {
+        let dims = attached_files
+            .iter()
+            .filter(|(n, _)| crate::capture::is_image_path(n))
+            .find_map(|(n, _)| crate::capture::png_dimensions(std::path::Path::new(n)))
+            .map(|(w, h)| format!(" Screenshot dimensions: {w}x{h}px."))
+            .unwrap_or_default();
         args.push("--append-system-prompt".to_string());
-        args.push(SCREEN_MARKUP_HINT.trim().to_string());
+        args.push(format!("{}{}", SCREEN_MARKUP_HINT.trim(), dims));
     }
 
     let mut prompt_text = if has_screen {
@@ -974,10 +980,11 @@ pub fn build_pi_command_args(
 }
 
 /// Teaches the agent how to highlight screen regions for the user.
-pub const SCREEN_MARKUP_HINT: &str = "\n\n[Screen context attached. To point at something on the user's screen, \
-emit an inline tag like [[markup: box x=12 y=30 w=25 h=10 label=\"Retry button\"]] or \
-[[markup: arrow x1=50 y1=50 x2=25 y2=30 label=\"here\"]]. Coordinates are percentages \
-of the screen (0-100), origin top-left.]";
+pub const SCREEN_MARKUP_HINT: &str = "\n\n[Screen context attached. To point at UI elements or regions on the user's screen, \
+emit inline tags anywhere in your reply using normalized 0-1000 coordinates (origin top-left, x=0..1000, y=0..1000), e.g. \
+[[markup: box scale=1000 x=120 y=300 w=250 h=80 label=\"Retry button\"]] or \
+[[markup: arrow scale=1000 x1=500 y1=500 x2=250 y2=300 label=\"Click here\"]]. \
+Tags are stripped from prose and rendered live as a click-through overlay on the user's screen.]";
 
 /// True when at least one attachment is a screen capture.
 pub fn has_screen_attachment(attached_files: &[(String, String)]) -> bool {

@@ -151,6 +151,15 @@ fn attr_str(attrs: &[(String, String)], key: &str) -> String {
         .unwrap_or_default()
 }
 
+fn coord_factor(explicit_scale: Option<f64>, coords: &[f64]) -> f64 {
+    let scale = explicit_scale.unwrap_or(if coords.iter().any(|&v| v > 100.0) {
+        1000.0
+    } else {
+        100.0
+    });
+    100.0 / scale
+}
+
 /// Parses all `[[markup: ...]]` tags in `text`.
 ///
 /// Malformed tags are skipped rather than aborting the scan, so one bad tag
@@ -175,6 +184,7 @@ pub fn parse_agent_markup(text: &str) -> Vec<MarkupShape> {
             .and_then(|c| parse_color(&c))
             .unwrap_or_else(default_color);
         let label = attr_str(&attrs, "label");
+        let explicit_scale = attr_f64(&attrs, "scale").filter(|s| *s > 0.0);
 
         match kind.as_str() {
             "box" | "rect" => {
@@ -186,7 +196,15 @@ pub fn parse_agent_markup(text: &str) -> Vec<MarkupShape> {
                 ) else {
                     continue;
                 };
-                shapes.push(MarkupShape::Rect { x, y, w, h, label, color });
+                let factor = coord_factor(explicit_scale, &[x, y, w, h]);
+                shapes.push(MarkupShape::Rect {
+                    x: x * factor,
+                    y: y * factor,
+                    w: w * factor,
+                    h: h * factor,
+                    label,
+                    color,
+                });
             }
             "arrow" => {
                 let (Some(x1), Some(y1), Some(x2), Some(y2)) = (
@@ -197,7 +215,15 @@ pub fn parse_agent_markup(text: &str) -> Vec<MarkupShape> {
                 ) else {
                     continue;
                 };
-                shapes.push(MarkupShape::Arrow { x1, y1, x2, y2, label, color });
+                let factor = coord_factor(explicit_scale, &[x1, y1, x2, y2]);
+                shapes.push(MarkupShape::Arrow {
+                    x1: x1 * factor,
+                    y1: y1 * factor,
+                    x2: x2 * factor,
+                    y2: y2 * factor,
+                    label,
+                    color,
+                });
             }
             "text" => {
                 let (Some(x), Some(y)) = (attr_f64(&attrs, "x"), attr_f64(&attrs, "y")) else {
@@ -206,7 +232,13 @@ pub fn parse_agent_markup(text: &str) -> Vec<MarkupShape> {
                 if label.trim().is_empty() {
                     continue;
                 }
-                shapes.push(MarkupShape::Text { x, y, text: label, color });
+                let factor = coord_factor(explicit_scale, &[x, y]);
+                shapes.push(MarkupShape::Text {
+                    x: x * factor,
+                    y: y * factor,
+                    text: label,
+                    color,
+                });
             }
             _ => {}
         }
@@ -290,7 +322,7 @@ pub fn draw_shapes(
                 let _ = cr.stroke();
 
                 if with_labels && !label.is_empty() {
-                    draw_label(cr, label, px, py, (r, g, b));
+                    draw_label(cr, label, px, py, width, (r, g, b));
                 }
             }
             MarkupShape::Arrow { x1, y1, x2, y2, label, .. } => {
@@ -325,7 +357,7 @@ pub fn draw_shapes(
                 let _ = cr.fill();
 
                 if with_labels && !label.is_empty() {
-                    draw_label(cr, label, ax2, ay2, (r, g, b));
+                    draw_label(cr, label, ax2, ay2, width, (r, g, b));
                 }
             }
             MarkupShape::Pen { points, .. } => {
@@ -347,6 +379,7 @@ pub fn draw_shapes(
                     text,
                     pct_to_px(*x, width),
                     pct_to_px(*y, height),
+                    width,
                     (r, g, b),
                 );
             }
@@ -355,7 +388,14 @@ pub fn draw_shapes(
 }
 
 /// Draws a pill-shaped label anchored just above `(x, y)`.
-fn draw_label(cr: &gtk4::cairo::Context, text: &str, x: f64, y: f64, color: (f64, f64, f64)) {
+fn draw_label(
+    cr: &gtk4::cairo::Context,
+    text: &str,
+    x: f64,
+    y: f64,
+    screen_w: f64,
+    color: (f64, f64, f64),
+) {
     let (r, g, b) = color;
 
     cr.select_font_face("Sans", gtk4::cairo::FontSlant::Normal, gtk4::cairo::FontWeight::Bold);
@@ -370,7 +410,7 @@ fn draw_label(cr: &gtk4::cairo::Context, text: &str, x: f64, y: f64, color: (f64
     let box_w = extents.width() + pad_x * 2.0;
     let box_h = extents.height() + pad_y * 2.0;
     // Keep the pill on screen when the anchor is near an edge.
-    let box_x = x.max(4.0);
+    let box_x = x.clamp(4.0, (screen_w - box_w - 4.0).max(4.0));
     let box_y = (y - box_h - 6.0).max(4.0);
 
     cr.set_source_rgba(0.07, 0.07, 0.07, 0.92);
@@ -404,17 +444,37 @@ fn rounded_rect(cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64, radiu
 ///
 /// The whole surface is click-through except a small pill at the top centre, so
 /// the user keeps interacting with whatever is underneath.
+#[derive(Clone)]
 pub struct AgentMarkupOverlay {
     window: gtk4::ApplicationWindow,
-    /// Retained so the drawing area and its shape buffer stay alive.
-    #[allow(dead_code)]
     shapes: std::rc::Rc<std::cell::RefCell<Vec<MarkupShape>>>,
-    #[allow(dead_code)]
     area: gtk4::DrawingArea,
+    click_area: gtk4::Box,
 }
 
 /// Height of the "clear" pill, which is also its clickable band.
 const PILL_HEIGHT: i32 = 44;
+
+/// Restricts pointer input on `window`'s Wayland surface strictly to the
+/// floating control pill so the rest of the desktop stays click-through.
+fn update_pill_input_region(window: &gtk4::ApplicationWindow, click_area: &gtk4::Box) {
+    let Some(surface) = window.surface() else {
+        return;
+    };
+    let rect = if let Some(bounds) = click_area.compute_bounds(window) {
+        gtk4::cairo::RectangleInt::new(
+            bounds.x().floor() as i32,
+            bounds.y().floor() as i32,
+            (bounds.width().ceil() as i32).max(160),
+            (bounds.height().ceil() as i32).max(PILL_HEIGHT),
+        )
+    } else {
+        let win_w = window.width().max(800);
+        gtk4::cairo::RectangleInt::new((win_w / 2 - 110).max(0), 0, 220, PILL_HEIGHT)
+    };
+    let region = gtk4::cairo::Region::create_rectangle(&rect);
+    surface.set_input_region(&region);
+}
 
 impl AgentMarkupOverlay {
     pub fn new(app: &gtk4::Application, shapes: Vec<MarkupShape>) -> Self {
@@ -461,17 +521,50 @@ impl AgentMarkupOverlay {
         root.add_overlay(&click_area);
         window.set_child(Some(&root));
 
+        {
+            let click_ref = click_area.clone();
+            window.connect_realize(move |win| {
+                update_pill_input_region(win, &click_ref);
+            });
+        }
+        {
+            let win_ref = window.clone();
+            let click_ref = click_area.clone();
+            area.connect_resize(move |_, _, _| {
+                update_pill_input_region(&win_ref, &click_ref);
+            });
+        }
+
         Self {
             window,
             shapes,
             area,
+            click_area,
         }
     }
 
     pub fn present(&self) {
         self.window.present();
+        let win = self.window.clone();
+        let click_area = self.click_area.clone();
+        gtk4::glib::idle_add_local_once(move || {
+            update_pill_input_region(&win, &click_area);
+        });
     }
 
+    pub fn update_shapes(&self, new_shapes: Vec<MarkupShape>) {
+        *self.shapes.borrow_mut() = new_shapes;
+        self.area.queue_draw();
+        update_pill_input_region(&self.window, &self.click_area);
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.window.is_visible()
+    }
+
+    pub fn close(&self) {
+        self.window.close();
+    }
 }
 
 /// Interactive fullscreen annotation editor over a screenshot.
@@ -1082,5 +1175,38 @@ mod tests {
     fn test_tool_labels_are_distinct() {
         let labels: Vec<&str> = MarkupTool::all().iter().map(|t| t.label()).collect();
         assert_eq!(labels, vec!["Box", "Arrow", "Pen", "Text"]);
+    }
+
+    #[test]
+    fn test_parse_scale_1000_coordinates() {
+        let shapes = parse_agent_markup(
+            r#"[[markup: box scale=1000 x=125 y=250 w=300 h=50 label="Retry"]]"#,
+        );
+        assert_eq!(shapes.len(), 1);
+        match &shapes[0] {
+            MarkupShape::Rect { x, y, w, h, label, .. } => {
+                assert!((*x - 12.5).abs() < 0.01);
+                assert!((*y - 25.0).abs() < 0.01);
+                assert!((*w - 30.0).abs() < 0.01);
+                assert!((*h - 5.0).abs() < 0.01);
+                assert_eq!(label, "Retry");
+            }
+            other => panic!("expected rect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_auto_infers_1000_when_coords_exceed_100() {
+        let shapes = parse_agent_markup(r#"[[markup: arrow x1=500 y1=500 x2=250 y2=300 label="Here"]]"#);
+        assert_eq!(shapes.len(), 1);
+        match &shapes[0] {
+            MarkupShape::Arrow { x1, y1, x2, y2, .. } => {
+                assert!((*x1 - 50.0).abs() < 0.01);
+                assert!((*y1 - 50.0).abs() < 0.01);
+                assert!((*x2 - 25.0).abs() < 0.01);
+                assert!((*y2 - 30.0).abs() < 0.01);
+            }
+            other => panic!("expected arrow, got {other:?}"),
+        }
     }
 }

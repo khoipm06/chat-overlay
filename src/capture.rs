@@ -91,6 +91,37 @@ fn command_exists(cmd: &str) -> bool {
     false
 }
 
+/// Builds `spectacle` CLI flags including live cursor context (`-p`).
+pub fn spectacle_args(mode: CaptureMode, out_path: &str) -> Vec<String> {
+    let mode_flag = match mode {
+        CaptureMode::FullScreen => "-f",
+        CaptureMode::ActiveWindow => "-a",
+        CaptureMode::Region => "-r",
+    };
+    vec![
+        "-b".to_string(),
+        "-n".to_string(),
+        "-p".to_string(),
+        mode_flag.to_string(),
+        "-o".to_string(),
+        out_path.to_string(),
+    ]
+}
+
+/// Reads pixel `(width, height)` from a PNG file's IHDR header without loading the image.
+pub fn png_dimensions(path: &std::path::Path) -> Option<(u32, u32)> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut header = [0u8; 24];
+    file.read_exact(&mut header).ok()?;
+    if &header[..8] != b"\x89PNG\r\n\x1a\n" || &header[12..16] != b"IHDR" {
+        return None;
+    }
+    let width = u32::from_be_bytes([header[16], header[17], header[18], header[19]]);
+    let height = u32::from_be_bytes([header[20], header[21], header[22], header[23]]);
+    Some((width, height))
+}
+
 /// Captures a screenshot using the best available platform tool (KDE spectacle, grim/slurp, or import)
 /// and writes it to an ephemeral capture directory.
 pub fn capture_screen(mode: CaptureMode) -> Result<PathBuf, String> {
@@ -108,19 +139,9 @@ pub fn capture_screen(mode: CaptureMode) -> Result<PathBuf, String> {
 
     if command_exists("spectacle") {
         let mut cmd = Command::new("spectacle");
-        cmd.arg("-b").arg("-n");
-        match mode {
-            CaptureMode::FullScreen => {
-                cmd.arg("-f");
-            }
-            CaptureMode::ActiveWindow => {
-                cmd.arg("-a");
-            }
-            CaptureMode::Region => {
-                cmd.arg("-r");
-            }
+        for arg in spectacle_args(mode, &out_str) {
+            cmd.arg(arg);
         }
-        cmd.arg("-o").arg(&out_str);
 
         let status = cmd.status().map_err(|e| format!("Failed to run spectacle: {}", e))?;
         if !status.success() {
@@ -199,16 +220,16 @@ pub fn capture_dir() -> PathBuf {
 
 /// Delay between hiding the overlay and taking the shot.
 ///
-/// The compositor needs a frame to actually remove our surface from the
+/// The compositor needs a few frames to actually remove our surface from the
 /// scanout, otherwise the capture contains the chat panel itself.
-pub const CAPTURE_HIDE_DELAY_MS: u64 = 120;
+pub const CAPTURE_HIDE_DELAY_MS: u64 = 64;
 
-/// Captures the screen with the overlay temporarily hidden.
-///
-/// `on_done` runs on the GTK main thread after the window has been restored, so
-/// callers can attach the capture without worrying about ordering.
-pub fn capture_screen_hiding_window<F>(window: &gtk4::ApplicationWindow, on_done: F)
-where
+/// Captures `mode` off the GTK main thread with the overlay temporarily hidden.
+pub fn capture_mode_hiding_window<F>(
+    window: &gtk4::ApplicationWindow,
+    mode: CaptureMode,
+    on_done: F,
+) where
     F: FnOnce(Result<PathBuf, String>) + 'static,
 {
     use gtk4::glib;
@@ -217,18 +238,29 @@ where
     let was_visible = window.is_visible();
     window.set_visible(false);
 
-    let window = window.clone();
-    glib::timeout_add_local_once(
-        std::time::Duration::from_millis(CAPTURE_HIDE_DELAY_MS),
-        move || {
-            let result = capture_full_screen();
-            if was_visible {
-                window.set_visible(true);
-                window.present();
-            }
-            on_done(result);
-        },
-    );
+    let win = window.clone();
+    glib::spawn_future_local(async move {
+        glib::timeout_future(std::time::Duration::from_millis(CAPTURE_HIDE_DELAY_MS)).await;
+        let result = tokio::task::spawn_blocking(move || capture_screen(mode))
+            .await
+            .unwrap_or_else(|e| Err(format!("Capture task failed: {e}")));
+        if was_visible {
+            win.set_visible(true);
+            win.present();
+        }
+        on_done(result);
+    });
+}
+
+/// Captures the full screen with the overlay temporarily hidden.
+///
+/// `on_done` runs on the GTK main thread after the window has been restored, so
+/// callers can attach the capture without worrying about ordering.
+pub fn capture_screen_hiding_window<F>(window: &gtk4::ApplicationWindow, on_done: F)
+where
+    F: FnOnce(Result<PathBuf, String>) + 'static,
+{
+    capture_mode_hiding_window(window, CaptureMode::FullScreen, on_done);
 }
 
 #[cfg(test)]
@@ -299,5 +331,31 @@ mod tests {
         assert_eq!(base64_encode(&[0xFF, 0xFF, 0xFF]), "////");
         assert_eq!(base64_encode(&[0x01, 0x02]), "AQI=");
         assert_eq!(base64_encode(&[0xDE, 0xAD, 0xBE, 0xEF]), "3q2+7w==");
+    }
+
+    #[test]
+    fn test_spectacle_args_include_pointer_and_mode() {
+        let full = spectacle_args(CaptureMode::FullScreen, "/tmp/out.png");
+        assert!(full.contains(&"-p".to_string()));
+        assert!(full.contains(&"-f".to_string()));
+        assert_eq!(full.last().map(String::as_str), Some("/tmp/out.png"));
+
+        let win = spectacle_args(CaptureMode::ActiveWindow, "/tmp/w.png");
+        assert!(win.contains(&"-a".to_string()));
+
+        let reg = spectacle_args(CaptureMode::Region, "/tmp/r.png");
+        assert!(reg.contains(&"-r".to_string()));
+    }
+
+    #[test]
+    fn test_png_dimensions_parses_ihdr() {
+        let mut hdr = Vec::from(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".as_slice());
+        hdr.extend_from_slice(&1920u32.to_be_bytes());
+        hdr.extend_from_slice(&1200u32.to_be_bytes());
+        let p = capture_dir().join("test_ihdr_dim.png");
+        let _ = std::fs::create_dir_all(capture_dir());
+        std::fs::write(&p, &hdr).unwrap();
+        assert_eq!(png_dimensions(&p), Some((1920, 1200)));
+        let _ = std::fs::remove_file(&p);
     }
 }
