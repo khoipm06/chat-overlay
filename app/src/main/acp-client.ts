@@ -9,6 +9,7 @@ import type {
   HarnessKind,
   MarkupAnnotation,
   PermissionOption,
+  PermissionPolicy,
   SessionCatalog,
   StreamEvent,
 } from '../shared/types';
@@ -45,7 +46,8 @@ export class AcpAgentController {
 
   private currentHarness: HarnessKind;
   private currentWorkspace: string;
-  private autoApprove: boolean;
+  private permissionPolicy: PermissionPolicy;
+  private sessionAllowedTools = new Set<string>();
   private catalog: SessionCatalog;
   private disposed = false;
 
@@ -63,7 +65,8 @@ export class AcpAgentController {
   ) {
     this.currentHarness = settings.harness;
     this.currentWorkspace = settings.workspaceDir;
-    this.autoApprove = settings.autoApprovePermissions;
+    this.permissionPolicy =
+      settings.permissionPolicy ?? (settings.autoApprovePermissions ? 'yolo' : 'auto_read');
     this.onEvent = onEvent;
     this.onMarkupAnnotations = onMarkupAnnotations;
     this.catalog = this.emptyCatalog(this.currentHarness, 'idle', 'Waiting to connect');
@@ -98,7 +101,8 @@ export class AcpAgentController {
     const gen = ++this.warmupSeq;
     this.currentHarness = settings.harness;
     this.currentWorkspace = settings.workspaceDir;
-    this.autoApprove = settings.autoApprovePermissions;
+    this.permissionPolicy =
+      settings.permissionPolicy ?? (settings.autoApprovePermissions ? 'yolo' : 'auto_read');
     this.turnActive = false;
     await this.shutdownProcess();
     if (gen !== this.warmupSeq) {
@@ -109,6 +113,7 @@ export class AcpAgentController {
     const cmdCfg = settings.commands[settings.harness];
     const binary = resolveExecutable(cmdCfg.command || meta.defaultCommand);
     const args = cmdCfg.args.length > 0 ? cmdCfg.args : meta.defaultArgs;
+    const extraEnv = settings.harnessEnv?.[settings.harness] ?? {};
 
     this.catalog = this.emptyCatalog(
       settings.harness,
@@ -119,7 +124,7 @@ export class AcpAgentController {
     this.emitStatus('connecting', `Starting ${meta.shortLabel}...`);
 
     try {
-      await this.spawnProcess(binary, args, settings.workspaceDir);
+      await this.spawnProcess(binary, args, settings.workspaceDir, extraEnv);
       if (gen !== this.warmupSeq) return this.catalog;
 
       this.catalog = {
@@ -368,8 +373,12 @@ export class AcpAgentController {
     return this.catalog;
   }
 
-  setAutoApprove(enabled: boolean): void {
-    this.autoApprove = enabled;
+  setPermissionPolicy(policy: PermissionPolicy): void {
+    this.permissionPolicy = policy;
+  }
+
+  clearSessionAllowedTools(): void {
+    this.sessionAllowedTools.clear();
   }
 
   async sendPrompt(
@@ -543,12 +552,17 @@ export class AcpAgentController {
     return blocks;
   }
 
-  private async spawnProcess(binary: string, args: string[], cwd: string): Promise<void> {
+  private async spawnProcess(
+    binary: string,
+    args: string[],
+    cwd: string,
+    extraEnv: Record<string, string> = {},
+  ): Promise<void> {
     this.stderrTail = [];
     const child = spawn(binary, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, NO_COLOR: '1' },
+      env: { ...process.env, ...extraEnv, NO_COLOR: '1' },
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -723,21 +737,6 @@ export class AcpAgentController {
         }))
         .filter((o) => o.optionId);
 
-      if (this.autoApprove && options.length > 0) {
-        const allowOpt = options.find(
-          (o) =>
-            o.kind === 'allow_once' ||
-            o.kind === 'allow_always' ||
-            Boolean(o.kind && o.kind.toLowerCase().startsWith('allow')),
-        );
-        if (allowOpt) {
-          this.writeResponse(id, {
-            outcome: { outcome: 'selected', optionId: allowOpt.optionId },
-          });
-          return;
-        }
-      }
-
       const toolCall =
         params.toolCall && typeof params.toolCall === 'object'
           ? (params.toolCall as Record<string, unknown>)
@@ -748,6 +747,51 @@ export class AcpAgentController {
           : typeof toolCall.name === 'string'
             ? toolCall.name
             : 'Tool execution approval';
+      const toolKind = typeof toolCall.kind === 'string' ? toolCall.kind : undefined;
+      const rawInputObj =
+        toolCall.rawInput && typeof toolCall.rawInput === 'object'
+          ? (toolCall.rawInput as Record<string, unknown>)
+          : null;
+      const toolKey = (toolKind || title).toLowerCase();
+
+      const pickAllowOption = () =>
+        options.find(
+          (o) =>
+            o.kind === 'allow_once' ||
+            o.kind === 'allow_always' ||
+            Boolean(o.kind && o.kind.toLowerCase().startsWith('allow')),
+        );
+
+      const isReadOnlyTool = /\b(read|view|cat|glob|grep|find|list|search|ls)\b/i.test(toolKey);
+      const isWorkspaceEditTool = /\b(edit|write|patch|create)\b/i.test(toolKey);
+      const targetPath =
+        rawInputObj &&
+        (typeof rawInputObj.path === 'string'
+          ? rawInputObj.path
+          : typeof rawInputObj.filePath === 'string'
+            ? rawInputObj.filePath
+            : typeof rawInputObj.file_path === 'string'
+              ? rawInputObj.file_path
+              : '');
+      const insideWorkspace = targetPath ? Boolean(this.resolveWorkspacePath(targetPath)) : false;
+
+      const autoPermitted =
+        this.permissionPolicy === 'yolo' ||
+        this.sessionAllowedTools.has(toolKey) ||
+        (this.permissionPolicy === 'auto_read' && isReadOnlyTool) ||
+        (this.permissionPolicy === 'auto_workspace' &&
+          (isReadOnlyTool || (isWorkspaceEditTool && insideWorkspace)));
+
+      if (autoPermitted && options.length > 0) {
+        const allowOpt = pickAllowOption();
+        if (allowOpt) {
+          this.writeResponse(id, {
+            outcome: { outcome: 'selected', optionId: allowOpt.optionId },
+          });
+          return;
+        }
+      }
+
       const detail =
         typeof toolCall.rawInput === 'string'
           ? toolCall.rawInput
@@ -762,7 +806,7 @@ export class AcpAgentController {
         request: {
           requestId: reqKey,
           toolTitle: title,
-          toolKind: typeof toolCall.kind === 'string' ? toolCall.kind : undefined,
+          toolKind,
           detail,
           options,
         },
@@ -986,6 +1030,85 @@ export class AcpAgentController {
   ): void {
     this.onEvent({ type: 'status', phase, label });
   }
+}
+
+export async function testHarnessConnection(
+  settings: AppSettings,
+  harness: HarnessKind,
+): Promise<{ ok: boolean; latencyMs: number; modelCount: number; message: string }> {
+  const startedAt = Date.now();
+  const meta = HARNESS_LIST.find((h) => h.id === harness) ?? HARNESS_LIST[0];
+  const cmdCfg = settings.commands[harness];
+  const binary = resolveExecutable(cmdCfg.command || meta.defaultCommand);
+  const args = cmdCfg.args.length > 0 ? cmdCfg.args : meta.defaultArgs;
+  const extraEnv = settings.harnessEnv?.[harness] ?? {};
+
+  return new Promise((resolve) => {
+    const child = spawn(binary, args, {
+      cwd: settings.workspaceDir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ...extraEnv, NO_COLOR: '1' },
+    });
+    let finished = false;
+    const finish = (res: { ok: boolean; modelCount: number; message: string }) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // ignore
+      }
+      resolve({ ...res, latencyMs: Date.now() - startedAt });
+    };
+
+    const timer = setTimeout(() => {
+      finish({ ok: false, modelCount: 0, message: 'Timed out waiting for ACP session/new' });
+    }, 8000);
+
+    child.on('error', (err) => {
+      finish({ ok: false, modelCount: 0, message: err.message });
+    });
+
+    const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+    rl.on('line', (line) => {
+      const msg = classifyAcpLine(line);
+      if (!msg) return;
+      if (msg.kind === 'response' && msg.id === 1) {
+        child.stdin.write(
+          `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'session/new',
+            params: { cwd: settings.workspaceDir, mcpServers: [] },
+          })}\n`,
+        );
+      } else if (msg.kind === 'response' && msg.id === 2) {
+        const parsed = parseSessionNewCatalog(
+          harness,
+          (msg.result ?? {}) as Record<string, unknown>,
+        );
+        finish({
+          ok: true,
+          modelCount: parsed.models.length,
+          message: `Handshake OK · ${parsed.models.length} live models`,
+        });
+      } else if (msg.kind === 'error_response') {
+        finish({ ok: false, modelCount: 0, message: msg.message });
+      }
+    });
+
+    child.on('spawn', () => {
+      child.stdin.write(
+        `${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: 1, clientCapabilities: {} },
+        })}\n`,
+      );
+    });
+  });
 }
 
 function extractChunkText(content: unknown): string {

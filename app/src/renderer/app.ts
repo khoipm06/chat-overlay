@@ -2,6 +2,7 @@ import { HARNESS_LIST } from '../shared/types';
 import type {
   AppSettings,
   ChatAttachment,
+  GitGlance,
   HarnessKind,
   SavedSession,
   SessionCatalog,
@@ -13,7 +14,9 @@ import { expandSlashTemplate, LOCAL_COMMANDS, parseLocalCommand, PROMPT_TEMPLATE
 import { extractActiveTrigger } from '../shared/triggers';
 import { hydrateRenderedMarkdown, renderMarkdownHtml } from './markdown';
 import { PopoverController, type PopoverEntry } from './popovers';
-import { presentToolCall, renderToolDetailHtml, escapeHtmlText } from './tool-presenter';
+import { renderTabbedSettingsDrawer } from './settings-drawer';
+import { playAttentionChime, playDoneChime } from './sound';
+import { presentToolCall, renderToolDetailHtml } from './tool-presenter';
 
 // DOM refs
 const liveStatusPill = document.getElementById('live-status-pill')!;
@@ -29,10 +32,23 @@ const revertModeLabel = document.getElementById('revert-mode-label')!;
 
 const btnWorkspace = document.getElementById('btn-workspace')!;
 const workspaceNameEl = document.getElementById('workspace-name')!;
+const gitBranchChip = document.getElementById('git-branch-chip')!;
+const gitBranchText = document.getElementById('git-branch-text')!;
 const btnHarness = document.getElementById('btn-harness')!;
 const harnessDot = document.getElementById('harness-dot')!;
 const harnessLabel = document.getElementById('harness-label')!;
 const sessionTitleChip = document.getElementById('session-title-chip')!;
+const ghostModeBadge = document.getElementById('ghost-mode-badge')!;
+const contextBudgetEl = document.getElementById('context-budget')!;
+const contextBudgetText = document.getElementById('context-budget-text')!;
+const contextBudgetFill = document.getElementById('context-budget-fill')!;
+const noticeToastEl = document.getElementById('notice-toast')!;
+
+const queuedBannerEl = document.getElementById('queued-banner')!;
+const queuedPreviewEl = document.getElementById('queued-preview')!;
+const btnQueuedSteer = document.getElementById('btn-queued-steer')!;
+const btnQueuedEdit = document.getElementById('btn-queued-edit')!;
+const btnQueuedCancel = document.getElementById('btn-queued-cancel')!;
 
 const harnessBanner = document.getElementById('harness-banner')!;
 const harnessBannerTitle = document.getElementById('harness-banner-title')!;
@@ -89,16 +105,36 @@ interface ChatSnapshot {
   turns: StoredTurn[];
   title: string;
   draftText: string;
+  draftAttachments: ChatAttachment[];
+  workspaceDir: string;
   workspaceTree: string | null;
+}
+
+interface QueuedPrompt {
+  text: string;
+  attachments: ChatAttachment[];
+  steer: boolean;
 }
 
 let currentSessionId = `ses_${Date.now()}`;
 let currentSessionTitle = 'New chat';
+let currentSessionWorkspaceDir = '';
+let gitGlance: GitGlance = {
+  isRepo: true,
+  branch: '',
+  changedFiles: [],
+  stagedCount: 0,
+  modifiedCount: 0,
+  insertions: 0,
+  deletions: 0,
+};
 let turns: StoredTurn[] = [];
 let undoStack: ChatSnapshot[] = [];
 let redoStack: ChatSnapshot[] = [];
+let queuedFollowUp: QueuedPrompt | null = null;
 let needsContextReplay = false;
 let pendingAttachments: ChatAttachment[] = [];
+let noticeTimer: number | null = null;
 let isStreaming = false;
 let followBottom = true;
 let userScrollIntentUntil = 0;
@@ -232,22 +268,91 @@ function updateUndoRedoButtons(): void {
       : 'Nothing to redo';
 }
 
+function showNotice(message: string, warn = false): void {
+  noticeToastEl.textContent = message;
+  noticeToastEl.classList.toggle('warn', warn);
+  noticeToastEl.classList.remove('hidden');
+  if (noticeTimer !== null) window.clearTimeout(noticeTimer);
+  noticeTimer = window.setTimeout(() => {
+    noticeToastEl.classList.add('hidden');
+    noticeTimer = null;
+  }, 4500);
+}
+
+async function refreshGitGlance(): Promise<void> {
+  const targetDir = currentSessionWorkspaceDir || settings?.workspaceDir;
+  if (!targetDir) return;
+  gitGlance = await window.agentOverlay.getGitGlance(targetDir);
+  if (settings?.showGitGlance && gitGlance.isRepo && gitGlance.branch) {
+    const stat =
+      gitGlance.insertions || gitGlance.deletions
+        ? ` +${gitGlance.insertions}/-${gitGlance.deletions}`
+        : gitGlance.changedFiles.length > 0
+          ? ` *${gitGlance.changedFiles.length}`
+          : '';
+    gitBranchText.textContent = `${gitGlance.branch}${stat}`;
+    gitBranchChip.title = `Branch: ${gitGlance.branch}${stat} (click to review changes)`;
+    gitBranchChip.classList.remove('hidden');
+  } else {
+    gitBranchChip.classList.add('hidden');
+  }
+  renderRevertModeControl();
+}
+
+function renderRevertModeControl(): void {
+  if (!settings) return;
+  if (!gitGlance.isRepo) {
+    revertModeLabel.textContent = 'Chat (no git)';
+    btnRevertMode.title =
+      'Current workspace is not a Git repository — Revert applies to chat turns only';
+  } else if (settings.revertMode === 'chat_only') {
+    revertModeLabel.textContent = 'Chat Only';
+    btnRevertMode.title =
+      'Revert Mode: Chat Only (files untouched) — click to enable Workspace Files + Chat';
+  } else {
+    revertModeLabel.textContent = 'Files+Chat';
+    btnRevertMode.title =
+      'Revert Mode: Workspace Files + Chat (Git Checkpoint) — click to switch to Chat Only';
+  }
+}
+
+function updateContextBudget(m?: TurnMetrics): void {
+  if (!m?.totalTokens) {
+    contextBudgetEl.classList.add('hidden');
+    return;
+  }
+  contextBudgetEl.classList.remove('hidden');
+  const limit = m.contextSize || 200_000;
+  const pct = Math.min(100, Math.round((m.totalTokens / limit) * 100));
+  contextBudgetText.textContent = `${formatTokenCount(m.totalTokens)} / ${formatTokenCount(limit)} (${pct}%)`;
+  contextBudgetFill.style.width = `${Math.max(4, pct)}%`;
+  contextBudgetFill.style.background =
+    pct >= 80 ? 'var(--danger)' : pct >= 60 ? 'var(--warning)' : 'var(--success)';
+  contextBudgetEl.title = formatTurnMetrics(m).tooltip;
+}
+
+function renderQueuedBanner(): void {
+  if (!queuedFollowUp) {
+    queuedBannerEl.classList.add('hidden');
+    return;
+  }
+  queuedBannerEl.classList.remove('hidden');
+  queuedPreviewEl.textContent = queuedFollowUp.text || '(attached context)';
+}
+
 function renderHeaderAndPickers(): void {
   if (settings) {
-    workspaceNameEl.textContent = basename(settings.workspaceDir);
+    const activeDir = currentSessionWorkspaceDir || settings.workspaceDir;
+    workspaceNameEl.textContent = basename(activeDir);
     btnPinScreen.classList.toggle('active', settings.pinLiveScreen);
     document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
-    revertModeLabel.textContent =
-      settings.revertMode === 'chat_only' ? 'Revert: Chat Only' : 'Revert: Files+Chat';
-    btnRevertMode.title =
-      settings.revertMode === 'chat_only'
-        ? 'Revert Mode: Chat Only (click to switch to Workspace Files + Chat)'
-        : 'Revert Mode: Workspace Files + Chat (click to switch to Chat Only)';
+    renderRevertModeControl();
   }
   updateUndoRedoButtons();
+  renderQueuedBanner();
 
   const meta = HARNESS_LIST.find((h) => h.id === catalog.harness) ?? HARNESS_LIST[0];
-  harnessLabel.textContent = meta.label;
+  harnessLabel.textContent = meta.label.replace(' (ACP)', '');
   harnessDot.className = `harness-dot ${catalog.status}`;
 
   // Banner on error
@@ -263,7 +368,7 @@ function renderHeaderAndPickers(): void {
   const isLoading = catalog.status === 'connecting' || catalog.status === 'warming';
   modelLoadingSpinner.classList.toggle('hidden', !isLoading);
   if (isLoading && catalog.models.length === 0) {
-    modelLabel.textContent = `Loading (${meta.shortLabel})...`;
+    modelLabel.textContent = `Loading...`;
   } else if (catalog.status === 'error' && catalog.models.length === 0) {
     modelLabel.textContent = 'No models';
   } else {
@@ -300,12 +405,24 @@ function renderHeaderAndPickers(): void {
 }
 
 function updateSendButton(): void {
+  const hasDraft = Boolean(composerInput.value.trim() || pendingAttachments.length > 0);
   if (isStreaming) {
-    btnSend.classList.add('stop');
-    btnSend.title = 'Stop generation';
-    sendIcon.className = 'codicon codicon-debug-stop';
+    if (hasDraft) {
+      btnSend.classList.remove('stop');
+      btnSend.classList.add('queue');
+      btnSend.title =
+        settings?.followUpBehavior === 'steer'
+          ? 'Steer / Interrupt immediately (Enter)'
+          : 'Queue follow-up message (Enter)';
+      sendIcon.className = 'codicon codicon-plus';
+    } else {
+      btnSend.classList.remove('queue');
+      btnSend.classList.add('stop');
+      btnSend.title = 'Stop generation (Esc)';
+      sendIcon.className = 'codicon codicon-debug-stop';
+    }
   } else {
-    btnSend.classList.remove('stop');
+    btnSend.classList.remove('stop', 'queue');
     btnSend.title = 'Send prompt (Enter)';
     sendIcon.className = 'codicon codicon-arrow-up';
   }
@@ -425,29 +542,53 @@ async function revertToTurn(turnId: string): Promise<void> {
   if (idx < 0) return;
 
   const targetTurn = turns[idx];
-  const currentCkpt =
-    settings.revertMode === 'workspace_and_chat'
-      ? await window.agentOverlay.captureCheckpoint()
-      : { treeSha: null };
+  const targetDir = currentSessionWorkspaceDir || settings.workspaceDir;
+  let capturedTree: string | null = null;
+  if (settings.revertMode === 'workspace_and_chat' && gitGlance.isRepo) {
+    const currentCkpt = await window.agentOverlay.captureCheckpoint(targetDir);
+    if (!currentCkpt.treeSha) {
+      showNotice(
+        `Could not capture current files cleanly (${currentCkpt.error || 'git snapshot failed'}). Switched to safe Chat Only for this revert.`,
+        true,
+      );
+    } else {
+      capturedTree = currentCkpt.treeSha;
+    }
+  }
 
   undoStack.push({
     turns: structuredClone(turns),
     title: currentSessionTitle,
     draftText: composerInput.value,
-    workspaceTree: currentCkpt.treeSha,
+    draftAttachments: structuredClone(pendingAttachments),
+    workspaceDir: targetDir,
+    workspaceTree: capturedTree,
   });
   if (undoStack.length > 30) undoStack.shift();
   redoStack = [];
 
-  if (settings.revertMode === 'workspace_and_chat' && targetTurn.checkpointBefore) {
-    const res = await window.agentOverlay.restoreCheckpoint(targetTurn.checkpointBefore);
-    sessionTitleChip.title = res.message;
+  if (settings.revertMode === 'workspace_and_chat') {
+    if (targetTurn.checkpointBefore) {
+      const res = await window.agentOverlay.restoreCheckpoint(
+        targetTurn.checkpointBefore,
+        targetDir,
+      );
+      showNotice(res.message, !res.restored);
+      void refreshGitGlance();
+    } else {
+      showNotice(
+        'Chat reverted. Files untouched (this turn was created without a file checkpoint).',
+        true,
+      );
+    }
+  } else {
+    showNotice('Chat reverted (Files left untouched in Chat Only mode)');
   }
 
   turns = turns.slice(0, idx);
   needsContextReplay = turns.length > 0;
   composerInput.value = targetTurn.userText;
-  pendingAttachments = [...targetTurn.attachments];
+  pendingAttachments = structuredClone(targetTurn.attachments);
   renderAttachments();
   autoResizeComposer();
 
@@ -455,6 +596,7 @@ async function revertToTurn(turnId: string): Promise<void> {
   await persistCurrentSession();
   await window.agentOverlay.resetSession();
   updateUndoRedoButtons();
+  updateSendButton();
   composerInput.focus();
 }
 
@@ -462,33 +604,48 @@ async function applySnapshotRestore(
   snap: ChatSnapshot,
   pushInverseTo: ChatSnapshot[],
 ): Promise<void> {
+  const targetDir = snap.workspaceDir || currentSessionWorkspaceDir || settings.workspaceDir;
   const currentCkpt =
-    settings.revertMode === 'workspace_and_chat'
-      ? await window.agentOverlay.captureCheckpoint()
+    settings.revertMode === 'workspace_and_chat' && gitGlance.isRepo
+      ? await window.agentOverlay.captureCheckpoint(targetDir)
       : { treeSha: null };
 
   pushInverseTo.push({
     turns: structuredClone(turns),
     title: currentSessionTitle,
     draftText: composerInput.value,
+    draftAttachments: structuredClone(pendingAttachments),
+    workspaceDir: targetDir,
     workspaceTree: currentCkpt.treeSha,
   });
   if (pushInverseTo.length > 30) pushInverseTo.shift();
 
-  if (settings.revertMode === 'workspace_and_chat' && snap.workspaceTree) {
-    await window.agentOverlay.restoreCheckpoint(snap.workspaceTree);
+  if (settings.revertMode === 'workspace_and_chat') {
+    if (snap.workspaceTree) {
+      const res = await window.agentOverlay.restoreCheckpoint(snap.workspaceTree, targetDir);
+      showNotice(res.message, !res.restored);
+      void refreshGitGlance();
+    } else {
+      showNotice('Conversation state restored (no file snapshot associated).', true);
+    }
+  } else {
+    showNotice('Conversation state restored (Chat Only mode)');
   }
 
+  currentSessionWorkspaceDir = targetDir;
   turns = structuredClone(snap.turns);
   needsContextReplay = turns.length > 0;
   currentSessionTitle = snap.title;
   sessionTitleChip.textContent = currentSessionTitle;
   composerInput.value = snap.draftText;
+  pendingAttachments = structuredClone(snap.draftAttachments);
+  renderAttachments();
   autoResizeComposer();
   rebuildMessagesList();
   await persistCurrentSession();
   await window.agentOverlay.resetSession();
   updateUndoRedoButtons();
+  updateSendButton();
 }
 
 async function undoChatRevert(): Promise<void> {
@@ -554,9 +711,10 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   const revertBtn = document.createElement('button');
   revertBtn.type = 'button';
   revertBtn.className = 'turn-revert-btn';
-  revertBtn.title = turn.checkpointBefore
-    ? 'Revert conversation & workspace files to before this prompt'
-    : 'Revert conversation to before this prompt';
+  revertBtn.title =
+    settings?.revertMode === 'workspace_and_chat' && turn.checkpointBefore
+      ? 'Revert conversation & workspace files to before this prompt'
+      : 'Revert conversation to before this prompt (chat only)';
   revertBtn.innerHTML = '<i class="codicon codicon-discard"></i><span>Revert</span>';
   revertBtn.addEventListener('click', () => {
     void revertToTurn(turn.id);
@@ -828,50 +986,84 @@ async function resolveInlineMentionsToAttachments(text: string): Promise<void> {
   }
 }
 
-async function submitPrompt(): Promise<void> {
-  if (isStreaming) {
-    await window.agentOverlay.cancelTurn();
+async function submitPrompt(overridePrompt?: QueuedPrompt): Promise<void> {
+  const raw = overridePrompt ? overridePrompt.text.trim() : composerInput.value.trim();
+  const hasDraft = Boolean(raw || (overridePrompt?.attachments.length ?? pendingAttachments.length) > 0);
+
+  if (isStreaming && !overridePrompt) {
+    if (!hasDraft) {
+      await window.agentOverlay.cancelTurn();
+      return;
+    }
+    const text = composerInput.value.trim();
+    const atts = [...pendingAttachments];
+    composerInput.value = '';
+    pendingAttachments = [];
+    renderAttachments();
+    autoResizeComposer();
+    popovers.close();
+
+    if (settings.followUpBehavior === 'steer') {
+      queuedFollowUp = { text: `[Steering]: ${text}`, attachments: atts, steer: true };
+      renderQueuedBanner();
+      await window.agentOverlay.cancelTurn();
+    } else {
+      queuedFollowUp = { text, attachments: atts, steer: false };
+      renderQueuedBanner();
+      updateSendButton();
+    }
     return;
   }
 
-  const raw = composerInput.value.trim();
-  if (!raw && pendingAttachments.length === 0) return;
+  if (!hasDraft) return;
 
-  const localCmd = parseLocalCommand(raw);
-  if (localCmd) {
-    composerInput.value = '';
-    autoResizeComposer();
-    await executeLocalCommand(localCmd);
-    return;
+  if (!overridePrompt) {
+    const localCmd = parseLocalCommand(raw);
+    if (localCmd) {
+      composerInput.value = '';
+      autoResizeComposer();
+      await executeLocalCommand(localCmd);
+      return;
+    }
   }
 
   isStreaming = true;
   followBottom = true;
+  redoStack = [];
   btnScrollBottom.classList.add('hidden');
   updateSendButton();
   updateUndoRedoButtons();
 
-  const expanded = expandSlashTemplate(raw);
-  composerInput.value = '';
-  autoResizeComposer();
+  const expanded = overridePrompt ? raw : expandSlashTemplate(raw);
+  if (!overridePrompt) {
+    composerInput.value = '';
+    autoResizeComposer();
+  }
   popovers.close();
 
   try {
     setLiveStatus(true, 'warming', 'Preparing context...');
-    await resolveInlineMentionsToAttachments(expanded);
+    if (!overridePrompt) {
+      await resolveInlineMentionsToAttachments(expanded);
+    }
 
-    const atts = [...pendingAttachments];
-    pendingAttachments = [];
-    renderAttachments();
+    const atts = overridePrompt ? [...overridePrompt.attachments] : [...pendingAttachments];
+    if (!overridePrompt) {
+      pendingAttachments = [];
+      renderAttachments();
+    }
 
     if (turns.length === 0 && expanded) {
       currentSessionTitle = expanded.length > 28 ? `${expanded.slice(0, 28)}…` : expanded;
       sessionTitleChip.textContent = currentSessionTitle;
     }
 
+    const targetDir = currentSessionWorkspaceDir || settings.workspaceDir;
+    currentSessionWorkspaceDir = targetDir;
+
     let checkpointBefore: string | null = null;
-    if (settings.revertMode === 'workspace_and_chat') {
-      const ckpt = await window.agentOverlay.captureCheckpoint();
+    if (settings.revertMode === 'workspace_and_chat' && gitGlance.isRepo) {
+      const ckpt = await window.agentOverlay.captureCheckpoint(targetDir);
       checkpointBefore = ckpt.treeSha;
     }
 
@@ -1085,6 +1277,8 @@ function handleStreamEvent(ev: StreamEvent): void {
       }
       card.appendChild(actions);
       activeTurn.toolsContainer.appendChild(card);
+      if (settings.soundCues) playAttentionChime();
+      void window.agentOverlay.flashAttention();
       scrollToBottomIfPinned();
       break;
     }
@@ -1102,6 +1296,7 @@ function handleStreamEvent(ev: StreamEvent): void {
       const formatted = formatTurnMetrics(activeTurn.turn.metrics);
       activeTurn.metricsEl.textContent = formatted.text;
       activeTurn.metricsEl.title = formatted.tooltip;
+      updateContextBudget(activeTurn.turn.metrics);
       break;
     }
     case 'error': {
@@ -1161,11 +1356,21 @@ function handleStreamEvent(ev: StreamEvent): void {
           id: currentSessionId,
           title: currentSessionTitle,
           harness: catalog.harness,
-          workspaceDir: settings.workspaceDir,
+          workspaceDir: currentSessionWorkspaceDir || settings.workspaceDir,
           updatedAt: Date.now(),
           turns,
         });
         activeTurn = null;
+      }
+      if (settings.soundCues && !window.location.search.includes('audit=1')) {
+        playDoneChime();
+      }
+      void refreshGitGlance();
+      if (queuedFollowUp) {
+        const nextQueued = queuedFollowUp;
+        queuedFollowUp = null;
+        renderQueuedBanner();
+        void submitPrompt(nextQueued);
       }
       break;
     }
@@ -1398,83 +1603,17 @@ function closeModal(): void {
 
 function openSettingsModal(): void {
   modalTitle.textContent = 'Settings';
-  modalBody.innerHTML = `
-    <div class="field-group">
-      <label>Default ACP Harness</label>
-      <select id="set-harness" class="field-select">
-        ${HARNESS_LIST.map(
-          (h) =>
-            `<option value="${h.id}" ${h.id === settings.harness ? 'selected' : ''}>${h.label}</option>`,
-        ).join('')}
-      </select>
-    </div>
-    <div class="field-group">
-      <label>Antigravity CLI Command</label>
-      <input id="set-cmd-agy" class="field-input" value="${escapeHtmlText(settings.commands.agy_acp.command)}" />
-    </div>
-    <div class="field-group">
-      <label>OpenCode CLI Command</label>
-      <input id="set-cmd-opencode" class="field-input" value="${escapeHtmlText(settings.commands.opencode_acp.command)}" />
-    </div>
-    <div class="field-group">
-      <label>Pi (ACP) CLI Command</label>
-      <input id="set-cmd-pi" class="field-input" value="${escapeHtmlText(settings.commands.pi_acp.command)}" />
-    </div>
-    <div class="field-group">
-      <label>Revert Mode</label>
-      <select id="set-revert-mode" class="field-select">
-        <option value="workspace_and_chat" ${settings.revertMode === 'workspace_and_chat' ? 'selected' : ''}>Workspace Files + Chat (Git Checkpoint)</option>
-        <option value="chat_only" ${settings.revertMode === 'chat_only' ? 'selected' : ''}>Chat Only</option>
-      </select>
-    </div>
-    <div class="field-group">
-      <label>Font Size (px)</label>
-      <input id="set-font-size" type="number" min="11" max="20" class="field-input" value="${settings.fontSize}" />
-    </div>
-    <label class="toggle-row">
-      <span>Auto-approve tool permission requests</span>
-      <input id="set-auto-approve" type="checkbox" ${settings.autoApprovePermissions ? 'checked' : ''} />
-    </label>
-    <label class="toggle-row">
-      <span>Auto-hide overlay when unfocused</span>
-      <input id="set-auto-hide" type="checkbox" ${settings.autoHideOnBlur ? 'checked' : ''} />
-    </label>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;">
-      <button id="set-save-btn" class="perm-btn primary">Save & Apply</button>
-    </div>
-  `;
-
-  document.getElementById('set-save-btn')?.addEventListener('click', async () => {
-    const harness = (document.getElementById('set-harness') as HTMLSelectElement)
-      .value as HarnessKind;
-    const agyCmd = (document.getElementById('set-cmd-agy') as HTMLInputElement).value.trim();
-    const ocCmd = (document.getElementById('set-cmd-opencode') as HTMLInputElement).value.trim();
-    const piCmd = (document.getElementById('set-cmd-pi') as HTMLInputElement).value.trim();
-    const revertMode = (document.getElementById('set-revert-mode') as HTMLSelectElement)
-      .value as AppSettings['revertMode'];
-    const fontSize = Math.min(
-      20,
-      Math.max(11, Number((document.getElementById('set-font-size') as HTMLInputElement).value) || 13),
-    );
-    const autoApprove = (document.getElementById('set-auto-approve') as HTMLInputElement).checked;
-    const autoHide = (document.getElementById('set-auto-hide') as HTMLInputElement).checked;
-
-    settings = await window.agentOverlay.updateSettings({
-      harness,
-      revertMode,
-      fontSize,
-      autoApprovePermissions: autoApprove,
-      autoHideOnBlur: autoHide,
-      commands: {
-        agy_acp: { command: agyCmd || 'agy', args: ['acp'] },
-        opencode_acp: { command: ocCmd || 'opencode', args: ['acp'] },
-        pi_acp: { command: piCmd || 'pi', args: ['acp'] },
-      },
-    });
-    renderHeaderAndPickers();
-    closeModal();
+  void renderTabbedSettingsDrawer({
+    container: modalBody,
+    settings,
+    onUpdateSettings: async (patch) => {
+      settings = await window.agentOverlay.updateSettings(patch);
+      renderHeaderAndPickers();
+      void refreshGitGlance();
+      return settings;
+    },
+    onClose: closeModal,
   });
-
   modalBackdrop.classList.remove('hidden');
 }
 
@@ -1512,13 +1651,15 @@ async function openHistoryModal(): Promise<void> {
         if (isStreaming) return;
         currentSessionId = s.id;
         currentSessionTitle = s.title;
+        currentSessionWorkspaceDir = s.workspaceDir || settings.workspaceDir;
         sessionTitleChip.textContent = s.title;
         turns = structuredClone(s.turns);
         needsContextReplay = turns.length > 0;
         undoStack = [];
         redoStack = [];
         rebuildMessagesList();
-        updateUndoRedoButtons();
+        renderHeaderAndPickers();
+        void refreshGitGlance();
         closeModal();
       });
 
@@ -1552,9 +1693,34 @@ btnRedoChat.addEventListener('click', () => {
   void redoChatRevert();
 });
 btnRevertMode.addEventListener('click', async () => {
+  if (!gitGlance.isRepo) {
+    showNotice('Current directory is not a Git repository — only Chat Only revert is available.', true);
+    return;
+  }
   const next = settings.revertMode === 'workspace_and_chat' ? 'chat_only' : 'workspace_and_chat';
   settings = await window.agentOverlay.updateSettings({ revertMode: next });
   renderHeaderAndPickers();
+});
+btnQueuedSteer.addEventListener('click', async () => {
+  if (!queuedFollowUp) return;
+  queuedFollowUp = { ...queuedFollowUp, text: `[Steering]: ${queuedFollowUp.text}`, steer: true };
+  await window.agentOverlay.cancelTurn();
+});
+btnQueuedEdit.addEventListener('click', () => {
+  if (!queuedFollowUp) return;
+  composerInput.value = queuedFollowUp.text;
+  pendingAttachments = [...queuedFollowUp.attachments];
+  queuedFollowUp = null;
+  renderQueuedBanner();
+  renderAttachments();
+  autoResizeComposer();
+  updateSendButton();
+  composerInput.focus();
+});
+btnQueuedCancel.addEventListener('click', () => {
+  queuedFollowUp = null;
+  renderQueuedBanner();
+  updateSendButton();
 });
 document.getElementById('btn-new-chat')?.addEventListener('click', () => {
   void startNewConversation();
@@ -1569,6 +1735,54 @@ document.getElementById('btn-close')?.addEventListener('click', () => {
 document.getElementById('btn-modal-close')?.addEventListener('click', closeModal);
 modalBackdrop.addEventListener('mousedown', (e) => {
   if (e.target === modalBackdrop) closeModal();
+});
+
+gitBranchChip.addEventListener('click', () => {
+  if (!gitGlance.isRepo) return;
+  popovers.openList({
+    anchor: gitBranchChip,
+    placement: 'below',
+    headerText: `${gitGlance.branch} · ${gitGlance.changedFiles.length} changed`,
+    items:
+      gitGlance.changedFiles.length === 0
+        ? [
+            {
+              id: 'clean',
+              title: 'Working tree clean',
+              icon: 'codicon-check',
+              disabled: true,
+              onSelect: () => {},
+            },
+          ]
+        : [
+            {
+              id: 'review-diff',
+              title: `Review ${gitGlance.changedFiles.length} Modified Files`,
+              detail: `+${gitGlance.insertions} / -${gitGlance.deletions}`,
+              icon: 'codicon-git-compare',
+              onSelect: () => {
+                composerInput.value = `Review these uncommitted workspace changes:\n${gitGlance.changedFiles.map((f) => `- @${f}`).join('\n')}\n\n`;
+                autoResizeComposer();
+                composerInput.focus();
+                updateSendButton();
+              },
+            },
+            ...gitGlance.changedFiles.slice(0, 12).map((f) => ({
+              id: `f_${f}`,
+              title: basename(f),
+              detail: f,
+              icon: 'codicon-file-code',
+              onSelect: () => {
+                addAttachment({
+                  id: `att_git_${f}`,
+                  kind: 'file',
+                  name: basename(f),
+                  path: f,
+                });
+              },
+            })),
+          ],
+  });
 });
 
 btnWorkspace.addEventListener('click', () => {
@@ -1632,6 +1846,24 @@ messagesView.addEventListener('click', (e) => {
     return;
   }
 
+  const wrapBtn = target.closest<HTMLButtonElement>('.md-wrap-code-btn');
+  if (wrapBtn) {
+    wrapBtn.closest('.md-code-card')?.classList.toggle('soft-wrap');
+    return;
+  }
+
+  const expandBtn = target.closest<HTMLButtonElement>('.md-code-expand-btn');
+  if (expandBtn) {
+    const card = expandBtn.closest<HTMLElement>('.md-code-card');
+    if (card) {
+      const collapsed = card.classList.toggle('is-collapsed');
+      expandBtn.textContent = collapsed
+        ? `Show all ${(card.dataset.rawCode || '').split('\n').length} lines`
+        : 'Collapse code';
+    }
+    return;
+  }
+
   const toggleBtn = target.closest<HTMLButtonElement>('.md-mermaid-toggle');
   if (toggleBtn) {
     const card = toggleBtn.closest('.md-mermaid-card');
@@ -1658,6 +1890,7 @@ messagesView.addEventListener('click', (e) => {
 
 composerInput.addEventListener('input', () => {
   autoResizeComposer();
+  updateSendButton();
   void refreshAutocomplete();
 });
 
@@ -1693,6 +1926,11 @@ window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
     e.preventDefault();
     void startNewConversation();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'g') {
+    e.preventDefault();
+    void window.agentOverlay.toggleGhostMode();
     return;
   }
   if (
@@ -1920,23 +2158,41 @@ async function runAuditFlow(): Promise<void> {
     assistantMarkdown: '',
   };
   isStreaming = true;
+  queuedFollowUp = { text: 'Also check edge cases in tests/core.test.ts', attachments: [], steer: false };
+  renderQueuedBanner();
+  composerInput.value = 'Draft message';
   updateSendButton();
   setLiveStatus(true, 'tool', 'Running read_file...');
   buildTurnDom(workingTurn, true);
   chatViewport.scrollTo({ top: chatViewport.scrollHeight, behavior: 'instant' });
   await window.agentOverlay.auditCapture('08-working-state.png');
 
+  queuedFollowUp = null;
+  composerInput.value = '';
+  renderQueuedBanner();
+  isStreaming = false;
+  updateSendButton();
+  openSettingsModal();
+  await new Promise((r) => setTimeout(r, 250));
+  await window.agentOverlay.auditCapture('09-settings-drawer.png');
+  closeModal();
+
   await window.agentOverlay.auditDone();
 }
 
 async function bootstrap(): Promise<void> {
   settings = await window.agentOverlay.getSettings();
+  currentSessionWorkspaceDir = settings.workspaceDir;
   catalog = await window.agentOverlay.getCatalog();
   renderHeaderAndPickers();
   updateSendButton();
+  void refreshGitGlance();
 
   window.agentOverlay.onStreamEvent(handleStreamEvent);
   window.agentOverlay.onFocusComposer(() => composerInput.focus());
+  window.agentOverlay.onGhostModeChanged((enabled) => {
+    ghostModeBadge.classList.toggle('hidden', !enabled);
+  });
   composerInput.focus();
 
   if (window.location.search.includes('audit=1')) {

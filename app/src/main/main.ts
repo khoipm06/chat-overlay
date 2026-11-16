@@ -22,13 +22,15 @@ import type {
   MarkupAnnotation,
   SavedSession,
   StreamEvent,
+  WidthPreset,
 } from '../shared/types';
-import { AcpAgentController } from './acp-client';
+import { AcpAgentController, testHarnessConnection } from './acp-client';
 import { captureScreenDataUrl, type CaptureKind } from './capture';
-import { captureWorkspaceCheckpoint, restoreWorkspaceCheckpoint } from './checkpoint';
+import { captureWorkspaceCheckpoint, getGitGlance, restoreWorkspaceCheckpoint } from './checkpoint';
 import { indexWorkspaceFiles, matchMentionItems } from './mentions';
 import {
   deleteSessionRecord,
+  inspectHarnesses,
   loadSessions,
   loadSettings,
   saveSessionRecord,
@@ -43,6 +45,8 @@ let workspaceFileCache: string[] = [];
 let cacheWorkspaceDir = '';
 let acpController: AcpAgentController;
 let ipcSocketServer: net.Server | null = null;
+let markupAutoClearTimer: NodeJS.Timeout | null = null;
+let ghostMode = false;
 let quitting = false;
 
 const START_HIDDEN = process.argv.includes('--daemon');
@@ -66,17 +70,56 @@ function createTrayIcon(): Electron.NativeImage {
   );
 }
 
-function computeDefaultBounds(): { x: number; y: number; width: number; height: number } {
+function presetRatio(preset: WidthPreset): number {
+  switch (preset) {
+    case 'narrow_15':
+      return 0.15;
+    case 'balanced_20':
+      return 0.2;
+    case 'wide_25':
+      return 0.25;
+    default:
+      return 0.15;
+  }
+}
+
+function computePresetBounds(preset: WidthPreset = settings.widthPreset): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
   const display = screen.getPrimaryDisplay();
   const wa = display.workArea;
-  const width = settings.windowBounds?.width ?? Math.min(460, Math.round(wa.width * 0.36));
-  const height = settings.windowBounds?.height ?? Math.min(820, wa.height - 32);
-  const margin = 16;
+  const edgeGap = 8;
+  const width = Math.max(264, Math.min(Math.round(wa.width * 0.45), Math.round(wa.width * presetRatio(preset))));
+  const height = Math.max(480, wa.height - edgeGap * 2);
   const x =
-    settings.windowBounds?.x ??
-    (settings.edge === 'left' ? wa.x + margin : wa.x + wa.width - width - margin);
-  const y = settings.windowBounds?.y ?? wa.y + margin;
+    settings.edge === 'left' ? wa.x + edgeGap : wa.x + wa.width - width - edgeGap;
+  const y = wa.y + edgeGap;
   return { x, y, width, height };
+}
+
+function computeDefaultBounds(): { x: number; y: number; width: number; height: number } {
+  if (settings.widthPreset !== 'custom' || !settings.windowBounds) {
+    return computePresetBounds(settings.widthPreset);
+  }
+  return settings.windowBounds;
+}
+
+function applyWindowLayout(preset?: WidthPreset): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const b = preset && preset !== 'custom' ? computePresetBounds(preset) : computePresetBounds(settings.widthPreset);
+  mainWindow.setBounds(b);
+  mainWindow.setOpacity(Math.min(1, Math.max(0.5, settings.opacity ?? 1)));
+}
+
+function setGhostMode(enabled: boolean): void {
+  ghostMode = enabled;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setIgnoreMouseEvents(ghostMode, { forward: true });
+  mainWindow.setOpacity(ghostMode ? 0.7 : Math.min(1, Math.max(0.5, settings.opacity ?? 1)));
+  mainWindow.webContents.send('window:ghost-mode', ghostMode);
 }
 
 function createMainWindow(): void {
@@ -86,11 +129,12 @@ function createMainWindow(): void {
     y: bounds.y,
     width: bounds.width,
     height: bounds.height,
-    minWidth: 340,
+    minWidth: 250,
     minHeight: 420,
     frame: false,
-    transparent: false,
-    backgroundColor: '#181818',
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
     alwaysOnTop: true,
     resizable: true,
     show: !START_HIDDEN,
@@ -103,6 +147,7 @@ function createMainWindow(): void {
     },
   });
 
+  mainWindow.setOpacity(Math.min(1, Math.max(0.5, settings.opacity ?? 1)));
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
     query: AUDIT_DIR ? { audit: '1' } : undefined,
@@ -117,7 +162,7 @@ function createMainWindow(): void {
   }
 
   const saveBounds = () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (AUDIT_DIR || !mainWindow || mainWindow.isDestroyed()) return;
     const b = mainWindow.getBounds();
     settings = { ...settings, windowBounds: b };
     saveSettings(settings);
@@ -125,9 +170,19 @@ function createMainWindow(): void {
   mainWindow.on('moved', saveBounds);
   mainWindow.on('resized', saveBounds);
 
+  mainWindow.on('focus', () => {
+    if (!ghostMode && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setOpacity(Math.min(1, Math.max(0.5, settings.opacity ?? 1)));
+    }
+  });
+
   mainWindow.on('blur', () => {
-    if (settings.autoHideOnBlur && mainWindow && !mainWindow.isDestroyed() && !markupWindow) {
-      mainWindow.hide();
+    if (mainWindow && !mainWindow.isDestroyed() && !markupWindow) {
+      if (settings.autoHideOnBlur) {
+        mainWindow.hide();
+      } else if (settings.dimOnBlur && !ghostMode) {
+        mainWindow.setOpacity(Math.max(0.65, (settings.opacity ?? 1) * 0.85));
+      }
     }
   });
 
@@ -163,6 +218,13 @@ function registerShortcuts(): void {
       // Wayland compositors may restrict global grabs; CLI / tray toggle still works
     }
   }
+  if (settings.ghostShortcut) {
+    try {
+      globalShortcut.register(settings.ghostShortcut, () => setGhostMode(!ghostMode));
+    } catch {
+      // Optional on compositor
+    }
+  }
 }
 
 function setupUnixToggleSocket(): void {
@@ -193,6 +255,10 @@ function setupUnixToggleSocket(): void {
 }
 
 function closeMarkupWindow(): void {
+  if (markupAutoClearTimer) {
+    clearTimeout(markupAutoClearTimer);
+    markupAutoClearTimer = null;
+  }
   if (markupWindow && !markupWindow.isDestroyed()) {
     markupWindow.close();
   }
@@ -232,10 +298,16 @@ function openAgentMarkupOverlay(annotations: MarkupAnnotation[]): void {
       annotations,
     });
   });
+
+  if (settings.markupAutoClearSeconds > 0) {
+    markupAutoClearTimer = setTimeout(() => {
+      closeMarkupWindow();
+    }, settings.markupAutoClearSeconds * 1000);
+  }
 }
 
 async function openInteractiveMarkupCapture(): Promise<ChatAttachment | null> {
-  const shot = await captureScreenDataUrl('fullscreen', mainWindow);
+  const shot = await captureScreenDataUrl('fullscreen', mainWindow, settings.screenshotQuality);
   closeMarkupWindow();
 
   const display = screen.getPrimaryDisplay();
@@ -311,19 +383,33 @@ function registerIpcHandlers(): void {
   ipcMain.handle('app:update-settings', async (_ev, patch: Partial<AppSettings>) => {
     const prevWorkspace = settings.workspaceDir;
     const prevHarness = settings.harness;
+    const prevEdge = settings.edge;
+    const prevPreset = settings.widthPreset;
     settings = {
       ...settings,
       ...patch,
       commands: { ...settings.commands, ...(patch.commands ?? {}) },
+      harnessEnv: { ...settings.harnessEnv, ...(patch.harnessEnv ?? {}) },
       harnessModels: { ...settings.harnessModels, ...(patch.harnessModels ?? {}) },
       harnessEfforts: { ...settings.harnessEfforts, ...(patch.harnessEfforts ?? {}) },
       harnessModes: { ...settings.harnessModes, ...(patch.harnessModes ?? {}) },
     };
     saveSettings(settings);
-    acpController.setAutoApprove(settings.autoApprovePermissions);
+    acpController.setPermissionPolicy(settings.permissionPolicy);
 
-    if (patch.shortcut !== undefined || patch.backupShortcut !== undefined) {
+    if (
+      patch.shortcut !== undefined ||
+      patch.backupShortcut !== undefined ||
+      patch.ghostShortcut !== undefined
+    ) {
       registerShortcuts();
+    }
+    if (
+      patch.edge !== undefined && patch.edge !== prevEdge ||
+      patch.widthPreset !== undefined && patch.widthPreset !== prevPreset ||
+      patch.opacity !== undefined
+    ) {
+      applyWindowLayout(settings.widthPreset);
     }
     if (settings.workspaceDir !== prevWorkspace) {
       void refreshWorkspaceMentions();
@@ -332,6 +418,14 @@ function registerIpcHandlers(): void {
       await acpController.warmup(settings);
     }
     return settings;
+  });
+
+  ipcMain.handle('settings:inspect-harnesses', () => inspectHarnesses(settings));
+  ipcMain.handle('acp:test-harness', (_ev, harness: HarnessKind) =>
+    testHarnessConnection(settings, harness),
+  );
+  ipcMain.handle('acp:clear-session-allowed', () => {
+    acpController.clearSessionAllowedTools();
   });
 
   ipcMain.handle('app:pick-workspace', async () => {
@@ -426,7 +520,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('capture:screen', async (_ev, kind: CaptureKind): Promise<ChatAttachment> => {
-    const shot = await captureScreenDataUrl(kind, mainWindow);
+    const shot = await captureScreenDataUrl(kind, mainWindow, settings.screenshotQuality);
     return {
       id: `att_${Date.now()}`,
       kind: 'image',
@@ -449,15 +543,32 @@ function registerIpcHandlers(): void {
   ipcMain.handle('sessions:save', (_ev, session: SavedSession) => saveSessionRecord(session));
   ipcMain.handle('sessions:delete', (_ev, id: string) => deleteSessionRecord(id));
 
-  ipcMain.handle('checkpoint:capture', () =>
-    captureWorkspaceCheckpoint(settings.workspaceDir),
+  ipcMain.handle('git:glance', (_ev, workspaceDir?: string) =>
+    getGitGlance(workspaceDir || settings.workspaceDir),
   );
-  ipcMain.handle('checkpoint:restore', (_ev, treeSha: string | null) =>
-    restoreWorkspaceCheckpoint(settings.workspaceDir, treeSha),
+  ipcMain.handle('checkpoint:capture', (_ev, workspaceDir?: string) =>
+    captureWorkspaceCheckpoint(workspaceDir || settings.workspaceDir),
+  );
+  ipcMain.handle(
+    'checkpoint:restore',
+    (_ev, treeSha: string | null, workspaceDir?: string) =>
+      restoreWorkspaceCheckpoint(workspaceDir || settings.workspaceDir, treeSha),
   );
 
   ipcMain.handle('window:hide', () => {
     mainWindow?.hide();
+  });
+  ipcMain.handle('window:apply-layout', (_ev, preset?: WidthPreset) => {
+    applyWindowLayout(preset);
+  });
+  ipcMain.handle('window:toggle-ghost', () => {
+    setGhostMode(!ghostMode);
+    return ghostMode;
+  });
+  ipcMain.handle('window:flash-attention', () => {
+    if (settings.flashOnAttention && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) {
+      mainWindow.flashFrame(true);
+    }
   });
 
   ipcMain.handle('audit:capture', async (_ev, filename: string) => {
@@ -482,13 +593,15 @@ function registerIpcHandlers(): void {
   });
 }
 
-const gotLock = app.requestSingleInstanceLock();
+const gotLock = AUDIT_DIR ? true : app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    toggleOverlay();
-  });
+  if (!AUDIT_DIR) {
+    app.on('second-instance', () => {
+      toggleOverlay();
+    });
+  }
 
   app.whenReady().then(() => {
     acpController = new AcpAgentController(settings, sendStreamEvent, (annotations) => {
@@ -497,33 +610,35 @@ if (!gotLock) {
 
     registerIpcHandlers();
     createMainWindow();
-    registerShortcuts();
-    setupUnixToggleSocket();
+    if (!AUDIT_DIR) {
+      registerShortcuts();
+      setupUnixToggleSocket();
 
-    tray = new Tray(createTrayIcon());
-    tray.setToolTip('Chat Overlay (ACP)');
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: 'Toggle Overlay', click: () => toggleOverlay() },
-        {
-          label: 'New Conversation',
-          click: () => {
-            mainWindow?.show();
-            mainWindow?.focus();
-            void acpController.warmup(settings);
+      tray = new Tray(createTrayIcon());
+      tray.setToolTip('Chat Overlay (ACP)');
+      tray.setContextMenu(
+        Menu.buildFromTemplate([
+          { label: 'Toggle Overlay', click: () => toggleOverlay() },
+          {
+            label: 'New Conversation',
+            click: () => {
+              mainWindow?.show();
+              mainWindow?.focus();
+              void acpController.warmup(settings);
+            },
           },
-        },
-        { type: 'separator' },
-        {
-          label: 'Quit',
-          click: () => {
-            quitting = true;
-            app.quit();
+          { type: 'separator' },
+          {
+            label: 'Quit',
+            click: () => {
+              quitting = true;
+              app.quit();
+            },
           },
-        },
-      ]),
-    );
-    tray.on('click', () => toggleOverlay());
+        ]),
+      );
+      tray.on('click', () => toggleOverlay());
+    }
 
     void refreshWorkspaceMentions();
     void acpController.warmup(settings);

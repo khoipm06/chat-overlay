@@ -1,0 +1,253 @@
+import { HARNESS_LIST } from '../shared/types';
+import type {
+  AppSettings,
+  FollowUpBehavior,
+  HarnessDiagnostic,
+  HarnessKind,
+  PermissionPolicy,
+  RevertMode,
+  ScreenshotQuality,
+  WidthPreset,
+} from '../shared/types';
+import { escapeHtmlText } from './tool-presenter';
+
+type SettingsTab = 'overlay' | 'safety' | 'vision' | 'harnesses';
+
+export async function renderTabbedSettingsDrawer(opts: {
+  container: HTMLElement;
+  settings: AppSettings;
+  onUpdateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>;
+  onClose: () => void;
+}): Promise<void> {
+  let activeTab: SettingsTab = 'overlay';
+  let current = opts.settings;
+  let diagnostics: HarnessDiagnostic[] = await window.agentOverlay.inspectHarnesses();
+
+  const render = () => {
+    opts.container.innerHTML = '';
+
+    const tabsBar = document.createElement('div');
+    tabsBar.className = 'settings-tabs';
+    const tabDefs: Array<{ id: SettingsTab; label: string; icon: string }> = [
+      { id: 'overlay', label: 'Overlay', icon: 'codicon-layout-sidebar-right' },
+      { id: 'safety', label: 'Safety', icon: 'codicon-shield' },
+      { id: 'vision', label: 'Vision & Flow', icon: 'codicon-device-camera' },
+      { id: 'harnesses', label: 'Harnesses', icon: 'codicon-plug' },
+    ];
+    for (const t of tabDefs) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `settings-tab-btn${t.id === activeTab ? ' active' : ''}`;
+      btn.innerHTML = `<i class="codicon ${t.icon}"></i><span>${t.label}</span>`;
+      btn.addEventListener('click', () => {
+        activeTab = t.id;
+        render();
+      });
+      tabsBar.appendChild(btn);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'settings-tab-content';
+
+    if (activeTab === 'overlay') {
+      body.innerHTML = `
+        <div class="field-group">
+          <label>Screen Dock Edge</label>
+          <select id="set-edge" class="field-select">
+            <option value="right" ${current.edge === 'right' ? 'selected' : ''}>Right Edge</option>
+            <option value="left" ${current.edge === 'left' ? 'selected' : ''}>Left Edge</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Sidebar Width Preset (Near Full Height)</label>
+          <select id="set-width-preset" class="field-select">
+            <option value="narrow_15" ${current.widthPreset === 'narrow_15' ? 'selected' : ''}>15% Screen Width (Compact)</option>
+            <option value="balanced_20" ${current.widthPreset === 'balanced_20' ? 'selected' : ''}>20% Screen Width (Balanced)</option>
+            <option value="wide_25" ${current.widthPreset === 'wide_25' ? 'selected' : ''}>25% Screen Width (Wide)</option>
+            <option value="custom" ${current.widthPreset === 'custom' ? 'selected' : ''}>Custom Dragged Size</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Opacity (${Math.round((current.opacity ?? 1) * 100)}%)</label>
+          <input id="set-opacity" type="range" min="70" max="100" value="${Math.round((current.opacity ?? 1) * 100)}" />
+        </div>
+        <div class="field-group">
+          <label>Font Size (px)</label>
+          <input id="set-font-size" type="number" min="11" max="18" class="field-input" value="${current.fontSize}" />
+        </div>
+        <label class="toggle-row">
+          <span>Dim slightly when unfocused</span>
+          <input id="set-dim-blur" type="checkbox" ${current.dimOnBlur ? 'checked' : ''} />
+        </label>
+        <label class="toggle-row">
+          <span>Auto-hide when unfocused</span>
+          <input id="set-auto-hide" type="checkbox" ${current.autoHideOnBlur ? 'checked' : ''} />
+        </label>
+        <label class="toggle-row">
+          <span>Show Git branch &amp; diff glance</span>
+          <input id="set-git-glance" type="checkbox" ${current.showGitGlance ? 'checked' : ''} />
+        </label>
+        <div class="settings-hint">
+          Toggle Ghost Click-Through: <code>Ctrl+Alt+G</code> · Model Picker: <code>Ctrl+.</code> · Undo Revert: <code>Ctrl+Shift+Z</code>
+        </div>
+      `;
+    } else if (activeTab === 'safety') {
+      body.innerHTML = `
+        <div class="field-group">
+          <label>Tool Permission Policy</label>
+          <select id="set-perm-policy" class="field-select">
+            <option value="auto_read" ${current.permissionPolicy === 'auto_read' ? 'selected' : ''}>Auto-approve Read-Only (Recommended)</option>
+            <option value="auto_workspace" ${current.permissionPolicy === 'auto_workspace' ? 'selected' : ''}>Auto-approve Workspace Edits &amp; Reads</option>
+            <option value="ask" ${current.permissionPolicy === 'ask' ? 'selected' : ''}>Ask before every tool</option>
+            <option value="yolo" ${current.permissionPolicy === 'yolo' ? 'selected' : ''}>Auto-approve all tools</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Revert Mode</label>
+          <select id="set-revert-mode" class="field-select">
+            <option value="workspace_and_chat" ${current.revertMode === 'workspace_and_chat' ? 'selected' : ''}>Workspace Files + Chat (Git Checkpoint)</option>
+            <option value="chat_only" ${current.revertMode === 'chat_only' ? 'selected' : ''}>Chat History Only (Leave Files Untouched)</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Session-Trusted Tools</label>
+          <button id="btn-clear-trusted" type="button" class="mini-action-btn">Clear Remembered Tool Approvals</button>
+        </div>
+      `;
+      body.querySelector('#btn-clear-trusted')?.addEventListener('click', async (e) => {
+        const b = e.currentTarget as HTMLButtonElement;
+        await window.agentOverlay.clearSessionAllowedTools();
+        b.textContent = 'Cleared ✓';
+      });
+    } else if (activeTab === 'vision') {
+      body.innerHTML = `
+        <div class="field-group">
+          <label>Sending Follow-up While Running (T3 Style)</label>
+          <select id="set-followup" class="field-select">
+            <option value="queue" ${current.followUpBehavior === 'queue' ? 'selected' : ''}>Queue until current turn finishes (Enter)</option>
+            <option value="steer" ${current.followUpBehavior === 'steer' ? 'selected' : ''}>Steer immediately (Interrupt &amp; redirect)</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Screen Capture Quality</label>
+          <select id="set-shot-quality" class="field-select">
+            <option value="compressed" ${current.screenshotQuality === 'compressed' ? 'selected' : ''}>Fast JPEG (~200KB, max 1600px)</option>
+            <option value="original" ${current.screenshotQuality === 'original' ? 'selected' : ''}>Lossless PNG (Full Retina/4K)</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Auto-clear Agent Screen Annotations (seconds, 0 = manual)</label>
+          <input id="set-markup-clear" type="number" min="0" max="120" class="field-input" value="${current.markupAutoClearSeconds}" />
+        </div>
+        <label class="toggle-row">
+          <span>Subtle audio chime on completion &amp; approvals</span>
+          <input id="set-sound-cues" type="checkbox" ${current.soundCues ? 'checked' : ''} />
+        </label>
+        <label class="toggle-row">
+          <span>Flash taskbar icon when approval needed</span>
+          <input id="set-flash-attn" type="checkbox" ${current.flashOnAttention ? 'checked' : ''} />
+        </label>
+        <label class="toggle-row">
+          <span>Always attach live @screen with prompts</span>
+          <input id="set-pin-screen" type="checkbox" ${current.pinLiveScreen ? 'checked' : ''} />
+        </label>
+      `;
+    } else {
+      body.innerHTML = `
+        <div class="field-group">
+          <label>Default ACP Agent</label>
+          <select id="set-harness" class="field-select">
+            ${HARNESS_LIST.map(
+              (h) =>
+                `<option value="${h.id}" ${h.id === current.harness ? 'selected' : ''}>${escapeHtmlText(h.label)}</option>`,
+            ).join('')}
+          </select>
+        </div>
+        <div class="diag-list" id="diag-list"></div>
+      `;
+
+      const diagList = body.querySelector<HTMLElement>('#diag-list')!;
+      for (const d of diagnostics) {
+        const card = document.createElement('div');
+        card.className = 'diag-card';
+        const top = document.createElement('div');
+        top.className = 'diag-card-top';
+        const left = document.createElement('div');
+        left.innerHTML = `<span class="harness-dot ${d.installed ? 'ready' : 'error'}" style="display:inline-block;margin-right:6px;"></span><strong>${escapeHtmlText(d.label)}</strong>`;
+        const pingBtn = document.createElement('button');
+        pingBtn.type = 'button';
+        pingBtn.className = 'mini-action-btn';
+        pingBtn.textContent = d.installed ? 'Test ACP' : 'Missing';
+        pingBtn.disabled = !d.installed;
+
+        const detail = document.createElement('div');
+        detail.className = 'diag-card-sub';
+        detail.textContent = d.installed
+          ? `${d.resolvedPath}${d.version ? ` (${d.version})` : ''}`
+          : `${d.resolvedPath} not found on PATH`;
+
+        pingBtn.addEventListener('click', async () => {
+          pingBtn.disabled = true;
+          pingBtn.textContent = 'Testing...';
+          const res = await window.agentOverlay.testHarness(d.id);
+          pingBtn.disabled = false;
+          pingBtn.textContent = res.ok ? `OK ${res.latencyMs}ms` : 'Failed';
+          detail.textContent = res.ok
+            ? `${res.message} · ${res.latencyMs}ms`
+            : res.message;
+        });
+
+        top.append(left, pingBtn);
+        card.append(top, detail);
+        diagList.appendChild(card);
+      }
+    }
+
+    const footer = document.createElement('div');
+    footer.className = 'settings-footer';
+    const snapBtn = document.createElement('button');
+    snapBtn.type = 'button';
+    snapBtn.className = 'mini-action-btn';
+    snapBtn.textContent = 'Snap Sidebar Layout';
+    snapBtn.addEventListener('click', async () => {
+      await window.agentOverlay.applyWindowLayout(current.widthPreset === 'custom' ? 'narrow_15' : current.widthPreset);
+    });
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'perm-btn primary';
+    saveBtn.textContent = 'Save & Apply';
+    saveBtn.addEventListener('click', async () => {
+      const patch: Partial<AppSettings> = {};
+      if (activeTab === 'overlay') {
+        patch.edge = (body.querySelector('#set-edge') as HTMLSelectElement).value as 'left' | 'right';
+        patch.widthPreset = (body.querySelector('#set-width-preset') as HTMLSelectElement).value as WidthPreset;
+        patch.opacity = Number((body.querySelector('#set-opacity') as HTMLInputElement).value) / 100;
+        patch.fontSize = Math.min(18, Math.max(11, Number((body.querySelector('#set-font-size') as HTMLInputElement).value) || 13));
+        patch.dimOnBlur = (body.querySelector('#set-dim-blur') as HTMLInputElement).checked;
+        patch.autoHideOnBlur = (body.querySelector('#set-auto-hide') as HTMLInputElement).checked;
+        patch.showGitGlance = (body.querySelector('#set-git-glance') as HTMLInputElement).checked;
+      } else if (activeTab === 'safety') {
+        patch.permissionPolicy = (body.querySelector('#set-perm-policy') as HTMLSelectElement).value as PermissionPolicy;
+        patch.autoApprovePermissions = patch.permissionPolicy === 'yolo';
+        patch.revertMode = (body.querySelector('#set-revert-mode') as HTMLSelectElement).value as RevertMode;
+      } else if (activeTab === 'vision') {
+        patch.followUpBehavior = (body.querySelector('#set-followup') as HTMLSelectElement).value as FollowUpBehavior;
+        patch.screenshotQuality = (body.querySelector('#set-shot-quality') as HTMLSelectElement).value as ScreenshotQuality;
+        patch.markupAutoClearSeconds = Math.max(0, Number((body.querySelector('#set-markup-clear') as HTMLInputElement).value) || 0);
+        patch.soundCues = (body.querySelector('#set-sound-cues') as HTMLInputElement).checked;
+        patch.flashOnAttention = (body.querySelector('#set-flash-attn') as HTMLInputElement).checked;
+        patch.pinLiveScreen = (body.querySelector('#set-pin-screen') as HTMLInputElement).checked;
+      } else {
+        patch.harness = (body.querySelector('#set-harness') as HTMLSelectElement).value as HarnessKind;
+      }
+      current = await opts.onUpdateSettings(patch);
+      opts.onClose();
+    });
+
+    footer.append(snapBtn, saveBtn);
+    opts.container.append(tabsBar, body, footer);
+  };
+
+  render();
+}

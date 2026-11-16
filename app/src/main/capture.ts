@@ -3,11 +3,35 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { desktopCapturer, screen } from 'electron';
+import { desktopCapturer, nativeImage, screen } from 'electron';
+import type { ScreenshotQuality } from '../shared/types';
 
 const execFileAsync = promisify(execFile);
 
 export type CaptureKind = 'fullscreen' | 'region' | 'window';
+
+function encodeNativeImage(
+  img: Electron.NativeImage,
+  quality: ScreenshotQuality,
+): { dataUrl: string; mimeType: string; name: string } {
+  const size = img.getSize();
+  if (quality === 'compressed') {
+    const resized =
+      size.width > 1600 ? img.resize({ width: 1600, quality: 'good' }) : img;
+    const jpg = resized.toJPEG(82);
+    return {
+      dataUrl: `data:image/jpeg;base64,${jpg.toString('base64')}`,
+      mimeType: 'image/jpeg',
+      name: `screenshot-${Date.now()}.jpg`,
+    };
+  }
+  const png = img.toPNG();
+  return {
+    dataUrl: `data:image/png;base64,${png.toString('base64')}`,
+    mimeType: 'image/png',
+    name: `screenshot-${Date.now()}.png`,
+  };
+}
 
 async function commandExists(cmd: string): Promise<boolean> {
   const pathDirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
@@ -25,6 +49,7 @@ async function commandExists(cmd: string): Promise<boolean> {
 export async function captureScreenDataUrl(
   kind: CaptureKind,
   excludeWindow?: Electron.BrowserWindow | null,
+  quality: ScreenshotQuality = 'compressed',
 ): Promise<{ dataUrl: string; mimeType: string; name: string }> {
   const wasVisible = Boolean(excludeWindow && !excludeWindow.isDestroyed() && excludeWindow.isVisible());
   if (wasVisible && kind === 'fullscreen') {
@@ -43,11 +68,7 @@ export async function captureScreenDataUrl(
           await execFileAsync('spectacle', ['-b', '-n', '-p', modeFlag, '-o', tmpPath]);
           const buf = await fs.readFile(tmpPath);
           await fs.unlink(tmpPath).catch(() => {});
-          return {
-            dataUrl: `data:image/png;base64,${buf.toString('base64')}`,
-            mimeType: 'image/png',
-            name: `screenshot-${Date.now()}.png`,
-          };
+          return encodeNativeImage(nativeImage.createFromBuffer(buf), quality);
         } catch {
           await fs.unlink(tmpPath).catch(() => {});
         }
@@ -63,11 +84,7 @@ export async function captureScreenDataUrl(
           }
           const buf = await fs.readFile(tmpPath);
           await fs.unlink(tmpPath).catch(() => {});
-          return {
-            dataUrl: `data:image/png;base64,${buf.toString('base64')}`,
-            mimeType: 'image/png',
-            name: `screenshot-${Date.now()}.png`,
-          };
+          return encodeNativeImage(nativeImage.createFromBuffer(buf), quality);
         } catch {
           await fs.unlink(tmpPath).catch(() => {});
         }
@@ -88,12 +105,7 @@ export async function captureScreenDataUrl(
       throw new Error('No screen capture source available.');
     }
 
-    const png = chosen.thumbnail.toPNG();
-    return {
-      dataUrl: `data:image/png;base64,${png.toString('base64')}`,
-      mimeType: 'image/png',
-      name: `screenshot-${Date.now()}.png`,
-    };
+    return encodeNativeImage(chosen.thumbnail, quality);
   } finally {
     if (wasVisible && excludeWindow && !excludeWindow.isDestroyed()) {
       excludeWindow.showInactive?.();

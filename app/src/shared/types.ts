@@ -125,20 +125,54 @@ export interface MentionItem {
 }
 
 export type RevertMode = 'workspace_and_chat' | 'chat_only';
+export type PermissionPolicy = 'ask' | 'auto_read' | 'auto_workspace' | 'yolo';
+export type FollowUpBehavior = 'queue' | 'steer';
+export type WidthPreset = 'narrow_15' | 'balanced_20' | 'wide_25' | 'custom';
+export type ScreenshotQuality = 'compressed' | 'original';
+
+export interface HarnessDiagnostic {
+  id: HarnessKind;
+  label: string;
+  installed: boolean;
+  resolvedPath: string;
+  version: string | null;
+}
+
+export interface GitGlance {
+  isRepo: boolean;
+  branch: string;
+  changedFiles: string[];
+  stagedCount: number;
+  modifiedCount: number;
+  insertions: number;
+  deletions: number;
+}
 
 export interface AppSettings {
+  layoutVersion?: number;
   harness: HarnessKind;
   workspaceDir: string;
   commands: Record<HarnessKind, { command: string; args: string[] }>;
+  harnessEnv: Partial<Record<HarnessKind, Record<string, string>>>;
   harnessModels: Partial<Record<HarnessKind, string>>;
   harnessEfforts: Partial<Record<HarnessKind, string>>;
   harnessModes: Partial<Record<HarnessKind, string>>;
   revertMode: RevertMode;
+  permissionPolicy: PermissionPolicy;
   autoApprovePermissions: boolean;
+  followUpBehavior: FollowUpBehavior;
+  soundCues: boolean;
+  flashOnAttention: boolean;
+  showGitGlance: boolean;
+  screenshotQuality: ScreenshotQuality;
+  markupAutoClearSeconds: number;
   pinLiveScreen: boolean;
   autoHideOnBlur: boolean;
+  dimOnBlur: boolean;
+  opacity: number;
   fontSize: number;
   edge: 'right' | 'left';
+  widthPreset: WidthPreset;
   windowBounds?: {
     x: number;
     y: number;
@@ -147,6 +181,7 @@ export interface AppSettings {
   };
   shortcut: string;
   backupShortcut: string;
+  ghostShortcut: string;
 }
 
 export interface TurnMetrics {

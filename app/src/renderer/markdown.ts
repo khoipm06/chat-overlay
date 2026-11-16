@@ -228,12 +228,18 @@ function createMarkdownInstance(codePlaceholders: ExtractedBlock[]): MarkdownIt 
     }
 
     const encodedCode = escapeHtml(code);
-    const html = `<div class="md-code-card" data-lang="${escapeHtml(lang)}" data-raw-code="${encodedCode}">
+    const lineCount = code.split('\n').length;
+    const isLong = lineCount > 16;
+    const html = `<div class="md-code-card${isLong ? ' is-collapsed' : ''}" data-lang="${escapeHtml(lang)}" data-raw-code="${encodedCode}">
       <div class="md-code-header">
-        <span class="md-code-lang">${escapeHtml(displayLang)}</span>
-        <button type="button" class="md-code-btn md-copy-code-btn" data-code="${encodedCode}" title="Copy code"><i class="codicon codicon-copy"></i><span>Copy</span></button>
+        <span class="md-code-lang">${escapeHtml(displayLang)}${isLong ? ` · ${lineCount}L` : ''}</span>
+        <div class="md-code-actions">
+          <button type="button" class="md-code-btn md-wrap-code-btn" title="Toggle soft wrap"><i class="codicon codicon-word-wrap"></i></button>
+          <button type="button" class="md-code-btn md-copy-code-btn" data-code="${encodedCode}" title="Copy code"><i class="codicon codicon-copy"></i><span>Copy</span></button>
+        </div>
       </div>
       <div class="md-code-body">${highlightedHtml}</div>
+      ${isLong ? `<button type="button" class="md-code-expand-btn">Show all ${lineCount} lines</button>` : ''}
     </div>`;
     codePlaceholders.push({ token: tokenKey, html });
     return `\n${tokenKey}\n`;
@@ -253,7 +259,7 @@ export function renderMarkdownHtml(source: string): string {
     ADD_ATTR: ['type', 'checked', 'disabled', 'open', 'class', 'target', 'rel'],
     FORBID_TAGS: ['button', 'script', 'style', 'iframe', 'object'],
   });
-  let safeHtml = safeHtmlRaw.replace(/md-copy-code-btn|md-mermaid-toggle/g, '');
+  let safeHtml = safeHtmlRaw.replace(/md-copy-code-btn|md-mermaid-toggle|md-wrap-code-btn|md-code-expand-btn/g, '');
 
   // Re-inject pre-rendered safe KaTeX and Shiki/Mermaid containers
   for (const item of mathBlocks) {

@@ -1,8 +1,12 @@
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppSettings, HarnessKind, SavedSession } from '../shared/types';
+import { promisify } from 'node:util';
+import type { AppSettings, HarnessDiagnostic, HarnessKind, SavedSession } from '../shared/types';
 import { HARNESS_LIST } from '../shared/types';
+
+const execFileAsync = promisify(execFile);
 
 export function resolveExecutable(configured: string): string {
   const trimmed = configured.trim();
@@ -54,8 +58,11 @@ export function defaultWorkspaceDir(): string {
   return cwd || os.homedir();
 }
 
+export const CURRENT_LAYOUT_VERSION = 2;
+
 export function defaultSettings(): AppSettings {
   return {
+    layoutVersion: CURRENT_LAYOUT_VERSION,
     harness: 'agy_acp',
     workspaceDir: defaultWorkspaceDir(),
     commands: {
@@ -63,18 +70,56 @@ export function defaultSettings(): AppSettings {
       opencode_acp: { command: 'opencode', args: ['acp'] },
       pi_acp: { command: 'pi', args: ['acp'] },
     },
+    harnessEnv: {},
     harnessModels: {},
     harnessEfforts: {},
     harnessModes: {},
     revertMode: 'workspace_and_chat',
+    permissionPolicy: 'auto_read',
     autoApprovePermissions: false,
+    followUpBehavior: 'queue',
+    soundCues: true,
+    flashOnAttention: true,
+    showGitGlance: true,
+    screenshotQuality: 'compressed',
+    markupAutoClearSeconds: 12,
     pinLiveScreen: false,
     autoHideOnBlur: false,
+    dimOnBlur: false,
+    opacity: 1,
     fontSize: 13,
     edge: 'right',
+    widthPreset: 'narrow_15',
     shortcut: 'CommandOrControl+Alt+L',
     backupShortcut: 'Super+Shift+L',
+    ghostShortcut: 'CommandOrControl+Alt+G',
   };
+}
+
+export async function inspectHarnesses(settings: AppSettings): Promise<HarnessDiagnostic[]> {
+  return Promise.all(
+    HARNESS_LIST.map(async (meta) => {
+      const cmd = settings.commands[meta.id]?.command || meta.defaultCommand;
+      const resolvedPath = resolveExecutable(cmd);
+      const installed = fs.existsSync(resolvedPath);
+      let version: string | null = null;
+      if (installed) {
+        try {
+          const { stdout } = await execFileAsync(resolvedPath, ['--version'], { timeout: 2000 });
+          version = stdout.trim().split('\n')[0]?.slice(0, 48) || null;
+        } catch {
+          version = null;
+        }
+      }
+      return {
+        id: meta.id,
+        label: meta.label,
+        installed,
+        resolvedPath,
+        version,
+      };
+    }),
+  );
 }
 
 export function configDir(): string {
@@ -122,14 +167,24 @@ export function loadSettings(): AppSettings {
       ? (parsed.harness as HarnessKind)
       : defaults.harness;
 
+    const migratedBounds =
+      (parsed.layoutVersion ?? 1) < CURRENT_LAYOUT_VERSION ? undefined : parsed.windowBounds;
+    const permissionPolicy =
+      parsed.permissionPolicy ??
+      (parsed.autoApprovePermissions ? 'yolo' : defaults.permissionPolicy);
+
     return {
       ...defaults,
       ...parsed,
+      layoutVersion: CURRENT_LAYOUT_VERSION,
+      windowBounds: migratedBounds,
+      permissionPolicy,
       harness: validHarness,
       commands: {
         ...defaults.commands,
         ...(parsed.commands ?? {}),
       },
+      harnessEnv: { ...(parsed.harnessEnv ?? {}) },
       harnessModels: { ...(parsed.harnessModels ?? {}) },
       harnessEfforts: { ...(parsed.harnessEfforts ?? {}) },
       harnessModes: { ...(parsed.harnessModes ?? {}) },

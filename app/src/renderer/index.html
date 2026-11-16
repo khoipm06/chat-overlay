@@ -27,10 +27,6 @@
           <button id="btn-redo-chat" class="icon-btn" title="Redo Revert (Ctrl+Shift+Y)" disabled>
             <i class="codicon codicon-arrow-right"></i>
           </button>
-          <button id="btn-revert-mode" class="revert-mode-pill" title="Revert Mode: Workspace + Chat (click to switch)">
-            <i class="codicon codicon-discard"></i>
-            <span id="revert-mode-label">Revert: Files+Chat</span>
-          </button>
           <button id="btn-new-chat" class="icon-btn" title="New Conversation (Ctrl+N)">
             <i class="codicon codicon-add"></i>
           </button>
@@ -46,27 +42,52 @@
         </div>
       </header>
 
-      <!-- Workspace / Harness Subheader -->
+      <!-- Workspace & Harness Subheader -->
       <div class="sub-header">
         <div class="sub-header-left">
-          <button id="btn-workspace" class="chip-btn" title="Change workspace folder">
+          <button id="btn-workspace" class="chip-btn" title="Workspace & Git Changes">
             <i class="codicon codicon-folder"></i>
             <span id="workspace-name">workspace</span>
           </button>
-          <span class="sub-sep">/</span>
-          <button id="btn-harness" class="chip-btn" title="Switch ACP Harness">
-            <span id="harness-dot" class="harness-dot"></span>
-            <span id="harness-label">Antigravity (ACP)</span>
-            <i class="codicon codicon-chevron-down"></i>
-          </button>
         </div>
-        <span id="session-title-chip" class="session-title-chip" title="Conversation title">New chat</span>
+        <button id="btn-harness" class="chip-btn" title="Switch ACP Harness">
+          <span id="harness-dot" class="harness-dot"></span>
+          <span id="harness-label">Antigravity</span>
+          <i class="codicon codicon-chevron-down"></i>
+        </button>
       </div>
 
-      <!-- Animated Progress Ribbon (visible during connecting/warming/thinking/tools/streaming) -->
+      <!-- Compact Operational Strip: Revert Mode, Git Branch Glance, Ghost Mode, Context Budget -->
+      <div class="glance-strip">
+        <div class="glance-left">
+          <button id="btn-revert-mode" class="revert-mode-pill" title="Revert Mode">
+            <i class="codicon codicon-discard"></i>
+            <span id="revert-mode-label">Files+Chat</span>
+          </button>
+          <button id="git-branch-chip" class="git-branch-chip hidden" title="Git branch & uncommitted changes">
+            <i class="codicon codicon-git-branch"></i>
+            <span id="git-branch-text"></span>
+          </button>
+          <span id="ghost-mode-badge" class="ghost-mode-badge hidden" title="Click-through enabled (Ctrl+Alt+G)">
+            Ghost
+          </span>
+          <span id="session-title-chip" class="session-title-chip" title="Conversation title">New chat</span>
+        </div>
+        <div id="context-budget" class="context-budget hidden" title="Context window usage">
+          <span id="context-budget-text">0k</span>
+          <div class="context-budget-track">
+            <div id="context-budget-fill" class="context-budget-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Animated Progress Ribbon -->
       <div id="progress-ribbon" class="progress-ribbon hidden">
         <div class="progress-ribbon-bar"></div>
       </div>
+
+      <!-- Transient Revert / Action Toast -->
+      <div id="notice-toast" class="notice-toast hidden"></div>
 
       <!-- Error / Status Notice Banner -->
       <div id="harness-banner" class="harness-banner hidden">
@@ -88,8 +109,8 @@
             </div>
             <h1 class="welcome-title">Build with agent</h1>
             <p class="welcome-subtitle">
-              Universal ACP chat &amp; live screen assistant. Mention <code>@file</code>,
-              <code>@screen</code>, or press <code>Ctrl+.</code> to pick a model.
+              Screen-aware ACP coding sidebar. Mention <code>@file</code>, <code>@screen</code>,
+              or press <code>Ctrl+.</code> to pick a model.
             </p>
             <div class="starter-prompts">
               <button class="starter-card" data-prompt="@screen What am I looking at? Suggest next steps.">
@@ -119,13 +140,26 @@
       <!-- Floating Autocomplete / Popovers Container -->
       <div id="popover-layer"></div>
 
+      <!-- Queued Follow-Up Card (T3 Code Style) -->
+      <div id="queued-banner" class="queued-banner hidden">
+        <div class="queued-top">
+          <span class="queued-badge"><i class="codicon codicon-clock"></i> Queued</span>
+          <span id="queued-preview" class="queued-preview"></span>
+        </div>
+        <div class="queued-actions">
+          <button id="btn-queued-steer" type="button" class="mini-action-btn">Steer Now</button>
+          <button id="btn-queued-edit" type="button" class="mini-action-btn">Edit</button>
+          <button id="btn-queued-cancel" type="button" class="mini-action-btn">Cancel</button>
+        </div>
+      </div>
+
       <!-- Unified Composer Card -->
       <footer class="composer-wrap">
         <div id="composer-card" class="composer-card">
           <div class="composer-top-row">
             <button id="btn-add-context" class="add-context-btn" title="Attach file, clipboard, or screen">
               <i class="codicon codicon-add"></i>
-              <span>Add Context...</span>
+              <span>Context</span>
             </button>
             <div id="attachments-row" class="attachments-row"></div>
           </div>
@@ -146,7 +180,7 @@
 
               <button id="btn-model-picker" class="picker-btn" title="Select Model (Ctrl+.)">
                 <i id="model-loading-spinner" class="codicon codicon-loading codicon-modifier-spin hidden"></i>
-                <span id="model-label">Loading models...</span>
+                <span id="model-label">Loading...</span>
                 <i class="codicon codicon-chevron-down"></i>
               </button>
 
@@ -175,7 +209,7 @@
         </div>
       </footer>
 
-      <!-- Modal Drawer (Settings / History) -->
+      <!-- Full-Overlay Slide-in Drawer (Settings / History) -->
       <div id="modal-backdrop" class="modal-backdrop hidden">
         <div id="modal-panel" class="modal-panel">
           <div class="modal-header">

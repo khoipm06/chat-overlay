@@ -10,7 +10,11 @@ import {
   parseSessionNewCatalog,
   pickMarkupAnnotationsFromText,
 } from '../src/main/acp-parser';
-import { captureWorkspaceCheckpoint, restoreWorkspaceCheckpoint } from '../src/main/checkpoint';
+import {
+  captureWorkspaceCheckpoint,
+  getGitGlance,
+  restoreWorkspaceCheckpoint,
+} from '../src/main/checkpoint';
 import { expandSlashTemplate, parseLocalCommand } from '../src/main/commands';
 import { extractActiveTrigger, matchMentionItems } from '../src/main/mentions';
 import { presentToolCall } from '../src/renderer/tool-presenter';
@@ -350,6 +354,55 @@ describe('Git Workspace Checkpoint & Revert', () => {
       expect(fs.readFileSync(path.join(repo, 'outside.txt'), 'utf8')).toBe('o2-uncommitted\n');
     } finally {
       fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('pins checkpoint refs across git gc and cleans nested empty directories', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-overlay-gc-'));
+    try {
+      execFileSync('git', ['init'], { cwd: dir });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      execFileSync('git', ['config', 'user.name', 'Tester'], { cwd: dir });
+      fs.writeFileSync(path.join(dir, 'root.txt'), 'v1\n');
+      execFileSync('git', ['add', '.'], { cwd: dir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: dir });
+
+      const ckpt = await captureWorkspaceCheckpoint(dir);
+      expect(ckpt.treeSha).toBeTruthy();
+
+      // Run aggressive gc --prune=now to verify hidden ref keeps checkpoint alive
+      execFileSync('git', ['gc', '--prune=now'], { cwd: dir });
+
+      // Agent creates nested directory + modifies tracked file
+      fs.mkdirSync(path.join(dir, 'src/utils/nested'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src/utils/nested/temp.ts'), 'export const x = 1;');
+      fs.writeFileSync(path.join(dir, 'root.txt'), 'v2\n');
+
+      const glance = await getGitGlance(dir);
+      expect(glance.isRepo).toBe(true);
+      expect(glance.changedFiles.length).toBeGreaterThanOrEqual(2);
+
+      const restored = await restoreWorkspaceCheckpoint(dir, ckpt.treeSha);
+      expect(restored.restored).toBe(true);
+      expect(fs.readFileSync(path.join(dir, 'root.txt'), 'utf8')).toBe('v1\n');
+      expect(fs.existsSync(path.join(dir, 'src'))).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('handles non-git directories safely in glance and checkpoint restore', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-overlay-nogit-'));
+    try {
+      const glance = await getGitGlance(dir);
+      expect(glance.isRepo).toBe(false);
+      const ckpt = await captureWorkspaceCheckpoint(dir);
+      expect(ckpt.isGit).toBe(false);
+      expect(ckpt.treeSha).toBeNull();
+      const res = await restoreWorkspaceCheckpoint(dir, null);
+      expect(res.restored).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

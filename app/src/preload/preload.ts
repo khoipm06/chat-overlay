@@ -2,18 +2,26 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppSettings,
   ChatAttachment,
+  GitGlance,
+  HarnessDiagnostic,
   HarnessKind,
   MarkupAnnotation,
   MentionItem,
   SavedSession,
   SessionCatalog,
   StreamEvent,
+  WidthPreset,
 } from '../shared/types';
 import type { CaptureKind } from '../main/capture';
 
 export interface AgentOverlayApi {
   getSettings: () => Promise<AppSettings>;
   updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>;
+  inspectHarnesses: () => Promise<HarnessDiagnostic[]>;
+  testHarness: (
+    harness: HarnessKind,
+  ) => Promise<{ ok: boolean; latencyMs: number; modelCount: number; message: string }>;
+  clearSessionAllowedTools: () => Promise<void>;
   pickWorkspaceFolder: () => Promise<string | null>;
   getCatalog: () => Promise<SessionCatalog>;
   switchHarness: (harness: HarnessKind) => Promise<SessionCatalog>;
@@ -32,19 +40,37 @@ export interface AgentOverlayApi {
   listSessions: () => Promise<SavedSession[]>;
   saveSession: (session: SavedSession) => Promise<SavedSession[]>;
   deleteSession: (id: string) => Promise<SavedSession[]>;
-  captureCheckpoint: () => Promise<{ id: string; isGit: boolean; treeSha: string | null }>;
-  restoreCheckpoint: (treeSha: string | null) => Promise<{ restored: boolean; message: string }>;
+  getGitGlance: (workspaceDir?: string) => Promise<GitGlance>;
+  captureCheckpoint: (workspaceDir?: string) => Promise<{
+    id: string;
+    isGit: boolean;
+    workspaceDir: string;
+    treeSha: string | null;
+    headSha: string | null;
+    error?: string;
+  }>;
+  restoreCheckpoint: (
+    treeSha: string | null,
+    workspaceDir?: string,
+  ) => Promise<{ restored: boolean; message: string }>;
   hideWindow: () => Promise<void>;
+  applyWindowLayout: (preset?: WidthPreset) => Promise<void>;
+  toggleGhostMode: () => Promise<boolean>;
+  flashAttention: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   auditCapture: (filename: string) => Promise<void>;
   auditDone: () => Promise<void>;
   onStreamEvent: (cb: (event: StreamEvent) => void) => () => void;
   onFocusComposer: (cb: () => void) => () => void;
+  onGhostModeChanged: (cb: (enabled: boolean) => void) => () => void;
 }
 
 const api: AgentOverlayApi = {
   getSettings: () => ipcRenderer.invoke('app:get-settings'),
   updateSettings: (patch) => ipcRenderer.invoke('app:update-settings', patch),
+  inspectHarnesses: () => ipcRenderer.invoke('settings:inspect-harnesses'),
+  testHarness: (harness) => ipcRenderer.invoke('acp:test-harness', harness),
+  clearSessionAllowedTools: () => ipcRenderer.invoke('acp:clear-session-allowed'),
   pickWorkspaceFolder: () => ipcRenderer.invoke('app:pick-workspace'),
   getCatalog: () => ipcRenderer.invoke('acp:get-catalog'),
   switchHarness: (harness) => ipcRenderer.invoke('acp:switch-harness', harness),
@@ -65,9 +91,14 @@ const api: AgentOverlayApi = {
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   saveSession: (session) => ipcRenderer.invoke('sessions:save', session),
   deleteSession: (id) => ipcRenderer.invoke('sessions:delete', id),
-  captureCheckpoint: () => ipcRenderer.invoke('checkpoint:capture'),
-  restoreCheckpoint: (treeSha) => ipcRenderer.invoke('checkpoint:restore', treeSha),
+  getGitGlance: (workspaceDir) => ipcRenderer.invoke('git:glance', workspaceDir),
+  captureCheckpoint: (workspaceDir) => ipcRenderer.invoke('checkpoint:capture', workspaceDir),
+  restoreCheckpoint: (treeSha, workspaceDir) =>
+    ipcRenderer.invoke('checkpoint:restore', treeSha, workspaceDir),
   hideWindow: () => ipcRenderer.invoke('window:hide'),
+  applyWindowLayout: (preset) => ipcRenderer.invoke('window:apply-layout', preset),
+  toggleGhostMode: () => ipcRenderer.invoke('window:toggle-ghost'),
+  flashAttention: () => ipcRenderer.invoke('window:flash-attention'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   auditCapture: (filename) => ipcRenderer.invoke('audit:capture', filename),
   auditDone: () => ipcRenderer.invoke('audit:done'),
@@ -80,6 +111,11 @@ const api: AgentOverlayApi = {
     const handler = () => cb();
     ipcRenderer.on('window:focus-composer', handler);
     return () => ipcRenderer.off('window:focus-composer', handler);
+  },
+  onGhostModeChanged: (cb) => {
+    const handler = (_ev: Electron.IpcRendererEvent, enabled: boolean) => cb(enabled);
+    ipcRenderer.on('window:ghost-mode', handler);
+    return () => ipcRenderer.off('window:ghost-mode', handler);
   },
 };
 
