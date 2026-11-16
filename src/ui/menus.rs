@@ -441,9 +441,9 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
                     .xalign(0.0)
                     .build(),
             );
-            let (is_acp, levels) = {
+            let (harness_kind, levels) = {
                 let st = state_r.borrow();
-                (st.settings.harness.is_acp(), st.available_thinking_levels.clone())
+                (st.settings.harness, st.available_thinking_levels.clone())
             };
             // OpenCode ACP exposes no thinking_levels; Antigravity & Pi do.
             let items: Vec<(String, String)> = if !levels.is_empty() {
@@ -454,8 +454,14 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
                         (id, name)
                     })
                     .collect()
-            } else if is_acp {
+            } else if harness_kind == HarnessKind::OpenCodeAcp {
                 Vec::new()
+            } else if harness_kind == HarnessKind::AgyAcp {
+                vec![
+                    ("low".to_string(), "Low".to_string()),
+                    ("medium".to_string(), "Balance".to_string()),
+                    ("high".to_string(), "Deep".to_string()),
+                ]
             } else {
                 THINKING_LEVELS
                     .iter()
