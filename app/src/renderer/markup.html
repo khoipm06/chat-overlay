@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Screen Markup</title>
+    <link rel="stylesheet" href="./codicon.css" />
+    <link rel="stylesheet" href="./markup.css" />
+  </head>
+  <body>
+    <canvas id="markup-canvas"></canvas>
+
+    <!-- User Annotate Toolbar -->
+    <div id="annotate-toolbar" class="toolbar hidden">
+      <button class="tool-btn active" data-tool="box" title="Box (1)">
+        <i class="codicon codicon-symbol-structure"></i><span>Box</span>
+      </button>
+      <button class="tool-btn" data-tool="arrow" title="Arrow (2)">
+        <i class="codicon codicon-arrow-right"></i><span>Arrow</span>
+      </button>
+      <button class="tool-btn" data-tool="pen" title="Freehand (3)">
+        <i class="codicon codicon-edit"></i><span>Pen</span>
+      </button>
+      <div class="sep"></div>
+      <button id="btn-undo" class="tool-btn" title="Undo (Ctrl+Z)">
+        <i class="codicon codicon-discard"></i><span>Undo</span>
+      </button>
+      <button id="btn-clear-all" class="tool-btn" title="Clear">
+        <i class="codicon codicon-trash"></i><span>Clear</span>
+      </button>
+      <div class="sep"></div>
+      <button id="btn-cancel-markup" class="tool-btn">Cancel (Esc)</button>
+      <button id="btn-submit-markup" class="tool-btn primary">Attach Markup (Enter)</button>
+    </div>
+
+    <!-- Agent Highlight Dismiss Pill -->
+    <div id="agent-toolbar" class="toolbar hidden">
+      <span id="agent-markup-count" class="badge">Highlights active</span>
+      <button id="btn-dismiss-agent-markup" class="tool-btn primary">Clear Screen Markup</button>
+    </div>
+
+    <script type="module" src="./markup-app.js"></script>
+  </body>
+</html>
