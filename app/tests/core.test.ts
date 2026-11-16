@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   applyConfigOptionsToCatalog,
   classifyAcpLine,
@@ -6,8 +10,10 @@ import {
   parseSessionNewCatalog,
   pickMarkupAnnotationsFromText,
 } from '../src/main/acp-parser';
+import { captureWorkspaceCheckpoint, restoreWorkspaceCheckpoint } from '../src/main/checkpoint';
 import { expandSlashTemplate, parseLocalCommand } from '../src/main/commands';
 import { extractActiveTrigger, matchMentionItems } from '../src/main/mentions';
+import { presentToolCall } from '../src/renderer/tool-presenter';
 import { HARNESS_LIST } from '../src/shared/types';
 
 describe('HARNESS_LIST', () => {
@@ -187,5 +193,163 @@ describe('Mentions & Commands', () => {
     expect(parseLocalCommand('/screen')).toBe('screen');
     expect(parseLocalCommand('/explain foo')).toBeNull();
     expect(expandSlashTemplate('/fix null deref')).toContain('minimal fixes:');
+  });
+});
+
+describe('Visual Tool Presenter', () => {
+  it('formats shell tool calls visually without noisy JSON metadata', () => {
+    const p = presentToolCall({
+      name: 'shell',
+      title: 'Run checks',
+      args: JSON.stringify({ command: 'npm test', cwd: '/tmp/repo' }),
+      output: JSON.stringify({
+        metadata: { status: 'completed', truncated: false, exit: 0 },
+        output: 'All 12 tests passed',
+      }),
+      status: 'completed',
+    });
+    expect(p.verb).toBe('Shell');
+    expect(p.summary).toBe('npm test');
+    expect(p.badge).toBe('exit 0');
+    expect(p.sections.some((s) => s.kind === 'command' && s.exitCode === 0)).toBe(true);
+    expect(p.sections.some((s) => s.kind === 'code' && s.text.includes('All 12 tests passed'))).toBe(true);
+  });
+
+  it('formats edit tool calls with +/- diff lines', () => {
+    const p = presentToolCall({
+      name: 'edit',
+      title: 'Edit file',
+      args: JSON.stringify({
+        filePath: '/repo/src/index.ts',
+        oldString: 'const a = 1;',
+        newString: 'const a = 2;',
+      }),
+      output: '',
+      status: 'completed',
+    });
+    expect(p.verb).toBe('Edit');
+    expect(p.summary).toContain('index.ts');
+    const diff = p.sections.find((s) => s.kind === 'code' && s.isDiff);
+    expect(diff && diff.kind === 'code' ? diff.text : '').toContain('+ const a = 2;');
+  });
+
+  it('handles word boundaries, arrays, command arrays, oldText/newText, and non-zero exits', () => {
+    const readCmdFile = presentToolCall({
+      name: 'read',
+      title: 'Read command.ts',
+      args: JSON.stringify({ path: 'src/command.ts' }),
+      output: '',
+      status: 'completed',
+    });
+    expect(readCmdFile.verb).toBe('Read');
+
+    const arrayCmd = presentToolCall({
+      name: 'bash',
+      title: 'bash',
+      args: JSON.stringify({ command: ['bash', '-lc', 'echo hi'] }),
+      output: JSON.stringify({ metadata: { exit: 2, truncated: true }, output: 'failed' }),
+      status: 'completed',
+    });
+    expect(arrayCmd.verb).toBe('Shell');
+    expect(arrayCmd.summary).toBe('bash -lc echo hi');
+    expect(arrayCmd.badge).toBe('exit 2 · truncated');
+    expect(arrayCmd.isError).toBe(true);
+
+    const diffOut = presentToolCall({
+      name: 'edit',
+      title: 'edit',
+      args: JSON.stringify({ path: 'a.ts', oldText: 'old', newText: 'new' }),
+      output: 'Diff: a.ts\n- old\n+ new',
+      status: 'completed',
+    });
+    expect(diffOut.sections.some((s) => s.kind === 'code' && s.isDiff)).toBe(true);
+  });
+
+  it('parses grouped ACP option lists cleanly', () => {
+    const grouped = parseSessionNewCatalog('opencode_acp', {
+      sessionId: 'ses-g',
+      configOptions: [
+        {
+          id: 'model',
+          category: 'model',
+          currentValue: 'm1',
+          options: [
+            { group: 'Fast', options: [{ value: 'm1', name: 'Model One' }] },
+            { group: 'Reasoning', options: [{ value: 'm2', name: 'Model Two' }] },
+          ],
+        },
+      ],
+    });
+    expect(grouped.models.map((m) => m.id)).toEqual(['m1', 'm2']);
+  });
+});
+
+describe('Git Workspace Checkpoint & Revert', () => {
+  it('captures and cleanly restores file modifications and untracked additions without mutating HEAD', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-overlay-ckpt-'));
+    try {
+      execFileSync('git', ['init'], { cwd: dir });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      execFileSync('git', ['config', 'user.name', 'Tester'], { cwd: dir });
+      fs.writeFileSync(path.join(dir, 'a.txt'), 'original\n');
+      execFileSync('git', ['add', '.'], { cwd: dir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: dir });
+
+      const ckptBefore = await captureWorkspaceCheckpoint(dir);
+      expect(ckptBefore.isGit).toBe(true);
+      expect(ckptBefore.treeSha).toBeTruthy();
+
+      // Simulate agent edits & newly created file
+      fs.writeFileSync(path.join(dir, 'a.txt'), 'modified by agent\n');
+      fs.writeFileSync(path.join(dir, 'new_file.txt'), 'temp');
+
+      const ckptAfter = await captureWorkspaceCheckpoint(dir);
+      expect(ckptAfter.treeSha).not.toBe(ckptBefore.treeSha);
+
+      // Revert to before
+      const res = await restoreWorkspaceCheckpoint(dir, ckptBefore.treeSha);
+      expect(res.restored).toBe(true);
+      expect(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8')).toBe('original\n');
+      expect(fs.existsSync(path.join(dir, 'new_file.txt'))).toBe(false);
+
+      // Redo forward to ckptAfter
+      const redoRes = await restoreWorkspaceCheckpoint(dir, ckptAfter.treeSha);
+      expect(redoRes.restored).toBe(true);
+      expect(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8')).toBe('modified by agent\n');
+      expect(fs.readFileSync(path.join(dir, 'new_file.txt'), 'utf8')).toBe('temp');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('never touches uncommitted files outside a subdir workspace', async () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-overlay-sub-'));
+    try {
+      const sub = path.join(repo, 'sub');
+      fs.mkdirSync(sub, { recursive: true });
+      execFileSync('git', ['init'], { cwd: repo });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
+      execFileSync('git', ['config', 'user.name', 'Tester'], { cwd: repo });
+      fs.writeFileSync(path.join(repo, 'outside.txt'), 'o1\n');
+      fs.writeFileSync(path.join(sub, 'inside.txt'), 'i1\n');
+      execFileSync('git', ['add', '.'], { cwd: repo });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: repo });
+
+      // User edits outside file before starting chat inside sub/
+      fs.writeFileSync(path.join(repo, 'outside.txt'), 'o2-uncommitted\n');
+
+      const ckpt = await captureWorkspaceCheckpoint(sub);
+      fs.writeFileSync(path.join(sub, 'inside.txt'), 'i2-by-agent\n');
+      fs.writeFileSync(path.join(sub, 'extra.txt'), 'temp\n');
+
+      const res = await restoreWorkspaceCheckpoint(sub, ckpt.treeSha);
+      expect(res.restored).toBe(true);
+      expect(fs.readFileSync(path.join(sub, 'inside.txt'), 'utf8')).toBe('i1\n');
+      expect(fs.existsSync(path.join(sub, 'extra.txt'))).toBe(false);
+      // Outside file MUST remain completely untouched
+      expect(fs.readFileSync(path.join(repo, 'outside.txt'), 'utf8')).toBe('o2-uncommitted\n');
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

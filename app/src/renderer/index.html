@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agent Overlay</title>
+    <title>Chat Overlay</title>
     <link rel="stylesheet" href="./codicon.css" />
     <link rel="stylesheet" href="./katex.min.css" />
     <link rel="stylesheet" href="./styles.css" />
@@ -21,6 +21,16 @@
           </div>
         </div>
         <div class="title-bar-actions">
+          <button id="btn-undo-chat" class="icon-btn" title="Undo Revert (Ctrl+Shift+Z)" disabled>
+            <i class="codicon codicon-arrow-left"></i>
+          </button>
+          <button id="btn-redo-chat" class="icon-btn" title="Redo Revert (Ctrl+Shift+Y)" disabled>
+            <i class="codicon codicon-arrow-right"></i>
+          </button>
+          <button id="btn-revert-mode" class="revert-mode-pill" title="Revert Mode: Workspace + Chat (click to switch)">
+            <i class="codicon codicon-discard"></i>
+            <span id="revert-mode-label">Revert: Files+Chat</span>
+          </button>
           <button id="btn-new-chat" class="icon-btn" title="New Conversation (Ctrl+N)">
             <i class="codicon codicon-add"></i>
           </button>

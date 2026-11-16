@@ -37,7 +37,9 @@ const SCREEN_MARKUP_HINT =
 export class AcpAgentController {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private rpcSeq = 1;
+  private warmupSeq = 0;
   private pendingRpc = new Map<string, PendingRpc>();
+  private pendingPermissions = new Set<string>();
   private stderrTail: string[] = [];
   private activeTools = new Map<string, ToolTracker>();
 
@@ -93,10 +95,15 @@ export class AcpAgentController {
   }
 
   async warmup(settings: AppSettings): Promise<SessionCatalog> {
+    const gen = ++this.warmupSeq;
     this.currentHarness = settings.harness;
     this.currentWorkspace = settings.workspaceDir;
     this.autoApprove = settings.autoApprovePermissions;
+    this.turnActive = false;
     await this.shutdownProcess();
+    if (gen !== this.warmupSeq) {
+      return this.catalog;
+    }
 
     const meta = HARNESS_LIST.find((h) => h.id === settings.harness) ?? HARNESS_LIST[0];
     const cmdCfg = settings.commands[settings.harness];
@@ -113,6 +120,7 @@ export class AcpAgentController {
 
     try {
       await this.spawnProcess(binary, args, settings.workspaceDir);
+      if (gen !== this.warmupSeq) return this.catalog;
 
       this.catalog = {
         ...this.catalog,
@@ -129,15 +137,17 @@ export class AcpAgentController {
           terminal: false,
         },
         clientInfo: {
-          name: 'agent-overlay',
+          name: 'chat-overlay',
           version: '0.3.0',
         },
-      });
+      }, 20_000);
+      if (gen !== this.warmupSeq) return this.catalog;
 
       const sessionRes = (await this.sendRpc('session/new', {
         cwd: settings.workspaceDir,
         mcpServers: [],
-      })) as Record<string, unknown>;
+      }, 25_000)) as Record<string, unknown>;
+      if (gen !== this.warmupSeq) return this.catalog;
 
       let parsed = parseSessionNewCatalog(
         settings.harness,
@@ -152,21 +162,9 @@ export class AcpAgentController {
         desiredModel !== parsed.currentModel &&
         parsed.models.some((m) => m.id === desiredModel)
       ) {
-        try {
-          const updated = (await this.sendRpc('session/set_config_option', {
-            sessionId: parsed.sessionId,
-            configId: 'model',
-            value: desiredModel,
-          })) as Record<string, unknown>;
-          if (Array.isArray(updated?.configOptions)) {
-            parsed = applyConfigOptionsToCatalog(parsed, updated.configOptions);
-          } else {
-            parsed.currentModel = desiredModel;
-          }
-        } catch {
-          // Keep live default if model set fails
-        }
+        parsed = await this.applyModelRpc(parsed, desiredModel);
       }
+      if (gen !== this.warmupSeq) return this.catalog;
 
       // Apply remembered mode if supported by this harness
       const desiredMode = settings.harnessModes[settings.harness];
@@ -185,6 +183,7 @@ export class AcpAgentController {
           // Ignore unsupported mode
         }
       }
+      if (gen !== this.warmupSeq) return this.catalog;
 
       // Apply remembered thinking effort only if this model exposes a compatible option
       const desiredEffort = settings.harnessEfforts[settings.harness];
@@ -210,12 +209,16 @@ export class AcpAgentController {
           // Keep harness default
         }
       }
+      if (gen !== this.warmupSeq) return this.catalog;
 
       this.catalog = parsed;
       this.emitCatalog();
       this.emitStatus('idle', `Ready · ${meta.shortLabel}`);
       return this.catalog;
     } catch (err) {
+      if (gen !== this.warmupSeq) {
+        return this.catalog;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       const stderrNote =
         this.stderrTail.length > 0 ? `\n\nStderr:\n${this.stderrTail.slice(-6).join('\n')}` : '';
@@ -236,6 +239,32 @@ export class AcpAgentController {
     }
   }
 
+  private async applyModelRpc(catalog: SessionCatalog, modelId: string): Promise<SessionCatalog> {
+    if (!catalog.sessionId) return catalog;
+    try {
+      const updated = (await this.sendRpc('session/set_config_option', {
+        sessionId: catalog.sessionId,
+        configId: 'model',
+        value: modelId,
+      })) as Record<string, unknown>;
+      if (Array.isArray(updated?.configOptions)) {
+        return applyConfigOptionsToCatalog(catalog, updated.configOptions);
+      }
+      return { ...catalog, currentModel: modelId };
+    } catch {
+      // Fallback for harnesses exposing legacy `session/set_model` only
+      try {
+        await this.sendRpc('session/set_model', {
+          sessionId: catalog.sessionId,
+          modelId,
+        });
+        return { ...catalog, currentModel: modelId };
+      } catch {
+        return catalog;
+      }
+    }
+  }
+
   async setModel(modelId: string, settings: AppSettings): Promise<SessionCatalog> {
     if (!this.catalog.sessionId || this.catalog.status !== 'ready') {
       return this.catalog;
@@ -244,19 +273,11 @@ export class AcpAgentController {
       return this.catalog;
     }
 
-    this.emitStatus('warming', `Switching model to ${modelId}...`);
+    if (!this.turnActive) {
+      this.emitStatus('warming', `Switching model to ${modelId}...`);
+    }
     try {
-      const res = (await this.sendRpc('session/set_config_option', {
-        sessionId: this.catalog.sessionId,
-        configId: 'model',
-        value: modelId,
-      })) as Record<string, unknown>;
-
-      if (Array.isArray(res?.configOptions)) {
-        this.catalog = applyConfigOptionsToCatalog(this.catalog, res.configOptions);
-      } else {
-        this.catalog = { ...this.catalog, currentModel: modelId };
-      }
+      this.catalog = await this.applyModelRpc(this.catalog, modelId);
 
       // If remembered effort fits the newly selected model and differs from default, apply it
       const rememberedEffort = settings.harnessEfforts[this.currentHarness];
@@ -280,11 +301,11 @@ export class AcpAgentController {
       }
 
       this.emitCatalog();
-      this.emitStatus('idle', 'Model updated');
+      if (!this.turnActive) this.emitStatus('idle', 'Model updated');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.onEvent({ type: 'error', message: `Failed to switch model: ${msg}` });
-      this.emitStatus('idle', 'Ready');
+      if (!this.turnActive) this.emitStatus('idle', 'Ready');
     }
     return this.catalog;
   }
@@ -301,7 +322,9 @@ export class AcpAgentController {
       return this.catalog;
     }
 
-    this.emitStatus('warming', `Setting thinking effort to ${value}...`);
+    if (!this.turnActive) {
+      this.emitStatus('warming', `Setting thinking effort to ${value}...`);
+    }
     try {
       const res = (await this.sendRpc('session/set_config_option', {
         sessionId: this.catalog.sessionId,
@@ -318,11 +341,11 @@ export class AcpAgentController {
         };
       }
       this.emitCatalog();
-      this.emitStatus('idle', 'Effort updated');
+      if (!this.turnActive) this.emitStatus('idle', 'Effort updated');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.onEvent({ type: 'error', message: `Failed to set thinking effort: ${msg}` });
-      this.emitStatus('idle', 'Ready');
+      if (!this.turnActive) this.emitStatus('idle', 'Ready');
     }
     return this.catalog;
   }
@@ -391,6 +414,9 @@ export class AcpAgentController {
           type: 'metrics',
           inputTokens: typeof usage?.inputTokens === 'number' ? usage.inputTokens : undefined,
           outputTokens: typeof usage?.outputTokens === 'number' ? usage.outputTokens : undefined,
+          thoughtTokens: typeof usage?.thoughtTokens === 'number' ? usage.thoughtTokens : undefined,
+          cachedReadTokens:
+            typeof usage?.cachedReadTokens === 'number' ? usage.cachedReadTokens : undefined,
           totalTokens: typeof usage?.totalTokens === 'number' ? usage.totalTokens : undefined,
           durationMs,
         });
@@ -415,6 +441,10 @@ export class AcpAgentController {
   }
 
   async cancelTurn(): Promise<void> {
+    for (const reqId of [...this.pendingPermissions]) {
+      this.respondPermission(reqId, null);
+    }
+    this.pendingPermissions.clear();
     if (!this.catalog.sessionId) return;
     try {
       this.writeNotification('session/cancel', {
@@ -427,6 +457,7 @@ export class AcpAgentController {
   }
 
   respondPermission(requestId: string, optionId: string | null): void {
+    this.pendingPermissions.delete(requestId);
     const numId = Number(requestId);
     const id = Number.isNaN(numId) ? requestId : numId;
     if (optionId) {
@@ -439,6 +470,7 @@ export class AcpAgentController {
   async shutdownProcess(): Promise<void> {
     const proc = this.proc;
     this.proc = null;
+    this.pendingPermissions.clear();
     for (const [, waiter] of this.pendingRpc) {
       waiter.reject(new Error('ACP session reset'));
     }
@@ -533,6 +565,12 @@ export class AcpAgentController {
     });
 
     this.proc = child;
+    child.stdin.on('error', () => {
+      // Prevent unhandled EPIPE crash when child exits mid-write
+    });
+    child.on('error', () => {
+      // Handled via exit & pendingRpc rejections
+    });
 
     const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
     rl.on('line', (line) => {
@@ -569,7 +607,11 @@ export class AcpAgentController {
     });
   }
 
-  private sendRpc(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private sendRpc(
+    method: string,
+    params: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<unknown> {
     const proc = this.proc;
     if (!proc || !proc.stdin.writable) {
       return Promise.reject(new Error('ACP process is not running'));
@@ -579,9 +621,29 @@ export class AcpAgentController {
     const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params });
 
     return new Promise((resolve, reject) => {
-      this.pendingRpc.set(key, { resolve, reject });
+      let timer: NodeJS.Timeout | undefined;
+      if (timeoutMs) {
+        timer = setTimeout(() => {
+          const waiter = this.pendingRpc.get(key);
+          if (waiter) {
+            this.pendingRpc.delete(key);
+            reject(new Error(`${method} timed out after ${timeoutMs}ms`));
+          }
+        }, timeoutMs);
+      }
+      this.pendingRpc.set(key, {
+        resolve: (val) => {
+          if (timer) clearTimeout(timer);
+          resolve(val);
+        },
+        reject: (err) => {
+          if (timer) clearTimeout(timer);
+          reject(err);
+        },
+      });
       proc.stdin.write(`${payload}\n`, (err) => {
         if (err) {
+          if (timer) clearTimeout(timer);
           this.pendingRpc.delete(key);
           reject(err);
         }
@@ -589,21 +651,26 @@ export class AcpAgentController {
     });
   }
 
+  private safeWriteLine(line: string): void {
+    const stdin = this.proc?.stdin;
+    if (!stdin || !stdin.writable) return;
+    try {
+      stdin.write(`${line}\n`, () => {});
+    } catch {
+      // Ignore write failures on closing pipe
+    }
+  }
+
   private writeNotification(method: string, params: Record<string, unknown>): void {
-    if (!this.proc?.stdin.writable) return;
-    this.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
+    this.safeWriteLine(JSON.stringify({ jsonrpc: '2.0', method, params }));
   }
 
   private writeResponse(id: string | number, result: unknown): void {
-    if (!this.proc?.stdin.writable) return;
-    this.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`);
+    this.safeWriteLine(JSON.stringify({ jsonrpc: '2.0', id, result }));
   }
 
   private writeErrorResponse(id: string | number, code: number, message: string): void {
-    if (!this.proc?.stdin.writable) return;
-    this.proc.stdin.write(
-      `${JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } })}\n`,
-    );
+    this.safeWriteLine(JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } }));
   }
 
   private handleStdoutLine(line: string): void {
@@ -657,12 +724,18 @@ export class AcpAgentController {
         .filter((o) => o.optionId);
 
       if (this.autoApprove && options.length > 0) {
-        const allowOpt =
-          options.find((o) => o.kind === 'allow_once' || o.kind === 'allow_always') ?? options[0];
-        this.writeResponse(id, {
-          outcome: { outcome: 'selected', optionId: allowOpt.optionId },
-        });
-        return;
+        const allowOpt = options.find(
+          (o) =>
+            o.kind === 'allow_once' ||
+            o.kind === 'allow_always' ||
+            Boolean(o.kind && o.kind.toLowerCase().startsWith('allow')),
+        );
+        if (allowOpt) {
+          this.writeResponse(id, {
+            outcome: { outcome: 'selected', optionId: allowOpt.optionId },
+          });
+          return;
+        }
       }
 
       const toolCall =
@@ -682,10 +755,12 @@ export class AcpAgentController {
             ? JSON.stringify(toolCall.rawInput, null, 2)
             : '';
 
+      const reqKey = String(id);
+      this.pendingPermissions.add(reqKey);
       this.onEvent({
         type: 'permission_request',
         request: {
-          requestId: String(id),
+          requestId: reqKey,
           toolTitle: title,
           toolKind: typeof toolCall.kind === 'string' ? toolCall.kind : undefined,
           detail,
@@ -697,9 +772,11 @@ export class AcpAgentController {
 
     if (method === 'fs/read_text_file') {
       const rawPath = typeof params.path === 'string' ? params.path : '';
-      const resolved = path.isAbsolute(rawPath)
-        ? rawPath
-        : path.resolve(this.currentWorkspace, rawPath);
+      const resolved = this.resolveWorkspacePath(rawPath);
+      if (!resolved) {
+        this.writeErrorResponse(id, -32002, 'Access denied outside active workspace');
+        return;
+      }
       try {
         const text = await fs.readFile(resolved, 'utf8');
         const lineOffset = typeof params.line === 'number' ? Math.max(0, params.line - 1) : 0;
@@ -725,9 +802,11 @@ export class AcpAgentController {
     if (method === 'fs/write_text_file') {
       const rawPath = typeof params.path === 'string' ? params.path : '';
       const content = typeof params.content === 'string' ? params.content : '';
-      const resolved = path.isAbsolute(rawPath)
-        ? rawPath
-        : path.resolve(this.currentWorkspace, rawPath);
+      const resolved = this.resolveWorkspacePath(rawPath);
+      if (!resolved) {
+        this.writeErrorResponse(id, -32002, 'Access denied outside active workspace');
+        return;
+      }
       try {
         await fs.mkdir(path.dirname(resolved), { recursive: true });
         await fs.writeFile(resolved, content, 'utf8');
@@ -747,6 +826,13 @@ export class AcpAgentController {
 
   private handleNotification(method: string, params: Record<string, unknown>): void {
     if (method !== 'session/update') return;
+    if (
+      typeof params.sessionId === 'string' &&
+      this.catalog.sessionId &&
+      params.sessionId !== this.catalog.sessionId
+    ) {
+      return;
+    }
     const update =
       params.update && typeof params.update === 'object'
         ? (params.update as Record<string, unknown>)
@@ -755,6 +841,7 @@ export class AcpAgentController {
 
     switch (kind) {
       case 'agent_thought_chunk': {
+        if (!this.turnActive) break;
         const text = extractChunkText(update.content);
         if (text) {
           this.emitStatus('thinking', 'Thinking...');
@@ -763,6 +850,7 @@ export class AcpAgentController {
         break;
       }
       case 'agent_message_chunk': {
+        if (!this.turnActive) break;
         const text = extractChunkText(update.content);
         if (text) {
           this.assistantTextBuffer += text;
@@ -772,9 +860,11 @@ export class AcpAgentController {
         break;
       }
       case 'tool_call': {
+        if (!this.turnActive) break;
         const id = String(update.toolCallId ?? `tool_${Date.now()}`);
         const name = String(update.title ?? update.name ?? update.kind ?? 'tool');
         const args = formatToolInput(update.rawInput);
+        const initialOut = formatToolOutput(update.rawOutput ?? update.content);
         this.activeTools.set(id, { name, startedAt: Date.now() });
         this.emitStatus('tool', `Running ${name}...`);
         this.onEvent({
@@ -785,9 +875,18 @@ export class AcpAgentController {
           kind: typeof update.kind === 'string' ? update.kind : undefined,
           args,
         });
+        if (initialOut) {
+          this.onEvent({
+            type: 'tool_update',
+            id,
+            status: 'running',
+            output: initialOut,
+          });
+        }
         break;
       }
       case 'tool_call_update': {
+        if (!this.turnActive) break;
         const id = String(update.toolCallId ?? '');
         if (!id) break;
         const rawStatus = typeof update.status === 'string' ? update.status : 'in_progress';
@@ -799,12 +898,14 @@ export class AcpAgentController {
               : 'running';
         const tracker = this.activeTools.get(id);
         const durationMs = tracker ? Date.now() - tracker.startedAt : undefined;
+        const args = update.rawInput !== undefined ? formatToolInput(update.rawInput) : undefined;
         const output = formatToolOutput(update.rawOutput ?? update.content);
         this.onEvent({
           type: 'tool_update',
           id,
           status,
           title: typeof update.title === 'string' ? update.title : undefined,
+          args: args || undefined,
           output: output || undefined,
           durationMs,
         });
@@ -839,7 +940,7 @@ export class AcpAgentController {
         if (typeof update.title === 'string' && update.title.trim()) {
           this.onEvent({ type: 'session_title', title: update.title.trim() });
         }
-        if (update.retry && typeof update.retry === 'object') {
+        if (this.turnActive && update.retry && typeof update.retry === 'object') {
           const retry = update.retry as Record<string, unknown>;
           const msg =
             typeof retry.message === 'string' ? retry.message : 'Retrying request...';
@@ -849,10 +950,12 @@ export class AcpAgentController {
       }
       case 'usage_update': {
         const used = typeof update.used === 'number' ? update.used : undefined;
+        const size = typeof update.size === 'number' ? update.size : undefined;
         if (used !== undefined && this.turnStartedAt > 0) {
           this.onEvent({
             type: 'metrics',
             totalTokens: used,
+            contextSize: size,
             durationMs: Date.now() - this.turnStartedAt,
           });
         }
@@ -861,6 +964,16 @@ export class AcpAgentController {
       default:
         break;
     }
+  }
+
+  private resolveWorkspacePath(rawPath: string): string | null {
+    if (!rawPath) return null;
+    const root = path.resolve(this.currentWorkspace);
+    const resolved = path.isAbsolute(rawPath) ? path.resolve(rawPath) : path.resolve(root, rawPath);
+    if (resolved === root || resolved.startsWith(root + path.sep)) {
+      return resolved;
+    }
+    return null;
   }
 
   private emitCatalog(): void {
@@ -898,8 +1011,20 @@ function formatToolOutput(raw: unknown): string {
   if (Array.isArray(raw)) {
     return raw
       .map((item) => {
+        if (typeof item === 'string') return item;
         if (item && typeof item === 'object') {
           const obj = item as Record<string, unknown>;
+          if (obj.type === 'diff') {
+            const p = typeof obj.path === 'string' ? obj.path : 'file';
+            const oldT = typeof obj.oldText === 'string' ? obj.oldText : '';
+            const newT = typeof obj.newText === 'string' ? obj.newText : '';
+            const lines = [
+              `Diff: ${p}`,
+              ...(oldT ? oldT.split('\n').map((l) => `- ${l}`) : []),
+              ...(newT ? newT.split('\n').map((l) => `+ ${l}`) : []),
+            ];
+            return lines.join('\n');
+          }
           if (obj.content && typeof obj.content === 'object') {
             const inner = obj.content as Record<string, unknown>;
             if (typeof inner.text === 'string') return inner.text;

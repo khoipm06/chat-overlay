@@ -116,6 +116,10 @@ function parseOptionPairs(rawOptions: unknown): Array<{ value: string; name: str
   for (const item of rawOptions) {
     if (!item || typeof item !== 'object') continue;
     const obj = item as Record<string, unknown>;
+    if (Array.isArray(obj.options)) {
+      out.push(...parseOptionPairs(obj.options));
+      continue;
+    }
     const value =
       typeof obj.value === 'string'
         ? obj.value
@@ -141,21 +145,26 @@ export function applyConfigOptionsToCatalog(
   catalog: SessionCatalog,
   rawConfigOptions: unknown,
 ): SessionCatalog {
-  if (!Array.isArray(rawConfigOptions)) return catalog;
+  if (!Array.isArray(rawConfigOptions) || rawConfigOptions.length === 0) return catalog;
 
   let nextModels = catalog.models;
   let nextCurrentModel = catalog.currentModel;
   let nextModes = catalog.modes;
   let nextCurrentMode = catalog.currentMode;
 
-  // Important: reset thinking capability based strictly on the latest configOptions
-  // returned by the harness so switching to a non-reasoning model hides unsupported efforts.
-  let nextThinking: ThinkingEffortState = {
-    configId: null,
-    supported: false,
-    currentValue: '',
-    options: [],
-  };
+  const hasFullSnapshotOrThinking = rawConfigOptions.some((entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    const opt = entry as Record<string, unknown>;
+    const id = typeof opt.id === 'string' ? opt.id : '';
+    const cat = typeof opt.category === 'string' ? opt.category : '';
+    return id === 'model' || cat === 'model' || isThinkingConfigOption(opt);
+  });
+
+  // Reset thinking only when the update carries a model catalog refresh or thinking entry
+  // so partial config_option_update notifications (e.g. unrelated toggle) keep current thinking state.
+  let nextThinking: ThinkingEffortState = hasFullSnapshotOrThinking
+    ? { configId: null, supported: false, currentValue: '', options: [] }
+    : catalog.thinking;
 
   for (const entry of rawConfigOptions) {
     if (!entry || typeof entry !== 'object') continue;

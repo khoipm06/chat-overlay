@@ -124,6 +124,8 @@ export interface MentionItem {
   filePath?: string;
 }
 
+export type RevertMode = 'workspace_and_chat' | 'chat_only';
+
 export interface AppSettings {
   harness: HarnessKind;
   workspaceDir: string;
@@ -131,6 +133,7 @@ export interface AppSettings {
   harnessModels: Partial<Record<HarnessKind, string>>;
   harnessEfforts: Partial<Record<HarnessKind, string>>;
   harnessModes: Partial<Record<HarnessKind, string>>;
+  revertMode: RevertMode;
   autoApprovePermissions: boolean;
   pinLiveScreen: boolean;
   autoHideOnBlur: boolean;
@@ -146,10 +149,21 @@ export interface AppSettings {
   backupShortcut: string;
 }
 
+export interface TurnMetrics {
+  inputTokens?: number;
+  outputTokens?: number;
+  thoughtTokens?: number;
+  cachedReadTokens?: number;
+  totalTokens?: number;
+  contextSize?: number;
+  durationMs: number;
+}
+
 export interface StoredTurn {
   id: string;
   userText: string;
   attachments: ChatAttachment[];
+  checkpointBefore?: string | null;
   thinkingText: string;
   thinkingDurationMs: number;
   tools: Array<{
@@ -162,12 +176,7 @@ export interface StoredTurn {
     durationMs?: number;
   }>;
   assistantMarkdown: string;
-  metrics?: {
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
-    durationMs: number;
-  };
+  metrics?: TurnMetrics;
   errorMessage?: string;
 }
 
@@ -207,6 +216,7 @@ export type StreamEvent =
       id: string;
       status: 'running' | 'completed' | 'failed';
       title?: string;
+      args?: string;
       output?: string;
       durationMs?: number;
     }
@@ -216,7 +226,10 @@ export type StreamEvent =
       type: 'metrics';
       inputTokens?: number;
       outputTokens?: number;
+      thoughtTokens?: number;
+      cachedReadTokens?: number;
       totalTokens?: number;
+      contextSize?: number;
       durationMs: number;
     }
   | { type: 'error'; message: string }

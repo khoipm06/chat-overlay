@@ -7,11 +7,13 @@ import type {
   SessionCatalog,
   StoredTurn,
   StreamEvent,
+  TurnMetrics,
 } from '../shared/types';
 import { expandSlashTemplate, LOCAL_COMMANDS, parseLocalCommand, PROMPT_TEMPLATES } from '../main/commands';
 import { extractActiveTrigger } from '../shared/triggers';
 import { hydrateRenderedMarkdown, renderMarkdownHtml } from './markdown';
 import { PopoverController, type PopoverEntry } from './popovers';
+import { presentToolCall, renderToolDetailHtml, escapeHtmlText } from './tool-presenter';
 
 // DOM refs
 const liveStatusPill = document.getElementById('live-status-pill')!;
@@ -19,6 +21,11 @@ const liveStatusIcon = document.getElementById('live-status-icon')!;
 const liveStatusText = document.getElementById('live-status-text')!;
 const liveStatusTimer = document.getElementById('live-status-timer')!;
 const progressRibbon = document.getElementById('progress-ribbon')!;
+
+const btnUndoChat = document.getElementById('btn-undo-chat') as HTMLButtonElement;
+const btnRedoChat = document.getElementById('btn-redo-chat') as HTMLButtonElement;
+const btnRevertMode = document.getElementById('btn-revert-mode') as HTMLButtonElement;
+const revertModeLabel = document.getElementById('revert-mode-label')!;
 
 const btnWorkspace = document.getElementById('btn-workspace')!;
 const workspaceNameEl = document.getElementById('workspace-name')!;
@@ -78,22 +85,45 @@ let catalog: SessionCatalog = {
   commands: [],
 };
 
+interface ChatSnapshot {
+  turns: StoredTurn[];
+  title: string;
+  draftText: string;
+  workspaceTree: string | null;
+}
+
 let currentSessionId = `ses_${Date.now()}`;
 let currentSessionTitle = 'New chat';
 let turns: StoredTurn[] = [];
+let undoStack: ChatSnapshot[] = [];
+let redoStack: ChatSnapshot[] = [];
+let needsContextReplay = false;
 let pendingAttachments: ChatAttachment[] = [];
 let isStreaming = false;
-let userScrolledUp = false;
+let followBottom = true;
+let userScrollIntentUntil = 0;
 let statusStartedAt = 0;
 let statusTimerInterval: number | null = null;
 
+interface ToolCardDom {
+  root: HTMLElement;
+  kindIconEl: HTMLElement;
+  verbEl: HTMLElement;
+  summaryEl: HTMLElement;
+  metaPillEl: HTMLElement;
+  timeEl: HTMLElement;
+  statusEl: HTMLElement;
+  detailEl: HTMLElement;
+}
+
 interface ActiveTurnRefs {
   turn: StoredTurn;
+  thinkingStartedAt: number;
   thinkingDisclosure: HTMLElement;
   thinkingTriggerText: HTMLElement;
   thinkingBody: HTMLElement;
   toolsContainer: HTMLElement;
-  toolCardMap: Map<string, { root: HTMLElement; statusEl: HTMLElement; detailEl: HTMLElement }>;
+  toolCardMap: Map<string, ToolCardDom>;
   skeletonEl: HTMLElement;
   markdownEl: HTMLElement;
   workingBadge: HTMLElement;
@@ -144,12 +174,77 @@ function setLiveStatus(
   }
 }
 
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function formatTurnMetrics(m: TurnMetrics): { text: string; tooltip: string } {
+  const parts: string[] = [];
+  if (m.totalTokens) {
+    if (m.inputTokens !== undefined && m.outputTokens !== undefined) {
+      parts.push(
+        `${formatTokenCount(m.totalTokens)} tok (↑${formatTokenCount(m.inputTokens)} · ↓${formatTokenCount(m.outputTokens)})`,
+      );
+    } else if (m.contextSize) {
+      parts.push(`${formatTokenCount(m.totalTokens)}/${formatTokenCount(m.contextSize)} ctx`);
+    } else {
+      parts.push(`${formatTokenCount(m.totalTokens)} ctx`);
+    }
+  }
+  parts.push(`${(m.durationMs / 1000).toFixed(1)}s`);
+
+  const tipLines: string[] = [];
+  if (m.totalTokens !== undefined) {
+    tipLines.push(`Context / Total: ${m.totalTokens.toLocaleString()} tokens`);
+  }
+  if (m.inputTokens !== undefined) {
+    tipLines.push(`Input (prompt + history + tools): ${m.inputTokens.toLocaleString()}`);
+  }
+  if (m.cachedReadTokens !== undefined) {
+    tipLines.push(`Cached read: ${m.cachedReadTokens.toLocaleString()}`);
+  }
+  if (m.thoughtTokens !== undefined) {
+    tipLines.push(`Thinking / reasoning: ${m.thoughtTokens.toLocaleString()}`);
+  }
+  if (m.outputTokens !== undefined) {
+    tipLines.push(`Output generated: ${m.outputTokens.toLocaleString()}`);
+  }
+  if (m.contextSize !== undefined) {
+    tipLines.push(`Model context limit: ${m.contextSize.toLocaleString()}`);
+  }
+  tipLines.push(`Duration: ${(m.durationMs / 1000).toFixed(2)}s`);
+
+  return { text: parts.join(' · '), tooltip: tipLines.join('\n') };
+}
+
+function updateUndoRedoButtons(): void {
+  btnUndoChat.disabled = isStreaming || undoStack.length === 0;
+  btnRedoChat.disabled = isStreaming || redoStack.length === 0;
+  btnUndoChat.title =
+    undoStack.length > 0
+      ? `Undo Revert (${undoStack.length} saved)`
+      : 'Nothing to undo';
+  btnRedoChat.title =
+    redoStack.length > 0
+      ? `Redo Revert (${redoStack.length} saved)`
+      : 'Nothing to redo';
+}
+
 function renderHeaderAndPickers(): void {
   if (settings) {
     workspaceNameEl.textContent = basename(settings.workspaceDir);
     btnPinScreen.classList.toggle('active', settings.pinLiveScreen);
     document.documentElement.style.setProperty('--font-size', `${settings.fontSize}px`);
+    revertModeLabel.textContent =
+      settings.revertMode === 'chat_only' ? 'Revert: Chat Only' : 'Revert: Files+Chat';
+    btnRevertMode.title =
+      settings.revertMode === 'chat_only'
+        ? 'Revert Mode: Chat Only (click to switch to Workspace Files + Chat)'
+        : 'Revert Mode: Workspace Files + Chat (click to switch to Chat Only)';
   }
+  updateUndoRedoButtons();
 
   const meta = HARNESS_LIST.find((h) => h.id === catalog.harness) ?? HARNESS_LIST[0];
   harnessLabel.textContent = meta.label;
@@ -264,22 +359,172 @@ function autoResizeComposer(): void {
 }
 
 function scrollToBottomIfPinned(): void {
-  if (!userScrolledUp) {
+  if (followBottom) {
     chatViewport.scrollTop = chatViewport.scrollHeight;
   }
 }
 
+function markUserScrollIntent(): void {
+  userScrollIntentUntil = Date.now() + 350;
+}
+
+chatViewport.addEventListener(
+  'wheel',
+  (e) => {
+    if (e.deltaY < 0) {
+      followBottom = false;
+      btnScrollBottom.classList.remove('hidden');
+    } else {
+      markUserScrollIntent();
+    }
+  },
+  { passive: true },
+);
+
+chatViewport.addEventListener('pointerdown', markUserScrollIntent, { passive: true });
+chatViewport.addEventListener('touchstart', markUserScrollIntent, { passive: true });
+chatViewport.addEventListener('keydown', (e) => {
+  if (['PageUp', 'ArrowUp', 'Home'].includes(e.key)) {
+    followBottom = false;
+    btnScrollBottom.classList.remove('hidden');
+  } else if (['PageDown', 'ArrowDown', 'End'].includes(e.key)) {
+    markUserScrollIntent();
+  }
+});
+
 chatViewport.addEventListener('scroll', () => {
   const dist =
     chatViewport.scrollHeight - chatViewport.scrollTop - chatViewport.clientHeight;
-  userScrolledUp = dist > 48;
-  btnScrollBottom.classList.toggle('hidden', !userScrolledUp);
+  if (dist <= 24) {
+    followBottom = true;
+    btnScrollBottom.classList.add('hidden');
+  } else if (Date.now() <= userScrollIntentUntil) {
+    followBottom = false;
+    btnScrollBottom.classList.remove('hidden');
+  }
 });
 
-btnScrollBottom.addEventListener('click', () => {
-  userScrolledUp = false;
-  chatViewport.scrollTo({ top: chatViewport.scrollHeight, behavior: 'smooth' });
+// Keep pinned to bottom whenever content or viewport/composer size changes
+const messagesResizeObserver = new ResizeObserver(() => {
+  if (followBottom) {
+    chatViewport.scrollTop = chatViewport.scrollHeight;
+  }
 });
+messagesResizeObserver.observe(messagesView);
+messagesResizeObserver.observe(chatViewport);
+
+btnScrollBottom.addEventListener('click', () => {
+  followBottom = true;
+  btnScrollBottom.classList.add('hidden');
+  chatViewport.scrollTop = chatViewport.scrollHeight;
+});
+
+async function revertToTurn(turnId: string): Promise<void> {
+  if (isStreaming) return;
+  const idx = turns.findIndex((t) => t.id === turnId);
+  if (idx < 0) return;
+
+  const targetTurn = turns[idx];
+  const currentCkpt =
+    settings.revertMode === 'workspace_and_chat'
+      ? await window.agentOverlay.captureCheckpoint()
+      : { treeSha: null };
+
+  undoStack.push({
+    turns: structuredClone(turns),
+    title: currentSessionTitle,
+    draftText: composerInput.value,
+    workspaceTree: currentCkpt.treeSha,
+  });
+  if (undoStack.length > 30) undoStack.shift();
+  redoStack = [];
+
+  if (settings.revertMode === 'workspace_and_chat' && targetTurn.checkpointBefore) {
+    const res = await window.agentOverlay.restoreCheckpoint(targetTurn.checkpointBefore);
+    sessionTitleChip.title = res.message;
+  }
+
+  turns = turns.slice(0, idx);
+  needsContextReplay = turns.length > 0;
+  composerInput.value = targetTurn.userText;
+  pendingAttachments = [...targetTurn.attachments];
+  renderAttachments();
+  autoResizeComposer();
+
+  rebuildMessagesList();
+  await persistCurrentSession();
+  await window.agentOverlay.resetSession();
+  updateUndoRedoButtons();
+  composerInput.focus();
+}
+
+async function applySnapshotRestore(
+  snap: ChatSnapshot,
+  pushInverseTo: ChatSnapshot[],
+): Promise<void> {
+  const currentCkpt =
+    settings.revertMode === 'workspace_and_chat'
+      ? await window.agentOverlay.captureCheckpoint()
+      : { treeSha: null };
+
+  pushInverseTo.push({
+    turns: structuredClone(turns),
+    title: currentSessionTitle,
+    draftText: composerInput.value,
+    workspaceTree: currentCkpt.treeSha,
+  });
+  if (pushInverseTo.length > 30) pushInverseTo.shift();
+
+  if (settings.revertMode === 'workspace_and_chat' && snap.workspaceTree) {
+    await window.agentOverlay.restoreCheckpoint(snap.workspaceTree);
+  }
+
+  turns = structuredClone(snap.turns);
+  needsContextReplay = turns.length > 0;
+  currentSessionTitle = snap.title;
+  sessionTitleChip.textContent = currentSessionTitle;
+  composerInput.value = snap.draftText;
+  autoResizeComposer();
+  rebuildMessagesList();
+  await persistCurrentSession();
+  await window.agentOverlay.resetSession();
+  updateUndoRedoButtons();
+}
+
+async function undoChatRevert(): Promise<void> {
+  if (isStreaming || undoStack.length === 0) return;
+  const snap = undoStack.pop()!;
+  await applySnapshotRestore(snap, redoStack);
+}
+
+async function redoChatRevert(): Promise<void> {
+  if (isStreaming || redoStack.length === 0) return;
+  const snap = redoStack.pop()!;
+  await applySnapshotRestore(snap, undoStack);
+}
+
+function rebuildMessagesList(): void {
+  messagesView.innerHTML = '';
+  if (turns.length === 0) {
+    messagesView.classList.add('hidden');
+    welcomeView.classList.remove('hidden');
+  } else {
+    welcomeView.classList.add('hidden');
+    messagesView.classList.remove('hidden');
+    for (const t of turns) buildTurnDom(t, false);
+  }
+}
+
+async function persistCurrentSession(): Promise<void> {
+  await window.agentOverlay.saveSession({
+    id: currentSessionId,
+    title: currentSessionTitle,
+    harness: catalog.harness,
+    workspaceDir: settings.workspaceDir,
+    updatedAt: Date.now(),
+    turns,
+  });
+}
 
 function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   welcomeView.classList.add('hidden');
@@ -288,20 +533,37 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   const group = document.createElement('div');
   group.className = 'turn-group';
 
-  // User Bubble
+  // User Bubble with Revert action
   const userBubble = document.createElement('div');
   userBubble.className = 'user-bubble';
-  if (turn.attachments.length > 0) {
-    const atts = document.createElement('div');
-    atts.className = 'user-attachments';
-    for (const att of turn.attachments) {
-      const c = document.createElement('span');
-      c.className = 'user-att-chip';
-      c.innerHTML = `<i class="codicon ${att.kind === 'image' ? 'codicon-device-camera' : 'codicon-file-code'}"></i><span>${att.name}</span>`;
-      atts.appendChild(c);
-    }
-    userBubble.appendChild(atts);
+
+  const userTop = document.createElement('div');
+  userTop.className = 'user-bubble-top';
+  const attsWrap = document.createElement('div');
+  attsWrap.className = 'user-attachments';
+  for (const att of turn.attachments) {
+    const c = document.createElement('span');
+    c.className = 'user-att-chip';
+    const ic = document.createElement('i');
+    ic.className = `codicon ${att.kind === 'image' ? 'codicon-device-camera' : 'codicon-file-code'}`;
+    const lbl = document.createElement('span');
+    lbl.textContent = att.name;
+    c.append(ic, lbl);
+    attsWrap.appendChild(c);
   }
+  const revertBtn = document.createElement('button');
+  revertBtn.type = 'button';
+  revertBtn.className = 'turn-revert-btn';
+  revertBtn.title = turn.checkpointBefore
+    ? 'Revert conversation & workspace files to before this prompt'
+    : 'Revert conversation to before this prompt';
+  revertBtn.innerHTML = '<i class="codicon codicon-discard"></i><span>Revert</span>';
+  revertBtn.addEventListener('click', () => {
+    void revertToTurn(turn.id);
+  });
+  userTop.append(attsWrap, revertBtn);
+  userBubble.appendChild(userTop);
+
   const userText = document.createElement('div');
   userText.className = 'user-text';
   userText.textContent = turn.userText;
@@ -315,11 +577,16 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   const header = document.createElement('div');
   header.className = 'assistant-header';
   const curModelObj = catalog.models.find((m) => m.id === catalog.currentModel);
-  header.innerHTML = `
-    <span class="assistant-avatar"><i class="codicon codicon-terminal"></i></span>
-    <span class="assistant-name">Assistant</span>
-    <span class="assistant-model-badge">${curModelObj?.name || catalog.currentModel || ''}</span>
-  `;
+  const avatarEl = document.createElement('span');
+  avatarEl.className = 'assistant-avatar';
+  avatarEl.innerHTML = '<i class="codicon codicon-terminal"></i>';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'assistant-name';
+  nameEl.textContent = 'Assistant';
+  const modelBadgeEl = document.createElement('span');
+  modelBadgeEl.className = 'assistant-model-badge';
+  modelBadgeEl.textContent = curModelObj?.name || catalog.currentModel || '';
+  header.append(avatarEl, nameEl, modelBadgeEl);
   const workingBadge = document.createElement('span');
   workingBadge.className = `turn-working-badge${streamingNow ? '' : ' hidden'}`;
   workingBadge.innerHTML =
@@ -379,12 +646,9 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   assistantTurn.appendChild(markdownEl);
 
   // Render stored tools if loading history
-  const toolCardMap = new Map<
-    string,
-    { root: HTMLElement; statusEl: HTMLElement; detailEl: HTMLElement }
-  >();
+  const toolCardMap = new Map<string, ToolCardDom>();
   for (const t of turn.tools) {
-    appendToolCard(toolsContainer, toolCardMap, t.id, t.title || t.name, t.args, t.status, t.output, t.durationMs);
+    appendToolCard(toolsContainer, toolCardMap, t.id, t.name, t.title, t.args, t.status, t.output, t.durationMs);
   }
 
   // Footer
@@ -419,10 +683,9 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   actionsEl.append(copyBtn, retryBtn);
   const metricsEl = document.createElement('span');
   if (turn.metrics) {
-    const parts: string[] = [];
-    if (turn.metrics.totalTokens) parts.push(`${turn.metrics.totalTokens} tok`);
-    parts.push(`${(turn.metrics.durationMs / 1000).toFixed(1)}s`);
-    metricsEl.textContent = parts.join(' · ');
+    const formatted = formatTurnMetrics(turn.metrics);
+    metricsEl.textContent = formatted.text;
+    metricsEl.title = formatted.tooltip;
   }
   footerEl.append(actionsEl, metricsEl);
   assistantTurn.appendChild(footerEl);
@@ -432,6 +695,7 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
 
   return {
     turn,
+    thinkingStartedAt: 0,
     thinkingDisclosure,
     thinkingTriggerText,
     thinkingBody,
@@ -448,14 +712,16 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
 
 function appendToolCard(
   container: HTMLElement,
-  map: Map<string, { root: HTMLElement; statusEl: HTMLElement; detailEl: HTMLElement }>,
+  map: Map<string, ToolCardDom>,
   id: string,
-  title: string,
+  name: string,
+  title: string | undefined,
   args: string,
   status: 'running' | 'completed' | 'failed',
-  output?: string,
+  output = '',
   durationMs?: number,
 ): void {
+  const presented = presentToolCall({ name, title, args, output, status });
   const card = document.createElement('div');
   card.className = 'tool-card';
 
@@ -473,22 +739,35 @@ function appendToolCard(
         ? 'codicon codicon-check tool-status-ok'
         : 'codicon codicon-error tool-status-err';
 
-  const titleEl = document.createElement('span');
-  titleEl.className = 'tool-card-title';
-  titleEl.textContent = title;
-  left.append(statusEl, titleEl);
+  const kindIconEl = document.createElement('i');
+  kindIconEl.className = `codicon ${presented.icon} tool-card-kind-icon`;
 
-  const right = document.createElement('span');
-  right.style.cssText = 'font-size:11px;color:var(--text-muted);';
-  right.textContent = durationMs ? `${(durationMs / 1000).toFixed(1)}s` : '';
+  const verbEl = document.createElement('span');
+  verbEl.className = 'tool-card-verb';
+  verbEl.textContent = presented.verb;
 
+  const summaryEl = document.createElement('span');
+  summaryEl.className = 'tool-card-summary';
+  summaryEl.textContent = presented.summary;
+
+  left.append(statusEl, kindIconEl, verbEl, summaryEl);
+
+  const right = document.createElement('div');
+  right.className = 'tool-card-right';
+  const metaPillEl = document.createElement('span');
+  metaPillEl.className = `tool-card-meta-pill${presented.badge ? '' : ' hidden'}`;
+  metaPillEl.textContent = presented.badge || '';
+
+  const timeEl = document.createElement('span');
+  timeEl.className = 'tool-card-time';
+  timeEl.textContent = durationMs ? `${(durationMs / 1000).toFixed(1)}s` : '';
+
+  right.append(metaPillEl, timeEl);
   hdr.append(left, right);
 
   const detailEl = document.createElement('div');
   detailEl.className = 'tool-card-detail hidden';
-  detailEl.textContent = [args ? `Input:\n${args}` : '', output ? `\nOutput:\n${output}` : '']
-    .filter(Boolean)
-    .join('\n');
+  detailEl.innerHTML = renderToolDetailHtml(presented);
 
   hdr.addEventListener('click', () => {
     detailEl.classList.toggle('hidden');
@@ -496,7 +775,16 @@ function appendToolCard(
 
   card.append(hdr, detailEl);
   container.appendChild(card);
-  map.set(id, { root: card, statusEl, detailEl });
+  map.set(id, {
+    root: card,
+    kindIconEl,
+    verbEl,
+    summaryEl,
+    metaPillEl,
+    timeEl,
+    statusEl,
+    detailEl,
+  });
 }
 
 function scheduleMarkdownUpdate(ref: ActiveTurnRefs): void {
@@ -557,42 +845,81 @@ async function submitPrompt(): Promise<void> {
     return;
   }
 
+  isStreaming = true;
+  followBottom = true;
+  btnScrollBottom.classList.add('hidden');
+  updateSendButton();
+  updateUndoRedoButtons();
+
   const expanded = expandSlashTemplate(raw);
   composerInput.value = '';
   autoResizeComposer();
   popovers.close();
 
-  setLiveStatus(true, 'warming', 'Preparing context...');
-  await resolveInlineMentionsToAttachments(expanded);
+  try {
+    setLiveStatus(true, 'warming', 'Preparing context...');
+    await resolveInlineMentionsToAttachments(expanded);
 
-  const atts = [...pendingAttachments];
-  pendingAttachments = [];
-  renderAttachments();
+    const atts = [...pendingAttachments];
+    pendingAttachments = [];
+    renderAttachments();
 
-  if (turns.length === 0 && expanded) {
-    currentSessionTitle = expanded.length > 28 ? `${expanded.slice(0, 28)}…` : expanded;
-    sessionTitleChip.textContent = currentSessionTitle;
+    if (turns.length === 0 && expanded) {
+      currentSessionTitle = expanded.length > 28 ? `${expanded.slice(0, 28)}…` : expanded;
+      sessionTitleChip.textContent = currentSessionTitle;
+    }
+
+    let checkpointBefore: string | null = null;
+    if (settings.revertMode === 'workspace_and_chat') {
+      const ckpt = await window.agentOverlay.captureCheckpoint();
+      checkpointBefore = ckpt.treeSha;
+    }
+
+    let promptForAgent = expanded;
+    if (needsContextReplay && turns.length > 0) {
+      const summary = turns
+        .slice(-6)
+        .map(
+          (t) =>
+            `User: ${t.userText.slice(0, 300)}\nAssistant: ${t.assistantMarkdown.slice(0, 500)}`,
+        )
+        .join('\n---\n');
+      promptForAgent = `[Prior conversation context before revert/resume]\n${summary}\n\n[Current user request]\n${expanded}`;
+      needsContextReplay = false;
+    }
+
+    const turn: StoredTurn = {
+      id: `turn_${Date.now()}`,
+      userText: expanded,
+      attachments: atts,
+      checkpointBefore,
+      thinkingText: '',
+      thinkingDurationMs: 0,
+      tools: [],
+      assistantMarkdown: '',
+    };
+    turns.push(turn);
+    setLiveStatus(true, 'thinking', 'Thinking...');
+
+    activeTurn = buildTurnDom(turn, true);
+    scrollToBottomIfPinned();
+
+    await window.agentOverlay.sendPrompt(promptForAgent, atts);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    isStreaming = false;
+    updateSendButton();
+    updateUndoRedoButtons();
+    setLiveStatus(false, 'idle', 'Ready');
+    if (activeTurn) {
+      activeTurn.turn.assistantMarkdown += `\n\n> [!CAUTION]\n> ${msg}\n`;
+      activeTurn.markdownEl.innerHTML = renderMarkdownHtml(activeTurn.turn.assistantMarkdown);
+      activeTurn.workingBadge.classList.add('hidden');
+      activeTurn.skeletonEl.classList.add('hidden');
+      activeTurn.footerEl.classList.remove('hidden');
+      activeTurn = null;
+    }
   }
-
-  const turn: StoredTurn = {
-    id: `turn_${Date.now()}`,
-    userText: expanded,
-    attachments: atts,
-    thinkingText: '',
-    thinkingDurationMs: 0,
-    tools: [],
-    assistantMarkdown: '',
-  };
-  turns.push(turn);
-  isStreaming = true;
-  userScrolledUp = false;
-  updateSendButton();
-  setLiveStatus(true, 'thinking', 'Thinking...');
-
-  activeTurn = buildTurnDom(turn, true);
-  scrollToBottomIfPinned();
-
-  await window.agentOverlay.sendPrompt(expanded, atts);
 }
 
 async function executeLocalCommand(cmd: string): Promise<void> {
@@ -614,6 +941,8 @@ async function executeLocalCommand(cmd: string): Promise<void> {
 
 async function startNewConversation(): Promise<void> {
   turns = [];
+  undoStack = [];
+  redoStack = [];
   pendingAttachments = [];
   currentSessionId = `ses_${Date.now()}`;
   currentSessionTitle = 'New chat';
@@ -622,6 +951,7 @@ async function startNewConversation(): Promise<void> {
   messagesView.classList.add('hidden');
   welcomeView.classList.remove('hidden');
   renderAttachments();
+  updateUndoRedoButtons();
   await window.agentOverlay.resetSession();
 }
 
@@ -632,6 +962,9 @@ function handleStreamEvent(ev: StreamEvent): void {
       renderHeaderAndPickers();
       break;
     case 'status':
+      if (!isStreaming && ev.phase !== 'idle' && ev.phase !== 'connecting' && ev.phase !== 'warming') {
+        break;
+      }
       setLiveStatus(ev.phase !== 'idle', ev.phase, ev.label);
       break;
     case 'session_title':
@@ -640,6 +973,9 @@ function handleStreamEvent(ev: StreamEvent): void {
       break;
     case 'thinking_delta': {
       if (!activeTurn) break;
+      if (activeTurn.thinkingStartedAt === 0) {
+        activeTurn.thinkingStartedAt = Date.now();
+      }
       activeTurn.turn.thinkingText += ev.text;
       activeTurn.thinkingDisclosure.classList.remove('hidden');
       activeTurn.thinkingBody.textContent = activeTurn.turn.thinkingText;
@@ -649,6 +985,10 @@ function handleStreamEvent(ev: StreamEvent): void {
     }
     case 'text_delta': {
       if (!activeTurn) break;
+      if (activeTurn.thinkingStartedAt > 0 && activeTurn.turn.thinkingDurationMs === 0) {
+        activeTurn.turn.thinkingDurationMs = Date.now() - activeTurn.thinkingStartedAt;
+        activeTurn.thinkingTriggerText.textContent = `Thought for ${(activeTurn.turn.thinkingDurationMs / 1000).toFixed(1)}s`;
+      }
       activeTurn.turn.assistantMarkdown += ev.text;
       scheduleMarkdownUpdate(activeTurn);
       break;
@@ -667,7 +1007,8 @@ function handleStreamEvent(ev: StreamEvent): void {
         activeTurn.toolsContainer,
         activeTurn.toolCardMap,
         ev.id,
-        ev.title || ev.name,
+        ev.name,
+        ev.title,
         ev.args,
         'running',
       );
@@ -679,24 +1020,34 @@ function handleStreamEvent(ev: StreamEvent): void {
       const tModel = activeTurn.turn.tools.find((t) => t.id === ev.id);
       if (tModel) {
         tModel.status = ev.status;
+        if (ev.title) tModel.title = ev.title;
+        if (ev.args) tModel.args = ev.args;
         if (ev.output) tModel.output = ev.output;
         if (ev.durationMs) tModel.durationMs = ev.durationMs;
       }
       const dom = activeTurn.toolCardMap.get(ev.id);
-      if (dom) {
+      if (dom && tModel) {
+        const presented = presentToolCall({
+          name: tModel.name,
+          title: tModel.title,
+          args: tModel.args,
+          output: tModel.output,
+          status: tModel.status,
+        });
+        dom.kindIconEl.className = `codicon ${presented.icon} tool-card-kind-icon`;
+        dom.verbEl.textContent = presented.verb;
+        dom.summaryEl.textContent = presented.summary;
+        dom.metaPillEl.className = `tool-card-meta-pill${presented.badge ? '' : ' hidden'}`;
+        dom.metaPillEl.textContent = presented.badge || '';
         dom.statusEl.className =
           ev.status === 'running'
             ? 'codicon codicon-loading codicon-modifier-spin tool-status-running'
             : ev.status === 'completed'
               ? 'codicon codicon-check tool-status-ok'
               : 'codicon codicon-error tool-status-err';
-        if (ev.output) {
-          const existing = dom.detailEl.textContent || '';
-          dom.detailEl.textContent = `${existing ? `${existing}\n` : ''}Output:\n${ev.output}`;
-        }
-        const timeEl = dom.root.querySelector<HTMLElement>('.tool-card-header > span');
-        if (timeEl && ev.durationMs) {
-          timeEl.textContent = `${(ev.durationMs / 1000).toFixed(1)}s`;
+        dom.detailEl.innerHTML = renderToolDetailHtml(presented);
+        if (ev.durationMs) {
+          dom.timeEl.textContent = `${(ev.durationMs / 1000).toFixed(1)}s`;
         }
       }
       break;
@@ -706,10 +1057,16 @@ function handleStreamEvent(ev: StreamEvent): void {
       const req = ev.request;
       const card = document.createElement('div');
       card.className = 'permission-card';
-      card.innerHTML = `
-        <div class="permission-title">${req.toolTitle}</div>
-        ${req.detail ? `<div class="permission-detail">${req.detail.replace(/</g, '&lt;')}</div>` : ''}
-      `;
+      const pTitle = document.createElement('div');
+      pTitle.className = 'permission-title';
+      pTitle.textContent = req.toolTitle;
+      card.appendChild(pTitle);
+      if (req.detail) {
+        const pDet = document.createElement('div');
+        pDet.className = 'permission-detail';
+        pDet.textContent = req.detail;
+        card.appendChild(pDet);
+      }
       const actions = document.createElement('div');
       actions.className = 'permission-actions';
       for (const opt of req.options) {
@@ -734,15 +1091,17 @@ function handleStreamEvent(ev: StreamEvent): void {
     case 'metrics': {
       if (!activeTurn) break;
       activeTurn.turn.metrics = {
-        inputTokens: ev.inputTokens,
-        outputTokens: ev.outputTokens,
-        totalTokens: ev.totalTokens,
+        inputTokens: ev.inputTokens ?? activeTurn.turn.metrics?.inputTokens,
+        outputTokens: ev.outputTokens ?? activeTurn.turn.metrics?.outputTokens,
+        thoughtTokens: ev.thoughtTokens ?? activeTurn.turn.metrics?.thoughtTokens,
+        cachedReadTokens: ev.cachedReadTokens ?? activeTurn.turn.metrics?.cachedReadTokens,
+        totalTokens: ev.totalTokens ?? activeTurn.turn.metrics?.totalTokens,
+        contextSize: ev.contextSize ?? activeTurn.turn.metrics?.contextSize,
         durationMs: ev.durationMs,
       };
-      const parts: string[] = [];
-      if (ev.totalTokens) parts.push(`${ev.totalTokens} tok`);
-      parts.push(`${(ev.durationMs / 1000).toFixed(1)}s`);
-      activeTurn.metricsEl.textContent = parts.join(' · ');
+      const formatted = formatTurnMetrics(activeTurn.turn.metrics);
+      activeTurn.metricsEl.textContent = formatted.text;
+      activeTurn.metricsEl.title = formatted.tooltip;
       break;
     }
     case 'error': {
@@ -754,20 +1113,39 @@ function handleStreamEvent(ev: StreamEvent): void {
     case 'done': {
       isStreaming = false;
       updateSendButton();
+      updateUndoRedoButtons();
       setLiveStatus(false, 'idle', 'Ready');
       if (activeTurn) {
         if (activeTurn.renderScheduled !== null) {
           window.clearTimeout(activeTurn.renderScheduled);
           activeTurn.renderScheduled = null;
         }
+        // Finalize any running tools or open permission cards on cancel/exit
+        for (const tModel of activeTurn.turn.tools) {
+          if (tModel.status === 'running') {
+            tModel.status = 'failed';
+            const dom = activeTurn.toolCardMap.get(tModel.id);
+            if (dom) {
+              dom.statusEl.className = 'codicon codicon-error tool-status-err';
+            }
+          }
+        }
+        activeTurn.toolsContainer
+          .querySelectorAll<HTMLButtonElement>('.permission-actions button')
+          .forEach((btn) => {
+            btn.disabled = true;
+          });
         activeTurn.workingBadge.classList.add('hidden');
         activeTurn.skeletonEl.classList.add('hidden');
         activeTurn.footerEl.classList.remove('hidden');
         if (activeTurn.turn.thinkingText) {
-          const secs = activeTurn.turn.metrics?.durationMs
-            ? `${(activeTurn.turn.metrics.durationMs / 1000).toFixed(1)}s`
-            : '';
-          activeTurn.thinkingTriggerText.textContent = secs ? `Thought (${secs})` : 'Thought';
+          if (activeTurn.thinkingStartedAt > 0 && activeTurn.turn.thinkingDurationMs === 0) {
+            activeTurn.turn.thinkingDurationMs = Date.now() - activeTurn.thinkingStartedAt;
+          }
+          const ms = activeTurn.turn.thinkingDurationMs || activeTurn.turn.metrics?.durationMs || 0;
+          activeTurn.thinkingTriggerText.textContent = ms
+            ? `Thought for ${(ms / 1000).toFixed(1)}s`
+            : 'Thought';
         }
         activeTurn.markdownEl.innerHTML = renderMarkdownHtml(
           activeTurn.turn.assistantMarkdown,
@@ -1032,15 +1410,22 @@ function openSettingsModal(): void {
     </div>
     <div class="field-group">
       <label>Antigravity CLI Command</label>
-      <input id="set-cmd-agy" class="field-input" value="${settings.commands.agy_acp.command}" />
+      <input id="set-cmd-agy" class="field-input" value="${escapeHtmlText(settings.commands.agy_acp.command)}" />
     </div>
     <div class="field-group">
       <label>OpenCode CLI Command</label>
-      <input id="set-cmd-opencode" class="field-input" value="${settings.commands.opencode_acp.command}" />
+      <input id="set-cmd-opencode" class="field-input" value="${escapeHtmlText(settings.commands.opencode_acp.command)}" />
     </div>
     <div class="field-group">
       <label>Pi (ACP) CLI Command</label>
-      <input id="set-cmd-pi" class="field-input" value="${settings.commands.pi_acp.command}" />
+      <input id="set-cmd-pi" class="field-input" value="${escapeHtmlText(settings.commands.pi_acp.command)}" />
+    </div>
+    <div class="field-group">
+      <label>Revert Mode</label>
+      <select id="set-revert-mode" class="field-select">
+        <option value="workspace_and_chat" ${settings.revertMode === 'workspace_and_chat' ? 'selected' : ''}>Workspace Files + Chat (Git Checkpoint)</option>
+        <option value="chat_only" ${settings.revertMode === 'chat_only' ? 'selected' : ''}>Chat Only</option>
+      </select>
     </div>
     <div class="field-group">
       <label>Font Size (px)</label>
@@ -1065,6 +1450,8 @@ function openSettingsModal(): void {
     const agyCmd = (document.getElementById('set-cmd-agy') as HTMLInputElement).value.trim();
     const ocCmd = (document.getElementById('set-cmd-opencode') as HTMLInputElement).value.trim();
     const piCmd = (document.getElementById('set-cmd-pi') as HTMLInputElement).value.trim();
+    const revertMode = (document.getElementById('set-revert-mode') as HTMLSelectElement)
+      .value as AppSettings['revertMode'];
     const fontSize = Math.min(
       20,
       Math.max(11, Number((document.getElementById('set-font-size') as HTMLInputElement).value) || 13),
@@ -1074,6 +1461,7 @@ function openSettingsModal(): void {
 
     settings = await window.agentOverlay.updateSettings({
       harness,
+      revertMode,
       fontSize,
       autoApprovePermissions: autoApprove,
       autoHideOnBlur: autoHide,
@@ -1103,10 +1491,13 @@ async function openHistoryModal(): Promise<void> {
       const row = document.createElement('div');
       row.className = 'history-item';
       const info = document.createElement('div');
-      info.innerHTML = `
-        <div style="font-weight:500;color:var(--text-strong);">${s.title}</div>
-        <div style="font-size:11px;color:var(--text-muted);">${s.harness} · ${s.turns.length} turns · ${new Date(s.updatedAt).toLocaleString()}</div>
-      `;
+      const hTitle = document.createElement('div');
+      hTitle.style.cssText = 'font-weight:500;color:var(--text-strong);';
+      hTitle.textContent = s.title;
+      const hMeta = document.createElement('div');
+      hMeta.style.cssText = 'font-size:11px;color:var(--text-muted);';
+      hMeta.textContent = `${s.harness} · ${s.turns.length} turns · ${new Date(s.updatedAt).toLocaleString()}`;
+      info.append(hTitle, hMeta);
       const delBtn = document.createElement('button');
       delBtn.type = 'button';
       delBtn.className = 'icon-btn';
@@ -1118,12 +1509,16 @@ async function openHistoryModal(): Promise<void> {
       });
 
       row.addEventListener('click', () => {
+        if (isStreaming) return;
         currentSessionId = s.id;
         currentSessionTitle = s.title;
         sessionTitleChip.textContent = s.title;
-        turns = s.turns;
-        messagesView.innerHTML = '';
-        for (const t of turns) buildTurnDom(t, false);
+        turns = structuredClone(s.turns);
+        needsContextReplay = turns.length > 0;
+        undoStack = [];
+        redoStack = [];
+        rebuildMessagesList();
+        updateUndoRedoButtons();
         closeModal();
       });
 
@@ -1150,6 +1545,17 @@ function openHelpModal(): void {
 }
 
 // Event Wiring
+btnUndoChat.addEventListener('click', () => {
+  void undoChatRevert();
+});
+btnRedoChat.addEventListener('click', () => {
+  void redoChatRevert();
+});
+btnRevertMode.addEventListener('click', async () => {
+  const next = settings.revertMode === 'workspace_and_chat' ? 'chat_only' : 'workspace_and_chat';
+  settings = await window.agentOverlay.updateSettings({ revertMode: next });
+  renderHeaderAndPickers();
+});
 document.getElementById('btn-new-chat')?.addEventListener('click', () => {
   void startNewConversation();
 });
@@ -1269,6 +1675,16 @@ composerInput.addEventListener('keydown', (e) => {
 
 // Global overlay keyboard shortcuts
 window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    void undoChatRevert();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'y') {
+    e.preventDefault();
+    void redoChatRevert();
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && e.key === '.') {
     e.preventDefault();
     openModelPicker();
@@ -1397,33 +1813,65 @@ async function runAuditFlow(): Promise<void> {
 
   const sampleTurn: StoredTurn = {
     id: 'audit_turn_1',
-    userText: 'Render the full markdown, math, mermaid, and callout test',
+    userText: 'Inspect repo and verify visual tool cards + expanded thinking without scrollbar',
     attachments: [{ id: 'a1', kind: 'image', name: 'screen-preview.png' }],
-    thinkingText: 'Checking live ACP catalog and rendering markdown blocks with KaTeX, Mermaid, and Shiki.',
-    thinkingDurationMs: 1400,
+    checkpointBefore: 'deadbee',
+    thinkingText:
+      'Line 1 of thinking trace: checking repository structure.\n' +
+      'Line 2: verifying nested blockquotes and callouts.\n' +
+      'Line 3: checking tool output formatting so users see clean visual cards instead of raw JSON.\n' +
+      'Line 4: verifying thinking disclosure expands naturally with zero inner scrollbar.\n' +
+      'Line 5: testing auto-follow scroll on thinking expansion.',
+    thinkingDurationMs: 2400,
     tools: [
       {
         id: 't1',
-        name: 'session/new',
-        title: 'Connected ACP session & synced configOptions',
-        args: '{"harness":"agy_acp"}',
+        name: 'shell',
+        title: 'Explore repo status',
+        args: JSON.stringify({ command: 'git status -sb', cwd: '/var/home/khoipm/playground/pi-overlay' }),
         status: 'completed',
-        output: 'Loaded live models + thinking effort options',
-        durationMs: 420,
+        output: JSON.stringify({
+          metadata: { status: 'completed', truncated: false, exit: 0 },
+          output: '## feat/electron-universal\n M app/src/renderer/app.ts\n?? app/src/main/checkpoint.ts',
+        }),
+        durationMs: 120,
+      },
+      {
+        id: 't2',
+        name: 'glob',
+        title: 'Find source files',
+        args: JSON.stringify({ pattern: 'app/src/**/*.ts' }),
+        status: 'completed',
+        output: 'app/src/main/acp-client.ts\napp/src/main/checkpoint.ts\napp/src/renderer/tool-presenter.ts',
+        durationMs: 45,
       },
     ],
     assistantMarkdown: stressMarkdown,
-    metrics: { totalTokens: 1842, durationMs: 2150 },
+    metrics: {
+      inputTokens: 6678,
+      outputTokens: 320,
+      cachedReadTokens: 1280,
+      thoughtTokens: 410,
+      totalTokens: 8688,
+      contextSize: 1000000,
+      durationMs: 2150,
+    },
   };
 
   turns = [sampleTurn];
   messagesView.innerHTML = '';
   const refs = buildTurnDom(sampleTurn, false);
+  // Expand Thinking + Shell tool card to verify no scrollbar, no orange border, visual tool UI!
+  const thinkTrigger = refs.thinkingDisclosure.querySelector<HTMLButtonElement>('.disclosure-trigger');
+  thinkTrigger?.focus();
+  thinkTrigger?.click();
+  const firstToolBtn = refs.toolsContainer.querySelector<HTMLButtonElement>('.tool-card-header');
+  firstToolBtn?.click();
   await hydrateRenderedMarkdown(refs.markdownEl, false);
   await new Promise((r) => setTimeout(r, 450));
 
   chatViewport.scrollTo({ top: 0, behavior: 'instant' });
-  await window.agentOverlay.auditCapture('04-markdown-top.png');
+  await window.agentOverlay.auditCapture('04-visual-tools-thinking.png');
 
   const headings = refs.markdownEl.querySelectorAll<HTMLElement>('h2');
   const codeHeading = headings[2];

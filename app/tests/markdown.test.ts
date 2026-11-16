@@ -43,4 +43,17 @@ describe('VS Code Markdown Renderer', () => {
     expect(html).toContain('md-mermaid-card');
     expect(html).toContain('<details><summary>Expand me</summary>');
   });
+
+  it('protects unclosed code fences from math tokens and strips spoofed action buttons', () => {
+    const unclosed = '```bash\necho $HOME $1\n';
+    const html1 = renderMarkdownHtml(unclosed);
+    expect(html1).not.toContain('@@MATH_TOKEN');
+    expect(html1).not.toContain('class="katex"');
+
+    const spoof = '<button class="md-copy-code-btn" data-code="pwn">Fake</button><img src=x onerror=alert(1)>';
+    const html2 = renderMarkdownHtml(spoof);
+    expect(html2).not.toContain('<button');
+    expect(html2).not.toContain('onerror');
+    expect(html2).not.toContain('md-copy-code-btn');
+  });
 });

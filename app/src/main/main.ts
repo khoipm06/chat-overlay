@@ -25,6 +25,7 @@ import type {
 } from '../shared/types';
 import { AcpAgentController } from './acp-client';
 import { captureScreenDataUrl, type CaptureKind } from './capture';
+import { captureWorkspaceCheckpoint, restoreWorkspaceCheckpoint } from './checkpoint';
 import { indexWorkspaceFiles, matchMentionItems } from './mentions';
 import {
   deleteSessionRecord,
@@ -93,7 +94,7 @@ function createMainWindow(): void {
     alwaysOnTop: true,
     resizable: true,
     show: !START_HIDDEN,
-    title: 'Agent Overlay',
+    title: 'Chat Overlay',
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
@@ -167,7 +168,7 @@ function registerShortcuts(): void {
 function setupUnixToggleSocket(): void {
   if (process.platform === 'win32') return;
   const runtimeDir = process.env.XDG_RUNTIME_DIR || os.tmpdir();
-  const sockPath = path.join(runtimeDir, 'agent-overlay.sock');
+  const sockPath = path.join(runtimeDir, 'chat-overlay.sock');
   try {
     fs.unlinkSync(sockPath);
   } catch {
@@ -448,6 +449,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle('sessions:save', (_ev, session: SavedSession) => saveSessionRecord(session));
   ipcMain.handle('sessions:delete', (_ev, id: string) => deleteSessionRecord(id));
 
+  ipcMain.handle('checkpoint:capture', () =>
+    captureWorkspaceCheckpoint(settings.workspaceDir),
+  );
+  ipcMain.handle('checkpoint:restore', (_ev, treeSha: string | null) =>
+    restoreWorkspaceCheckpoint(settings.workspaceDir, treeSha),
+  );
+
   ipcMain.handle('window:hide', () => {
     mainWindow?.hide();
   });
@@ -493,7 +501,7 @@ if (!gotLock) {
     setupUnixToggleSocket();
 
     tray = new Tray(createTrayIcon());
-    tray.setToolTip('Agent Overlay (ACP)');
+    tray.setToolTip('Chat Overlay (ACP)');
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Toggle Overlay', click: () => toggleOverlay() },

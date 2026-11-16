@@ -66,6 +66,7 @@ export function defaultSettings(): AppSettings {
     harnessModels: {},
     harnessEfforts: {},
     harnessModes: {},
+    revertMode: 'workspace_and_chat',
     autoApprovePermissions: false,
     pinLiveScreen: false,
     autoHideOnBlur: false,
@@ -84,7 +85,23 @@ export function configDir(): string {
       : process.platform === 'darwin'
         ? path.join(os.homedir(), 'Library', 'Application Support')
         : path.join(os.homedir(), '.config'));
-  return path.join(base, 'agent-overlay');
+  return path.join(base, 'chat-overlay');
+}
+
+function legacyConfigDir(): string {
+  return path.join(path.dirname(configDir()), 'agent-overlay');
+}
+
+function readWithMigration(filename: string): string | null {
+  const primary = path.join(configDir(), filename);
+  if (fs.existsSync(primary)) {
+    return fs.readFileSync(primary, 'utf8');
+  }
+  const legacy = path.join(legacyConfigDir(), filename);
+  if (fs.existsSync(legacy)) {
+    return fs.readFileSync(legacy, 'utf8');
+  }
+  return null;
 }
 
 export function settingsFilePath(): string {
@@ -98,7 +115,8 @@ export function sessionsFilePath(): string {
 export function loadSettings(): AppSettings {
   const defaults = defaultSettings();
   try {
-    const raw = fs.readFileSync(settingsFilePath(), 'utf8');
+    const raw = readWithMigration('settings.json');
+    if (!raw) return defaults;
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
     const validHarness = HARNESS_LIST.some((h) => h.id === parsed.harness)
       ? (parsed.harness as HarnessKind)
@@ -132,7 +150,8 @@ export function saveSettings(settings: AppSettings): void {
 
 export function loadSessions(): SavedSession[] {
   try {
-    const raw = fs.readFileSync(sessionsFilePath(), 'utf8');
+    const raw = readWithMigration('sessions.json');
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as SavedSession[]) : [];
   } catch {

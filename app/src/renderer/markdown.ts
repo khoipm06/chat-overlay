@@ -4,54 +4,54 @@ import MarkdownIt from 'markdown-it';
 import markdownItDeflist from 'markdown-it-deflist';
 import markdownItFootnote from 'markdown-it-footnote';
 import markdownItTaskLists from 'markdown-it-task-lists';
-import mermaid from 'mermaid';
-import { createHighlighter, type Highlighter } from 'shiki';
-
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'dark',
-  securityLevel: 'loose',
-  fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-});
+import type { Highlighter } from 'shiki';
 
 let highlighterPromise: Promise<Highlighter> | null = null;
 let cachedHighlighter: Highlighter | null = null;
+let mermaidReadyPromise: Promise<typeof import('mermaid').default> | null = null;
 
-function getHighlighter(): Promise<Highlighter> {
-  if (!highlighterPromise) {
-    highlighterPromise = createHighlighter({
-      themes: ['dark-plus'],
-      langs: [
-        'typescript',
-        'javascript',
-        'python',
-        'rust',
-        'bash',
-        'sh',
-        'json',
-        'css',
-        'html',
-        'markdown',
-        'yaml',
-        'toml',
-        'sql',
-        'go',
-        'c',
-        'cpp',
-        'diff',
-        'tsx',
-        'jsx',
-      ],
-    }).then((hl) => {
-      cachedHighlighter = hl;
-      return hl;
+async function getMermaid() {
+  if (!mermaidReadyPromise) {
+    mermaidReadyPromise = import('mermaid').then((mod) => {
+      const m = mod.default;
+      m.initialize({
+        startOnLoad: false,
+        theme: 'dark',
+        securityLevel: 'strict',
+        fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+      });
+      return m;
     });
   }
-  return highlighterPromise;
+  return mermaidReadyPromise;
 }
 
-// Pre-warm Shiki in background on renderer boot
-void getHighlighter().catch(() => {});
+const CORE_LANGS = ['typescript', 'javascript', 'python', 'bash', 'json', 'rust'] as const;
+
+async function getHighlighterForLang(lang?: string): Promise<Highlighter> {
+  if (!highlighterPromise) {
+    highlighterPromise = import('shiki')
+      .then((m) =>
+        m.createHighlighter({
+          themes: ['dark-plus'],
+          langs: [...CORE_LANGS],
+        }),
+      )
+      .then((hl) => {
+        cachedHighlighter = hl;
+        return hl;
+      });
+  }
+  const hl = await highlighterPromise;
+  if (lang && lang !== 'text' && !hl.getLoadedLanguages().includes(lang)) {
+    try {
+      await hl.loadLanguage(lang as Parameters<Highlighter['loadLanguage']>[0]);
+    } catch {
+      // Unsupported grammar name; caller falls back to plain <pre><code>
+    }
+  }
+  return hl;
+}
 
 interface ExtractedBlock {
   token: string;
@@ -92,8 +92,8 @@ function preprocessMathOutsideCode(src: string): {
     return token;
   };
 
-  // Split by fenced code blocks and inline code spans so we don't mangle $ inside code
-  const segments = src.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/g);
+  // Split by fenced code blocks (including unclosed trailing fences during live streaming) and inline code
+  const segments = src.split(/(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]+`)/g);
   const out = segments
     .map((seg, idx) => {
       if (idx % 2 === 1) return seg; // code block or inline code
@@ -248,10 +248,12 @@ export function renderMarkdownHtml(source: string): string {
   const md = createMarkdownInstance(codePlaceholders);
 
   const rawHtml = md.render(markdown);
-  let safeHtml = DOMPurify.sanitize(rawHtml, {
+  const safeHtmlRaw = DOMPurify.sanitize(rawHtml, {
     ADD_TAGS: ['details', 'summary', 'input'],
     ADD_ATTR: ['type', 'checked', 'disabled', 'open', 'class', 'target', 'rel'],
+    FORBID_TAGS: ['button', 'script', 'style', 'iframe', 'object'],
   });
+  let safeHtml = safeHtmlRaw.replace(/md-copy-code-btn|md-mermaid-toggle/g, '');
 
   // Re-inject pre-rendered safe KaTeX and Shiki/Mermaid containers
   for (const item of mathBlocks) {
@@ -273,31 +275,33 @@ export async function hydrateRenderedMarkdown(
   container: HTMLElement,
   isStreaming: boolean,
 ): Promise<void> {
-  // 1. Hydrate any un-highlighted code blocks if Shiki just finished loading
+  // 1. Hydrate any un-highlighted code blocks lazily on demand
   const codeCards = container.querySelectorAll<HTMLElement>('.md-code-card[data-lang]');
   if (codeCards.length > 0) {
-    try {
-      const hl = await getHighlighter();
-      const loaded = hl.getLoadedLanguages();
-      for (const card of codeCards) {
-        if (card.dataset.highlighted === '1') continue;
-        const lang = card.dataset.lang || '';
-        const raw = card.dataset.rawCode || '';
-        if (lang && loaded.includes(lang)) {
+    for (const card of codeCards) {
+      if (card.dataset.highlighted === '1') continue;
+      const lang = card.dataset.lang || '';
+      const raw = card.dataset.rawCode || '';
+      if (!lang) continue;
+      try {
+        const hl = await getHighlighterForLang(lang);
+        if (hl.getLoadedLanguages().includes(lang)) {
           const body = card.querySelector<HTMLElement>('.md-code-body');
           if (body) {
             body.innerHTML = hl.codeToHtml(raw, { lang, theme: 'dark-plus' });
             card.dataset.highlighted = '1';
           }
         }
+      } catch {
+        // keep plain pre fallback
       }
-    } catch {
-      // keep plain pre fallback
     }
   }
 
-  // 2. Render Mermaid SVGs (skip throwing errors on partial diagrams mid-stream)
+  // 2. Render Mermaid SVGs lazily only when diagrams exist
   const mermaidCards = container.querySelectorAll<HTMLElement>('.md-mermaid-card');
+  if (mermaidCards.length === 0) return;
+  const mermaidApi = await getMermaid();
   for (const card of mermaidCards) {
     const src = card.dataset.mermaidSource || '';
     if (!src.trim()) continue;
@@ -308,7 +312,7 @@ export async function hydrateRenderedMarkdown(
 
     try {
       const id = `mmd_${mermaidSeq++}`;
-      const { svg } = await mermaid.render(id, src);
+      const { svg } = await mermaidApi.render(id, src);
       preview.innerHTML = svg;
       card.dataset.mermaidRendered = src;
     } catch {

@@ -32,6 +32,8 @@ export interface AgentOverlayApi {
   listSessions: () => Promise<SavedSession[]>;
   saveSession: (session: SavedSession) => Promise<SavedSession[]>;
   deleteSession: (id: string) => Promise<SavedSession[]>;
+  captureCheckpoint: () => Promise<{ id: string; isGit: boolean; treeSha: string | null }>;
+  restoreCheckpoint: (treeSha: string | null) => Promise<{ restored: boolean; message: string }>;
   hideWindow: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   auditCapture: (filename: string) => Promise<void>;
@@ -63,6 +65,8 @@ const api: AgentOverlayApi = {
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   saveSession: (session) => ipcRenderer.invoke('sessions:save', session),
   deleteSession: (id) => ipcRenderer.invoke('sessions:delete', id),
+  captureCheckpoint: () => ipcRenderer.invoke('checkpoint:capture'),
+  restoreCheckpoint: (treeSha) => ipcRenderer.invoke('checkpoint:restore', treeSha),
   hideWindow: () => ipcRenderer.invoke('window:hide'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   auditCapture: (filename) => ipcRenderer.invoke('audit:capture', filename),
