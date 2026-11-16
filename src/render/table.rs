@@ -1,4 +1,8 @@
-use gtk4::glib;
+//! Markdown table widget for the assistant response stream.
+//!
+//! Cell text arrives already converted to Pango inline markup by
+//! [`crate::render`] (via `pulldown-cmark`), so this module only lays widgets out.
+
 use gtk4::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,115 +22,60 @@ impl ColumnAlign {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TableData {
+    /// Pango inline markup per header cell.
     pub headers: Vec<String>,
     pub alignments: Vec<ColumnAlign>,
+    /// Pango inline markup per body cell.
     pub rows: Vec<Vec<String>>,
 }
 
-/// Checks if a line matches markdown table syntax
-pub fn is_table_row(line: &str) -> bool {
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    if trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() >= 2 {
-        return true;
-    }
-    // GFM allows tables without leading/trailing pipes
-    if trimmed.contains('|') && !trimmed.starts_with("```") {
-        return true;
-    }
-    false
-}
-
-fn split_cells(trimmed: &str) -> Vec<String> {
-    let s = if trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() >= 2 {
-        &trimmed[1..trimmed.len() - 1]
-    } else if let Some(stripped) = trimmed.strip_prefix('|') {
-        stripped
-    } else if let Some(stripped) = trimmed.strip_suffix('|') {
-        stripped
+/// Applies pre-formatted Pango markup to a label, falling back to plain text.
+fn set_cell_markup(label: &gtk4::Label, markup: &str) {
+    if gtk4::pango::parse_markup(markup, '\0').is_ok() {
+        label.set_markup(markup);
     } else {
-        trimmed
-    };
-    s.split('|')
-        .map(|c| c.trim().to_string())
-        .collect()
+        label.set_text(markup);
+    }
 }
 
-pub fn parse_table_data(table_lines: &[&str]) -> Option<TableData> {
-    if table_lines.len() < 2 {
-        return None;
-    }
-
-    let mut raw_rows: Vec<Vec<String>> = Vec::new();
-    let mut separator_idx: Option<usize> = None;
-    let mut alignments: Vec<ColumnAlign> = Vec::new();
-
-    for line in table_lines {
-        let trimmed = line.trim();
-        if !is_table_row(trimmed) {
-            continue;
+impl TableData {
+    /// Minimum column width in `ch` units, derived from the widest cell.
+    fn col_char_widths(&self) -> Vec<usize> {
+        let n = self.headers.len();
+        let mut widths = vec![4usize; n];
+        for (c, h) in self.headers.iter().enumerate() {
+            widths[c] = widths[c].max(plain_len(h));
         }
-        let cells = split_cells(trimmed);
-        if is_separator_row(&cells) {
-            if separator_idx.is_none() {
-                separator_idx = Some(raw_rows.len());
-                alignments = cells
-                    .iter()
-                    .map(|c| {
-                        let t = c.trim();
-                        let starts = t.starts_with(':');
-                        let ends = t.ends_with(':');
-                        if starts && ends {
-                            ColumnAlign::Center
-                        } else if ends {
-                            ColumnAlign::Right
-                        } else {
-                            ColumnAlign::Left
-                        }
-                    })
-                    .collect();
+        for row in &self.rows {
+            for (c, cell) in row.iter().enumerate() {
+                if c < n {
+                    widths[c] = widths[c].max(plain_len(cell));
+                }
             }
-        } else {
-            raw_rows.push(cells);
         }
+        widths
     }
-
-    if raw_rows.is_empty() {
-        return None;
-    }
-
-    let num_cols = raw_rows.iter().map(|r| r.len()).max().unwrap_or(0);
-    if num_cols < 2 {
-        return None;
-    }
-
-    // Default alignments if no separator row found
-    while alignments.len() < num_cols {
-        alignments.push(ColumnAlign::Left);
-    }
-
-    for r in &mut raw_rows {
-        while r.len() < num_cols {
-            r.push(String::new());
-        }
-    }
-
-    let headers = raw_rows.remove(0);
-    Some(TableData {
-        headers,
-        alignments,
-        rows: raw_rows,
-    })
 }
 
-/// Builds a real, responsive GTK4 Grid table widget with horizontal scrolling.
-/// Modeled after VS Code's `chatMarkdownTableScrolling.ts`:
-/// Measures maximum character length per column to enforce minimum column widths,
-/// preventing columns from squeezing, while supporting horizontal scrolling in a card.
+/// Rough visible length of a Pango-markup string (tags stripped, entities kept).
+fn plain_len(markup: &str) -> usize {
+    let mut len = 0usize;
+    let mut in_tag = false;
+    for ch in markup.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => len += 1,
+            _ => {}
+        }
+    }
+    len
+}
+
+/// Builds a scrollable grid table card. Columns keep their natural width and the
+/// whole grid scrolls horizontally, matching VS Code's markdown table behaviour.
 pub fn build_table_widget(table: &TableData) -> gtk4::Box {
     let card = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     card.add_css_class("markdown-table-card");
@@ -146,232 +95,128 @@ pub fn build_table_widget(table: &TableData) -> gtk4::Box {
         .css_classes(["markdown-table-grid"])
         .build();
 
-    let num_cols = table.headers.len();
+    let widths = table.col_char_widths();
 
-    // Calculate maximum characters per column (in ch units, like VS Code table scrolling)
-    let mut col_char_widths = vec![4usize; num_cols];
-    for (c, h) in table.headers.iter().enumerate() {
-        col_char_widths[c] = col_char_widths[c].max(h.chars().count());
-    }
-    for r in &table.rows {
-        for (c, cell) in r.iter().enumerate() {
-            if c < num_cols {
-                col_char_widths[c] = col_char_widths[c].max(cell.chars().count());
-            }
-        }
-    }
+    for (c_idx, header_markup) in table.headers.iter().enumerate() {
+        let align = table
+            .alignments
+            .get(c_idx)
+            .copied()
+            .unwrap_or(ColumnAlign::Left);
+        let min_width = (widths[c_idx] as i32 * 8 + 24).clamp(64, 360);
 
-    // 1. Render Header Cells
-    for (c_idx, header_text) in table.headers.iter().enumerate() {
-        let align = table.alignments.get(c_idx).copied().unwrap_or(ColumnAlign::Left);
-        let col_width = ((col_char_widths[c_idx] as i32) * 8 + 24).clamp(64, 360);
-
-        let cell_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-        cell_box.add_css_class("table-cell-header");
-        cell_box.set_size_request(col_width, -1);
-        cell_box.set_hexpand(true);
-        cell_box.set_halign(gtk4::Align::Fill);
+        let cell = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+        cell.add_css_class("table-cell-header");
+        cell.set_size_request(min_width, -1);
+        cell.set_hexpand(true);
 
         let label = gtk4::Label::builder()
             .selectable(true)
-            .css_classes(["table-cell-text", "table-header-text"])
+            .wrap(true)
+            .wrap_mode(gtk4::pango::WrapMode::WordChar)
+            .xalign(0.0)
             .halign(align.to_gtk_align())
             .hexpand(true)
+            .css_classes(["table-cell-text", "table-header-text"])
             .build();
+        set_cell_markup(
+            &label,
+            &format!("<span weight=\"bold\">{}</span>", header_markup),
+        );
 
-        let inline_markup = crate::render::inline::format_inline_elements(header_text);
-        let pango = format!("<span weight=\"bold\" foreground=\"#f4f4f5\">{}</span>", inline_markup);
-        if gtk4::pango::parse_markup(&pango, '\0').is_ok() {
-            label.set_markup(&pango);
-        } else {
-            label.set_text(header_text);
-        }
-
-        cell_box.append(&label);
-        grid.attach(&cell_box, c_idx as i32, 0, 1, 1);
+        cell.append(&label);
+        grid.attach(&cell, c_idx as i32, 0, 1, 1);
     }
 
-    // 2. Render Body Rows
     for (r_idx, row) in table.rows.iter().enumerate() {
-        let is_even = r_idx % 2 == 0;
-        let row_class = if is_even { "table-row-even" } else { "table-row-odd" };
+        let row_class = if r_idx % 2 == 0 {
+            "table-row-even"
+        } else {
+            "table-row-odd"
+        };
 
-        for (c_idx, cell_text) in row.iter().enumerate() {
-            let align = table.alignments.get(c_idx).copied().unwrap_or(ColumnAlign::Left);
-            let col_width = ((col_char_widths[c_idx] as i32) * 8 + 24).clamp(64, 360);
+        for (c_idx, cell_markup) in row.iter().enumerate() {
+            if c_idx >= table.headers.len() {
+                break;
+            }
+            let align = table
+                .alignments
+                .get(c_idx)
+                .copied()
+                .unwrap_or(ColumnAlign::Left);
+            let min_width = (widths[c_idx] as i32 * 8 + 24).clamp(64, 360);
 
-            let cell_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-            cell_box.add_css_class("table-cell");
-            cell_box.add_css_class(row_class);
-            cell_box.set_size_request(col_width, -1);
-            cell_box.set_hexpand(true);
-            cell_box.set_halign(gtk4::Align::Fill);
+            let cell = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+            cell.add_css_class("table-cell");
+            cell.add_css_class(row_class);
+            cell.set_size_request(min_width, -1);
+            cell.set_hexpand(true);
 
             let label = gtk4::Label::builder()
                 .selectable(true)
-                .css_classes(["table-cell-text"])
+                .wrap(true)
+                .wrap_mode(gtk4::pango::WrapMode::WordChar)
+                .xalign(0.0)
                 .halign(align.to_gtk_align())
                 .hexpand(true)
+                .css_classes(["table-cell-text"])
                 .build();
+            set_cell_markup(&label, cell_markup);
 
-            let inline_markup = crate::render::inline::format_inline_elements(cell_text);
-            if gtk4::pango::parse_markup(&inline_markup, '\0').is_ok() {
-                label.set_markup(&inline_markup);
-            } else {
-                label.set_text(cell_text);
-            }
-
-            cell_box.append(&label);
-            grid.attach(&cell_box, c_idx as i32, (r_idx + 1) as i32, 1, 1);
+            cell.append(&label);
+            grid.attach(&cell, c_idx as i32, (r_idx + 1) as i32, 1, 1);
         }
     }
 
-    let _ = num_cols;
     scrolled.set_child(Some(&grid));
     card.append(&scrolled);
     card
-}
-
-/// Fallback text renderer for non-widget contexts (logs, tooltips, tests)
-pub fn render_markdown_table(table_lines: &[&str]) -> String {
-    if let Some(table) = parse_table_data(table_lines) {
-        let num_cols = table.headers.len();
-        if num_cols == 0 {
-            return table_lines.join("\n");
-        }
-
-        let mut all_rows = Vec::new();
-        all_rows.push(table.headers.clone());
-        all_rows.extend(table.rows.clone());
-
-        let mut col_widths = vec![3usize; num_cols];
-        for r in &all_rows {
-            for (c_idx, cell) in r.iter().enumerate() {
-                col_widths[c_idx] = col_widths[c_idx].max(cell.chars().count().max(3));
-            }
-        }
-
-        let mut out = String::new();
-        out.push_str("<span font_family=\"monospace\" size=\"small\" foreground=\"#a1a1aa\">");
-
-        for (row_idx, row) in all_rows.iter().enumerate() {
-            out.push_str("  ");
-            for (c_idx, cell) in row.iter().enumerate() {
-                let width = col_widths[c_idx];
-                let cell_clean = glib::markup_escape_text(cell);
-                let pad = " ".repeat(width.saturating_sub(cell.chars().count()));
-
-                if row_idx == 0 {
-                    out.push_str(&format!(
-                        "<span weight=\"bold\" foreground=\"#f4f4f5\">{}</span>{}",
-                        cell_clean, pad
-                    ));
-                } else {
-                    out.push_str(&format!("{}{}", cell_clean, pad));
-                }
-                if c_idx + 1 < num_cols {
-                    out.push_str("  <span foreground=\"#3f3f46\">│</span>  ");
-                }
-            }
-            out.push('\n');
-
-            if row_idx == 0 {
-                out.push_str("  ");
-                let sep_line: Vec<String> = col_widths.iter().map(|w| "─".repeat(*w)).collect();
-                out.push_str(&format!(
-                    "<span foreground=\"#3f3f46\">{}</span>\n",
-                    sep_line.join("──┼──")
-                ));
-            }
-        }
-
-        out.push_str("</span>");
-        out
-    } else {
-        table_lines.join("\n")
-    }
-}
-
-fn is_separator_row(cells: &[String]) -> bool {
-    !cells.is_empty()
-        && cells.iter().all(|c| {
-            let t = c.trim_matches(':');
-            !t.is_empty() && t.chars().all(|ch| ch == '-')
-        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_parse_table_data() {
-        let lines = vec![
-            "| Command | Alignment | Description |",
-            "|:---|:---:|---:|",
-            "| `cargo build` | Left | Builds release |",
-            "| `cargo test` | Center | Runs test suite |",
-        ];
-        let data = parse_table_data(&lines).expect("Should parse table data");
-        assert_eq!(data.headers, vec!["Command", "Alignment", "Description"]);
-        assert_eq!(
-            data.alignments,
-            vec![ColumnAlign::Left, ColumnAlign::Center, ColumnAlign::Right]
-        );
-        assert_eq!(data.rows.len(), 2);
-        assert_eq!(data.rows[0][0], "`cargo build`");
-        assert_eq!(data.rows[1][2], "Runs test suite");
+    fn sample() -> TableData {
+        TableData {
+            headers: vec!["Command".into(), "Align".into(), "Description".into()],
+            alignments: vec![
+                ColumnAlign::Left,
+                ColumnAlign::Center,
+                ColumnAlign::Right,
+            ],
+            rows: vec![
+                vec!["cargo build".into(), "Left".into(), "Builds release".into()],
+                vec!["cargo test".into(), "Center".into(), "Runs tests".into()],
+            ],
+        }
     }
 
     #[test]
-    fn test_render_table_fallback() {
-        let lines = vec![
-            "| Command | Description |",
-            "|---|---|",
-            "| `cargo build` | Builds release |",
-            "| `cargo test` | Runs test suite |",
-        ];
-        let rendered = render_markdown_table(&lines);
-        assert!(rendered.contains("Command"));
-        assert!(rendered.contains("Builds release"));
-        assert!(rendered.contains("──┼──"));
+    fn test_plain_len_strips_markup() {
+        assert_eq!(plain_len("<b>hi</b>"), 2);
+        assert_eq!(plain_len("plain"), 5);
     }
 
     #[test]
-    fn test_parse_table_data_edge_cases() {
-        assert!(parse_table_data(&["| single |"]).is_none());
+    fn test_column_widths_use_widest_cell() {
+        let widths = sample().col_char_widths();
+        // "Command"=7, "cargo build"=11 → 11; "Align"=5, "Center"=6 → 6;
+        // "Description"=11, "Builds release"=14 → 14.
+        assert_eq!(widths, vec![11, 6, 14]);
+    }
 
-        let lines = vec![
-            "| Header 1 | Header 2 |",
-            "|---|---|",
-            "| Val 1 |",
-        ];
-        let data = parse_table_data(&lines).expect("Should pad uneven row");
-        assert_eq!(data.rows.len(), 1);
-        assert_eq!(data.rows[0].len(), 2);
-        assert_eq!(data.rows[0][0], "Val 1");
-        assert_eq!(data.rows[0][1], "");
+    #[test]
+    fn test_alignments_map_to_gtk() {
+        assert_eq!(ColumnAlign::Left.to_gtk_align(), gtk4::Align::Start);
+        assert_eq!(ColumnAlign::Right.to_gtk_align(), gtk4::Align::End);
+    }
 
-        let lines_no_sep = vec![
-            "| Header 1 | Header 2 |",
-            "| Val 1 | Val 2 |",
-        ];
-        let data_no_sep = parse_table_data(&lines_no_sep).expect("Should parse even without sep");
-        assert_eq!(data_no_sep.headers, vec!["Header 1", "Header 2"]);
-        assert_eq!(data_no_sep.rows.len(), 1);
-
-        let lines_no_enclosing = vec![
-            "Col A | Col B | Col C",
-            "--- | :---: | ---:",
-            "Item 1 | Center 2 | Right 3",
-        ];
-        let data_no_enclosing =
-            parse_table_data(&lines_no_enclosing).expect("Should parse compact un-enclosed table");
-        assert_eq!(data_no_enclosing.headers, vec!["Col A", "Col B", "Col C"]);
-        assert_eq!(
-            data_no_enclosing.alignments,
-            vec![ColumnAlign::Left, ColumnAlign::Center, ColumnAlign::Right]
-        );
-        assert_eq!(data_no_enclosing.rows[0], vec!["Item 1", "Center 2", "Right 3"]);
+    #[test]
+    fn test_table_data_equality() {
+        assert_eq!(sample(), sample());
+        let mut other = sample();
+        other.rows.pop();
+        assert_ne!(sample(), other);
     }
 }
