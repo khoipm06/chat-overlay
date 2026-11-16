@@ -1,0 +1,44 @@
+{
+  "name": "agent-overlay",
+  "version": "0.3.0",
+  "description": "Universal cross-platform VS Code-inspired ACP chat & live screen overlay",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "npm run build && electron dist/main/main.js",
+    "dev": "npm run build && electron dist/main/main.js --dev"
+  },
+  "keywords": [
+    "acp",
+    "electron",
+    "overlay",
+    "chat",
+    "agent"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@vscode/codicons": "^0.0.36",
+    "dompurify": "^3.2.4",
+    "katex": "^0.16.21",
+    "markdown-it": "^14.1.0",
+    "markdown-it-deflist": "^3.0.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.4.1",
+    "shiki": "^3.2.1"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/jsdom": "^30.0.0",
+    "@types/katex": "^0.16.7",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^22.13.0",
+    "electron": "^35.0.0",
+    "esbuild": "^0.25.0",
+    "jsdom": "^31.0.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}
