@@ -128,7 +128,41 @@ export interface MentionItem {
 
 export type RevertMode = 'workspace_and_chat' | 'chat_only';
 export type PermissionPolicy = 'ask' | 'auto_read' | 'auto_workspace' | 'yolo';
+export type DesktopControlMode = 'off' | 'confirm' | 'preview_auto';
 export type FollowUpBehavior = 'queue' | 'steer';
+
+export type DesktopActionKind =
+  | 'click'
+  | 'double_click'
+  | 'right_click'
+  | 'move'
+  | 'scroll'
+  | 'type'
+  | 'key'
+  | 'os';
+
+export interface DesktopAction {
+  id: string;
+  kind: DesktopActionKind;
+  x?: number;
+  y?: number;
+  delta?: number;
+  text?: string;
+  combo?: string;
+  action?: string;
+  target?: string;
+  value?: number;
+  label?: string;
+}
+
+export interface DesktopCapabilities {
+  platform: string;
+  inputDriver: string | null;
+  themeControl: boolean;
+  audioControl: boolean;
+  windowSnap: boolean;
+  notes?: string;
+}
 export type WidthPreset = 'narrow_15' | 'balanced_20' | 'wide_25' | 'custom';
 export type HeightPreset = 'compact_72' | 'balanced_78' | 'full' | 'custom';
 export type ScreenshotQuality = 'compressed' | 'original';
@@ -187,6 +221,7 @@ export interface AppSettings {
   harnessModes: Partial<Record<HarnessKind, string>>;
   revertMode: RevertMode;
   permissionPolicy: PermissionPolicy;
+  desktopControlMode: DesktopControlMode;
   autoApprovePermissions: boolean;
   followUpBehavior: FollowUpBehavior;
   soundCues: boolean;
@@ -215,6 +250,7 @@ export interface AppSettings {
   backupShortcut: string;
   ghostShortcut: string;
   quickClipboardShortcut: string;
+  panicShortcut: string;
 }
 
 export interface TurnMetrics {
@@ -300,5 +336,6 @@ export type StreamEvent =
       contextSize?: number;
       durationMs: number;
     }
+  | { type: 'desktop_actions'; actions: DesktopAction[] }
   | { type: 'error'; message: string }
   | { type: 'done'; stopReason?: string };

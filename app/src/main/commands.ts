@@ -1,4 +1,4 @@
-import type { SlashCommandEntry } from '../shared/types';
+import type { DesktopAction, SlashCommandEntry } from '../shared/types';
 
 export type LocalCommand =
   | 'new'
@@ -16,6 +16,12 @@ export const LOCAL_COMMANDS: readonly SlashCommandEntry[] = [
   { name: '/markup', description: 'Capture & annotate screen before sending', isLocal: true },
   { name: '/region', description: 'Capture a screen region', isLocal: true },
   { name: '/window', description: 'Capture active window', isLocal: true },
+  { name: '/theme dark', description: 'Switch desktop to dark theme', isLocal: true },
+  { name: '/theme light', description: 'Switch desktop to light theme', isLocal: true },
+  { name: '/snap left', description: 'Snap active window to left half', isLocal: true },
+  { name: '/snap right', description: 'Snap active window to right half', isLocal: true },
+  { name: '/mute', description: 'Toggle system audio mute', isLocal: true },
+  { name: '/volume', description: 'Set audio volume (/volume 50)', isLocal: true },
   { name: '/help', description: 'Show keyboard shortcuts & commands', isLocal: true },
 ];
 
@@ -66,6 +72,45 @@ export function parseLocalCommand(input: string): LocalCommand | null {
     cmd === 'help'
   ) {
     return cmd;
+  }
+  return null;
+}
+
+export function parseOsQuickCommand(input: string): DesktopAction | null {
+  const parts = input.trim().split(/\s+/);
+  const cmd = (parts[0] || '').toLowerCase();
+  const arg1 = (parts[1] || '').toLowerCase();
+  const rest = parts.slice(1).join(' ').trim();
+
+  if (cmd === '/theme') {
+    if (arg1 === 'dark') return { id: 'os_theme_dark', kind: 'os', action: 'theme_dark', label: 'Dark Theme' };
+    if (arg1 === 'light') return { id: 'os_theme_light', kind: 'os', action: 'theme_light', label: 'Light Theme' };
+  }
+  if (cmd === '/snap') {
+    if (arg1 === 'left') return { id: 'os_snap_left', kind: 'os', action: 'snap_left', label: 'Snap Left' };
+    if (arg1 === 'right') return { id: 'os_snap_right', kind: 'os', action: 'snap_right', label: 'Snap Right' };
+    if (arg1 === 'max' || arg1 === 'maximize') {
+      return { id: 'os_snap_max', kind: 'os', action: 'snap_maximize', label: 'Maximize Window' };
+    }
+  }
+  if (cmd === '/mute') {
+    return { id: 'os_mute', kind: 'os', action: 'volume_mute', label: 'Toggle Mute' };
+  }
+  if (cmd === '/volume') {
+    const val = Number(arg1);
+    if (!Number.isNaN(val) && val >= 0 && val <= 150) {
+      return { id: 'os_vol', kind: 'os', action: 'volume_set', value: Math.round(val), label: `Volume ${Math.round(val)}%` };
+    }
+  }
+  if (cmd === '/dnd') {
+    const off = arg1 === 'off';
+    return { id: 'os_dnd', kind: 'os', action: off ? 'dnd_off' : 'dnd_on', label: off ? 'DND Off' : 'DND On' };
+  }
+  if (cmd === '/open' && rest) {
+    if (/^https?:\/\//i.test(rest)) {
+      return { id: 'os_url', kind: 'os', action: 'open_url', target: rest, label: `Open ${rest}` };
+    }
+    return { id: 'os_app', kind: 'os', action: 'open_app', target: rest, label: `Launch ${rest}` };
   }
   return null;
 }

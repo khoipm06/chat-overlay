@@ -76,6 +76,7 @@ export function defaultSettings(): AppSettings {
     harnessModes: {},
     revertMode: 'workspace_and_chat',
     permissionPolicy: 'auto_read',
+    desktopControlMode: 'confirm',
     autoApprovePermissions: false,
     followUpBehavior: 'queue',
     soundCues: true,
@@ -98,6 +99,7 @@ export function defaultSettings(): AppSettings {
     backupShortcut: 'Super+Shift+L',
     ghostShortcut: 'CommandOrControl+Alt+G',
     quickClipboardShortcut: 'CommandOrControl+Alt+Q',
+    panicShortcut: 'CommandOrControl+Alt+X',
   };
 }
 

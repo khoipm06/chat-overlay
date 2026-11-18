@@ -8,6 +8,7 @@ vi.mock('electron', () => ({
   desktopCapturer: {},
   nativeImage: {},
   screen: {},
+  shell: {},
 }));
 
 import {
@@ -15,6 +16,7 @@ import {
   classifyAcpLine,
   normalizeEffortLabel,
   parseSessionNewCatalog,
+  pickDesktopActionsFromText,
   pickMarkupAnnotationsFromText,
 } from '../src/main/acp-parser';
 import { kwinPixelsToBgra } from '../src/main/capture';
@@ -26,7 +28,8 @@ import {
   restoreGitFile,
   restoreWorkspaceCheckpoint,
 } from '../src/main/checkpoint';
-import { expandSlashTemplate, parseLocalCommand } from '../src/main/commands';
+import { expandSlashTemplate, parseLocalCommand, parseOsQuickCommand } from '../src/main/commands';
+import { percentToPixelCoords } from '../src/main/desktop-actions';
 import { extractActiveTrigger, matchMentionItems } from '../src/main/mentions';
 import { defaultSettings, syncLinuxAutostartDesktopFile } from '../src/main/settings';
 import { presentToolCall } from '../src/renderer/tool-presenter';
@@ -533,5 +536,46 @@ describe('v3.2 unified diff parser, file restore, and guided highlight markup', 
     expect(items).toHaveLength(2);
     expect(items[0]).toMatchObject({ kind: 'box', step: 1, pulse: true, label: 'Open Settings' });
     expect(items[1]).toMatchObject({ kind: 'arrow', step: 2, pulse: false, label: 'Save' });
+  });
+});
+
+describe('v3.2.1 desktop actions, OS slash commands, and coordinate mapping', () => {
+  it('parses inline desktop actions and OS quick actions safely', () => {
+    const src = [
+      'Now saving:',
+      '[[desktop: click x=45.5 y=22 label="Save Button"]]',
+      '[[desktop: type text="hello world"]]',
+      '[[desktop: key combo="ctrl+s"]]',
+      '[[desktop: os action=theme_dark]]',
+      '[[desktop: os action=volume_set value=65]]',
+      '[[desktop: invalid_op foo=1]]',
+    ].join('\n');
+
+    const parsed = pickDesktopActionsFromText(src);
+    expect(parsed).toHaveLength(5);
+    expect(parsed[0]).toMatchObject({ kind: 'click', x: 45.5, y: 22, label: 'Save Button' });
+    expect(parsed[1]).toMatchObject({ kind: 'type', text: 'hello world' });
+    expect(parsed[2]).toMatchObject({ kind: 'key', combo: 'ctrl+s' });
+    expect(parsed[3]).toMatchObject({ kind: 'os', action: 'theme_dark' });
+    expect(parsed[4]).toMatchObject({ kind: 'os', action: 'volume_set', value: 65 });
+  });
+
+  it('parses direct OS slash commands', () => {
+    expect(parseOsQuickCommand('/theme dark')).toMatchObject({ kind: 'os', action: 'theme_dark' });
+    expect(parseOsQuickCommand('/snap left')).toMatchObject({ kind: 'os', action: 'snap_left' });
+    expect(parseOsQuickCommand('/volume 40')).toMatchObject({ kind: 'os', action: 'volume_set', value: 40 });
+    expect(parseOsQuickCommand('/mute')).toMatchObject({ kind: 'os', action: 'volume_mute' });
+    expect(parseOsQuickCommand('/open https://example.com')).toMatchObject({
+      kind: 'os',
+      action: 'open_url',
+      target: 'https://example.com',
+    });
+    expect(parseOsQuickCommand('/explain this')).toBeNull();
+  });
+
+  it('clamps and maps percentage screen coordinates to pixels', () => {
+    const bounds = { x: 100, y: 50, width: 1920, height: 1080 };
+    expect(percentToPixelCoords(50, 50, bounds)).toEqual({ px: 1060, py: 590 });
+    expect(percentToPixelCoords(-10, 140, bounds)).toEqual({ px: 100, py: 1130 });
   });
 });
