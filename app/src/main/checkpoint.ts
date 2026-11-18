@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { GitGlance } from '../shared/types';
+import type { GitDiffHunk, GitDiffLine, GitDiffReport, GitFileDiff, GitGlance } from '../shared/types';
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 15_000;
@@ -265,14 +265,213 @@ export async function restoreWorkspaceCheckpoint(
       timeout: GIT_TIMEOUT_MS,
     });
 
-    return {
-      restored: true,
-      message: `Workspace & chat restored (${treeSha.slice(0, 7)})`,
-    };
+    return { restored: true, message: `Workspace & chat restored (${treeSha.slice(0, 7)})` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { restored: false, message: `Chat reverted; file restore failed: ${msg}` };
   } finally {
     await fs.unlink(tmpIndex).catch(() => {});
+  }
+}
+
+export function parseUnifiedDiffOutput(rawDiff: string, maxLinesPerFile = 260): GitFileDiff[] {
+  const files: GitFileDiff[] = [];
+  if (!rawDiff.trim()) return files;
+
+  const chunks = rawDiff.split(/^diff --git /m).filter(Boolean);
+  for (const chunk of chunks) {
+    const lines = chunk.split('\n');
+    const firstLine = lines[0] || '';
+    const match = firstLine.match(/^a\/(.+?)\s+b\/(.+)$/);
+    const filePath = (match?.[2] || match?.[1] || 'unknown').trim();
+
+    let status: GitFileDiff['status'] = 'modified';
+    let additions = 0;
+    let deletions = 0;
+    const hunks: GitDiffHunk[] = [];
+    let activeHunk: GitDiffHunk | null = null;
+    let totalDiffLines = 0;
+    let truncated = false;
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith('new file mode')) {
+        status = 'added';
+        continue;
+      }
+      if (line.startsWith('deleted file mode')) {
+        status = 'deleted';
+        continue;
+      }
+      if (line.startsWith('index ') || line.startsWith('--- ') || line.startsWith('+++ ')) {
+        continue;
+      }
+      if (line.startsWith('@@')) {
+        activeHunk = { header: line, lines: [] };
+        hunks.push(activeHunk);
+        continue;
+      }
+      if (!activeHunk) continue;
+      if (i === lines.length - 1 && line === '') continue;
+      if (line === '\\ No newline at end of file') continue;
+
+      if (totalDiffLines >= maxLinesPerFile) {
+        truncated = true;
+        if (line.startsWith('+') && !line.startsWith('+++')) additions++;
+        else if (line.startsWith('-') && !line.startsWith('---')) deletions++;
+        continue;
+      }
+
+      let kind: GitDiffLine['kind'] = 'ctx';
+      if (line.startsWith('+')) {
+        kind = 'add';
+        additions++;
+      } else if (line.startsWith('-')) {
+        kind = 'del';
+        deletions++;
+      }
+      activeHunk.lines.push({ kind, text: line });
+      totalDiffLines++;
+    }
+
+    files.push({ filePath, status, additions, deletions, hunks, truncated });
+  }
+  return files;
+}
+
+export async function getGitDiffReport(
+  workspaceDir: string,
+  targetFile?: string,
+): Promise<GitDiffReport> {
+  const glance = await getGitGlance(workspaceDir);
+  if (!glance.isRepo) {
+    return { isRepo: false, branch: '', files: [] };
+  }
+  const gitRoot = await resolveGitRoot(workspaceDir);
+  if (!gitRoot) {
+    return { isRepo: false, branch: '', files: [] };
+  }
+
+  const relScope = path.relative(gitRoot, path.resolve(workspaceDir)) || '.';
+  const scopeArg = targetFile
+    ? path.isAbsolute(targetFile)
+      ? path.relative(gitRoot, targetFile)
+      : path.relative(gitRoot, path.resolve(workspaceDir, targetFile)) || targetFile
+    : relScope;
+
+  let rawDiff = '';
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', gitRoot, 'diff', 'HEAD', '--unified=3', '--', scopeArg],
+      { timeout: GIT_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+    );
+    rawDiff = stdout;
+  } catch {
+    try {
+      const { stdout } = await execFileAsync(
+        'git',
+        ['-C', gitRoot, 'diff', '--unified=3', '--', scopeArg],
+        { timeout: GIT_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
+      );
+      rawDiff = stdout;
+    } catch {
+      rawDiff = '';
+    }
+  }
+
+  const files = parseUnifiedDiffOutput(rawDiff);
+  const trackedSet = new Set(files.map((f) => f.filePath));
+
+  // Include untracked files within scope
+  try {
+    const { stdout: untrackedOut } = await execFileAsync(
+      'git',
+      ['-C', gitRoot, 'ls-files', '--others', '--exclude-standard', '-z', '--', scopeArg],
+      { timeout: 4000 },
+    );
+    for (const rel of untrackedOut.split('\0').filter(Boolean).slice(0, 20)) {
+      if (trackedSet.has(rel)) continue;
+      const abs = path.join(gitRoot, rel);
+      try {
+        const buf = await fs.readFile(abs);
+        if (buf.includes(0)) {
+          files.push({
+            filePath: rel,
+            status: 'untracked',
+            additions: 0,
+            deletions: 0,
+            hunks: [{ header: '@@ untracked binary file @@', lines: [] }],
+          });
+          continue;
+        }
+        const textLines = buf.toString('utf8').split('\n');
+        const capped = textLines.slice(0, 120);
+        files.push({
+          filePath: rel,
+          status: 'untracked',
+          additions: textLines.length,
+          deletions: 0,
+          hunks: [
+            {
+              header: `@@ -0,0 +1,${capped.length} @@`,
+              lines: capped.map((l) => ({ kind: 'add', text: `+${l}` })),
+            },
+          ],
+          truncated: textLines.length > capped.length,
+        });
+      } catch {
+        // Ignore unreadable untracked file
+      }
+    }
+  } catch {
+    // Ignore ls-files failure
+  }
+
+  return { isRepo: true, branch: glance.branch, files };
+}
+
+export async function restoreGitFile(
+  workspaceDir: string,
+  filePath: string,
+): Promise<{ restored: boolean; message: string }> {
+  const gitRoot = await resolveGitRoot(workspaceDir);
+  if (!gitRoot) {
+    return { restored: false, message: 'Not inside a Git repository.' };
+  }
+  const scopeAbs = path.resolve(workspaceDir);
+  const targetAbs = path.isAbsolute(filePath)
+    ? path.resolve(filePath)
+    : path.resolve(gitRoot, filePath);
+  if (targetAbs !== gitRoot && !targetAbs.startsWith(gitRoot + path.sep)) {
+    return { restored: false, message: 'Refusing to restore path outside repository root.' };
+  }
+  if (targetAbs !== scopeAbs && !targetAbs.startsWith(scopeAbs + path.sep)) {
+    return { restored: false, message: 'Refusing to restore path outside workspace.' };
+  }
+
+  const relFromRoot = path.relative(gitRoot, targetAbs);
+  try {
+    const { stdout: untracked } = await execFileAsync(
+      'git',
+      ['-C', gitRoot, 'ls-files', '--others', '--exclude-standard', '--', relFromRoot],
+      { timeout: 3000 },
+    );
+    if (untracked.trim()) {
+      await fs.rm(targetAbs, { force: true });
+      return { restored: true, message: `Removed untracked file ${path.basename(filePath)}` };
+    }
+    await execFileAsync('git', ['-C', gitRoot, 'reset', '-q', 'HEAD', '--', relFromRoot], {
+      timeout: 3000,
+    }).catch(() => {});
+    await execFileAsync('git', ['-C', gitRoot, 'checkout', 'HEAD', '--', relFromRoot], {
+      timeout: 5000,
+    });
+    return { restored: true, message: `Restored ${path.basename(filePath)} to HEAD` };
+  } catch (err) {
+    return {
+      restored: false,
+      message: `Could not restore ${path.basename(filePath)}: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 }

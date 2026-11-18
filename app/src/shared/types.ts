@@ -114,6 +114,8 @@ export interface MarkupAnnotation {
   x2?: number;
   y2?: number;
   label?: string;
+  step?: number;
+  pulse?: boolean;
 }
 
 export interface MentionItem {
@@ -149,6 +151,31 @@ export interface GitGlance {
   deletions: number;
 }
 
+export interface GitDiffLine {
+  kind: 'ctx' | 'add' | 'del';
+  text: string;
+}
+
+export interface GitDiffHunk {
+  header: string;
+  lines: GitDiffLine[];
+}
+
+export interface GitFileDiff {
+  filePath: string;
+  status: 'modified' | 'added' | 'deleted' | 'untracked';
+  additions: number;
+  deletions: number;
+  hunks: GitDiffHunk[];
+  truncated?: boolean;
+}
+
+export interface GitDiffReport {
+  isRepo: boolean;
+  branch: string;
+  files: GitFileDiff[];
+}
+
 export interface AppSettings {
   layoutVersion?: number;
   harness: HarnessKind;
@@ -164,6 +191,7 @@ export interface AppSettings {
   followUpBehavior: FollowUpBehavior;
   soundCues: boolean;
   flashOnAttention: boolean;
+  backgroundNotifications: boolean;
   showGitGlance: boolean;
   screenshotQuality: ScreenshotQuality;
   markupAutoClearSeconds: number;
@@ -186,6 +214,7 @@ export interface AppSettings {
   shortcut: string;
   backupShortcut: string;
   ghostShortcut: string;
+  quickClipboardShortcut: string;
 }
 
 export interface TurnMetrics {
