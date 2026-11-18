@@ -54,3 +54,35 @@ jobs:
 
       - name: Run automated unit tests
         run: cargo test --verbose
+
+  electron-app:
+    name: Electron App (Typecheck, Build & Test)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Bundle application
+        run: npm run build
+
+      - name: Run unit tests
+        run: npm test
