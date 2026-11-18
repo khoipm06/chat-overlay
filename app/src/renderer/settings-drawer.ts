@@ -4,6 +4,7 @@ import type {
   FollowUpBehavior,
   HarnessDiagnostic,
   HarnessKind,
+  HeightPreset,
   PermissionPolicy,
   RevertMode,
   ScreenshotQuality,
@@ -13,15 +14,16 @@ import { escapeHtmlText } from './tool-presenter';
 
 type SettingsTab = 'overlay' | 'safety' | 'vision' | 'harnesses';
 
-export async function renderTabbedSettingsDrawer(opts: {
+export function renderTabbedSettingsDrawer(opts: {
   container: HTMLElement;
   settings: AppSettings;
   onUpdateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>;
   onClose: () => void;
-}): Promise<void> {
+}): void {
   let activeTab: SettingsTab = 'overlay';
   let current = opts.settings;
-  let diagnostics: HarnessDiagnostic[] = await window.agentOverlay.inspectHarnesses();
+  let diagnostics: HarnessDiagnostic[] = [];
+  let diagnosticsLoading = true;
 
   const render = () => {
     opts.container.innerHTML = '';
@@ -59,12 +61,21 @@ export async function renderTabbedSettingsDrawer(opts: {
           </select>
         </div>
         <div class="field-group">
-          <label>Sidebar Width Preset (Near Full Height)</label>
+          <label>Sidebar Width Preset</label>
           <select id="set-width-preset" class="field-select">
             <option value="narrow_15" ${current.widthPreset === 'narrow_15' ? 'selected' : ''}>15% Screen Width (Compact)</option>
             <option value="balanced_20" ${current.widthPreset === 'balanced_20' ? 'selected' : ''}>20% Screen Width (Balanced)</option>
-            <option value="wide_25" ${current.widthPreset === 'wide_25' ? 'selected' : ''}>25% Screen Width (Wide)</option>
+            <option value="wide_25" ${current.widthPreset === 'wide_25' ? 'selected' : ''}>25% Screen Width (Recommended)</option>
             <option value="custom" ${current.widthPreset === 'custom' ? 'selected' : ''}>Custom Dragged Size</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Sidebar Height Preset</label>
+          <select id="set-height-preset" class="field-select">
+            <option value="compact_72" ${current.heightPreset === 'compact_72' ? 'selected' : ''}>72% Screen Height (Compact Floating)</option>
+            <option value="balanced_78" ${current.heightPreset === 'balanced_78' ? 'selected' : ''}>78% Screen Height (Balanced)</option>
+            <option value="full" ${current.heightPreset === 'full' ? 'selected' : ''}>Full Screen Height</option>
+            <option value="custom" ${current.heightPreset === 'custom' ? 'selected' : ''}>Custom Dragged Size</option>
           </select>
         </div>
         <div class="field-group">
@@ -75,6 +86,10 @@ export async function renderTabbedSettingsDrawer(opts: {
           <label>Font Size (px)</label>
           <input id="set-font-size" type="number" min="11" max="18" class="field-input" value="${current.fontSize}" />
         </div>
+        <label class="toggle-row">
+          <span>Launch at system login (minimized to tray)</span>
+          <input id="set-launch-login" type="checkbox" ${current.launchAtLogin ? 'checked' : ''} />
+        </label>
         <label class="toggle-row">
           <span>Dim slightly when unfocused</span>
           <input id="set-dim-blur" type="checkbox" ${current.dimOnBlur ? 'checked' : ''} />
@@ -122,7 +137,7 @@ export async function renderTabbedSettingsDrawer(opts: {
     } else if (activeTab === 'vision') {
       body.innerHTML = `
         <div class="field-group">
-          <label>Sending Follow-up While Running (T3 Style)</label>
+          <label>Sending Follow-up While Running</label>
           <select id="set-followup" class="field-select">
             <option value="queue" ${current.followUpBehavior === 'queue' ? 'selected' : ''}>Queue until current turn finishes (Enter)</option>
             <option value="steer" ${current.followUpBehavior === 'steer' ? 'selected' : ''}>Steer immediately (Interrupt &amp; redirect)</option>
@@ -138,6 +153,10 @@ export async function renderTabbedSettingsDrawer(opts: {
         <div class="field-group">
           <label>Auto-clear Agent Screen Annotations (seconds, 0 = manual)</label>
           <input id="set-markup-clear" type="number" min="0" max="120" class="field-input" value="${current.markupAutoClearSeconds}" />
+        </div>
+        <div class="field-group">
+          <label>Sleep idle background agent after (minutes, 0 = never)</label>
+          <input id="set-idle-sleep" type="number" min="0" max="180" class="field-input" value="${current.idleSleepMinutes}" />
         </div>
         <label class="toggle-row">
           <span>Subtle audio chime on completion &amp; approvals</span>
@@ -167,6 +186,12 @@ export async function renderTabbedSettingsDrawer(opts: {
       `;
 
       const diagList = body.querySelector<HTMLElement>('#diag-list')!;
+      if (diagnosticsLoading) {
+        const loading = document.createElement('div');
+        loading.className = 'diag-card-sub';
+        loading.textContent = 'Checking installed ACP harnesses...';
+        diagList.appendChild(loading);
+      }
       for (const d of diagnostics) {
         const card = document.createElement('div');
         card.className = 'diag-card';
@@ -210,7 +235,10 @@ export async function renderTabbedSettingsDrawer(opts: {
     snapBtn.className = 'mini-action-btn';
     snapBtn.textContent = 'Snap Sidebar Layout';
     snapBtn.addEventListener('click', async () => {
-      await window.agentOverlay.applyWindowLayout(current.widthPreset === 'custom' ? 'narrow_15' : current.widthPreset);
+      await window.agentOverlay.applyWindowLayout(
+        current.widthPreset === 'custom' ? 'wide_25' : current.widthPreset,
+        current.heightPreset === 'custom' ? 'balanced_78' : current.heightPreset,
+      );
     });
 
     const saveBtn = document.createElement('button');
@@ -222,8 +250,10 @@ export async function renderTabbedSettingsDrawer(opts: {
       if (activeTab === 'overlay') {
         patch.edge = (body.querySelector('#set-edge') as HTMLSelectElement).value as 'left' | 'right';
         patch.widthPreset = (body.querySelector('#set-width-preset') as HTMLSelectElement).value as WidthPreset;
+        patch.heightPreset = (body.querySelector('#set-height-preset') as HTMLSelectElement).value as HeightPreset;
         patch.opacity = Number((body.querySelector('#set-opacity') as HTMLInputElement).value) / 100;
         patch.fontSize = Math.min(18, Math.max(11, Number((body.querySelector('#set-font-size') as HTMLInputElement).value) || 13));
+        patch.launchAtLogin = (body.querySelector('#set-launch-login') as HTMLInputElement).checked;
         patch.dimOnBlur = (body.querySelector('#set-dim-blur') as HTMLInputElement).checked;
         patch.autoHideOnBlur = (body.querySelector('#set-auto-hide') as HTMLInputElement).checked;
         patch.showGitGlance = (body.querySelector('#set-git-glance') as HTMLInputElement).checked;
@@ -235,6 +265,7 @@ export async function renderTabbedSettingsDrawer(opts: {
         patch.followUpBehavior = (body.querySelector('#set-followup') as HTMLSelectElement).value as FollowUpBehavior;
         patch.screenshotQuality = (body.querySelector('#set-shot-quality') as HTMLSelectElement).value as ScreenshotQuality;
         patch.markupAutoClearSeconds = Math.max(0, Number((body.querySelector('#set-markup-clear') as HTMLInputElement).value) || 0);
+        patch.idleSleepMinutes = Math.max(0, Number((body.querySelector('#set-idle-sleep') as HTMLInputElement).value) || 0);
         patch.soundCues = (body.querySelector('#set-sound-cues') as HTMLInputElement).checked;
         patch.flashOnAttention = (body.querySelector('#set-flash-attn') as HTMLInputElement).checked;
         patch.pinLiveScreen = (body.querySelector('#set-pin-screen') as HTMLInputElement).checked;
@@ -250,4 +281,16 @@ export async function renderTabbedSettingsDrawer(opts: {
   };
 
   render();
+  void window.agentOverlay
+    .inspectHarnesses()
+    .then((res) => {
+      diagnostics = res;
+      diagnosticsLoading = false;
+      if (activeTab === 'harnesses' && opts.container.isConnected) {
+        render();
+      }
+    })
+    .catch(() => {
+      diagnosticsLoading = false;
+    });
 }

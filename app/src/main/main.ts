@@ -19,13 +19,14 @@ import type {
   AppSettings,
   ChatAttachment,
   HarnessKind,
+  HeightPreset,
   MarkupAnnotation,
   SavedSession,
   StreamEvent,
   WidthPreset,
 } from '../shared/types';
 import { AcpAgentController, testHarnessConnection } from './acp-client';
-import { captureScreenDataUrl, type CaptureKind } from './capture';
+import { captureScreenDataUrl, encodeNativeImage, type CaptureKind } from './capture';
 import { captureWorkspaceCheckpoint, getGitGlance, restoreWorkspaceCheckpoint } from './checkpoint';
 import { indexWorkspaceFiles, matchMentionItems } from './mentions';
 import {
@@ -35,6 +36,7 @@ import {
   loadSettings,
   saveSessionRecord,
   saveSettings,
+  syncLinuxAutostartDesktopFile,
 } from './settings';
 
 let mainWindow: BrowserWindow | null = null;
@@ -46,6 +48,7 @@ let cacheWorkspaceDir = '';
 let acpController: AcpAgentController;
 let ipcSocketServer: net.Server | null = null;
 let markupAutoClearTimer: NodeJS.Timeout | null = null;
+let idleSleepTimer: NodeJS.Timeout | null = null;
 let ghostMode = false;
 let quitting = false;
 
@@ -79,11 +82,27 @@ function presetRatio(preset: WidthPreset): number {
     case 'wide_25':
       return 0.25;
     default:
-      return 0.15;
+      return 0.25;
   }
 }
 
-function computePresetBounds(preset: WidthPreset = settings.widthPreset): {
+function heightRatio(preset: HeightPreset): number {
+  switch (preset) {
+    case 'compact_72':
+      return 0.72;
+    case 'balanced_78':
+      return 0.78;
+    case 'full':
+      return 1;
+    default:
+      return 0.78;
+  }
+}
+
+function computePresetBounds(
+  wPreset: WidthPreset = settings.widthPreset,
+  hPreset: HeightPreset = settings.heightPreset,
+): {
   x: number;
   y: number;
   width: number;
@@ -91,27 +110,81 @@ function computePresetBounds(preset: WidthPreset = settings.widthPreset): {
 } {
   const display = screen.getPrimaryDisplay();
   const wa = display.workArea;
-  const edgeGap = 8;
-  const width = Math.max(264, Math.min(Math.round(wa.width * 0.45), Math.round(wa.width * presetRatio(preset))));
-  const height = Math.max(480, wa.height - edgeGap * 2);
+  const edgeGap = 12;
+  const minW = wPreset === 'narrow_15' ? 264 : 300;
+  const width = Math.max(
+    minW,
+    Math.min(Math.round(wa.width * 0.45), Math.round(wa.width * presetRatio(wPreset))),
+  );
+  const height =
+    hPreset === 'full'
+      ? Math.max(480, wa.height - 16)
+      : Math.max(440, Math.round(wa.height * heightRatio(hPreset)));
   const x =
     settings.edge === 'left' ? wa.x + edgeGap : wa.x + wa.width - width - edgeGap;
-  const y = wa.y + edgeGap;
+  const y =
+    hPreset === 'full'
+      ? wa.y + 8
+      : wa.y + Math.round((wa.height - height) / 2);
   return { x, y, width, height };
 }
 
 function computeDefaultBounds(): { x: number; y: number; width: number; height: number } {
-  if (settings.widthPreset !== 'custom' || !settings.windowBounds) {
-    return computePresetBounds(settings.widthPreset);
+  const wCustom = settings.widthPreset === 'custom';
+  const hCustom = settings.heightPreset === 'custom';
+  if ((!wCustom && !hCustom) || !settings.windowBounds) {
+    return computePresetBounds(settings.widthPreset, settings.heightPreset);
   }
   return settings.windowBounds;
 }
 
-function applyWindowLayout(preset?: WidthPreset): void {
+function applyWindowLayout(wPreset?: WidthPreset, hPreset?: HeightPreset): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const b = preset && preset !== 'custom' ? computePresetBounds(preset) : computePresetBounds(settings.widthPreset);
+  const wp = wPreset && wPreset !== 'custom' ? wPreset : settings.widthPreset;
+  const hp = hPreset && hPreset !== 'custom' ? hPreset : settings.heightPreset;
+  const b = computePresetBounds(wp, hp);
   mainWindow.setBounds(b);
   mainWindow.setOpacity(Math.min(1, Math.max(0.5, settings.opacity ?? 1)));
+}
+
+function clearIdleSleepTimer(): void {
+  if (idleSleepTimer) {
+    clearTimeout(idleSleepTimer);
+    idleSleepTimer = null;
+  }
+}
+
+function scheduleIdleSleep(): void {
+  clearIdleSleepTimer();
+  const mins = settings.idleSleepMinutes ?? 0;
+  if (mins <= 0 || AUDIT_DIR || !acpController) return;
+  idleSleepTimer = setTimeout(() => {
+    acpController.sleepIfIdle();
+  }, mins * 60_000);
+}
+
+function wakeAcpIfSleeping(): void {
+  clearIdleSleepTimer();
+  if (!acpController) return;
+  const cat = acpController.getCatalog();
+  if (cat.status === 'idle' && !cat.sessionId) {
+    void acpController.warmup(settings);
+  }
+}
+
+function applyLaunchAtLoginSetting(enabled: boolean): void {
+  if (AUDIT_DIR) return;
+  if (process.platform === 'linux') {
+    const execLine = app.isPackaged
+      ? `"${process.execPath}" --daemon`
+      : `"${process.execPath}" "${app.getAppPath()}" --daemon`;
+    syncLinuxAutostartDesktopFile(enabled, execLine);
+    return;
+  }
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    args: ['--daemon'],
+  });
 }
 
 function setGhostMode(enabled: boolean): void {
@@ -170,6 +243,16 @@ function createMainWindow(): void {
   mainWindow.on('moved', saveBounds);
   mainWindow.on('resized', saveBounds);
 
+  mainWindow.on('show', () => {
+    mainWindow?.webContents.setBackgroundThrottling(false);
+    wakeAcpIfSleeping();
+  });
+
+  mainWindow.on('hide', () => {
+    mainWindow?.webContents.setBackgroundThrottling(true);
+    scheduleIdleSleep();
+  });
+
   mainWindow.on('focus', () => {
     if (!ghostMode && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setOpacity(Math.min(1, Math.max(0.5, settings.opacity ?? 1)));
@@ -194,17 +277,29 @@ function createMainWindow(): void {
   });
 }
 
-function toggleOverlay(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) {
+function showAndFocusOverlay(): void {
+  const created = !mainWindow || mainWindow.isDestroyed();
+  if (created) {
     createMainWindow();
+    void refreshWorkspaceMentions();
+    void acpController.warmup(settings);
   }
   if (!mainWindow) return;
+  mainWindow.show();
+  mainWindow.focus();
+  wakeAcpIfSleeping();
+  mainWindow.webContents.send('window:focus-composer');
+}
+
+function toggleOverlay(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    showAndFocusOverlay();
+    return;
+  }
   if (mainWindow.isVisible() && mainWindow.isFocused()) {
     mainWindow.hide();
   } else {
-    mainWindow.show();
-    mainWindow.focus();
-    mainWindow.webContents.send('window:focus-composer');
+    showAndFocusOverlay();
   }
 }
 
@@ -240,9 +335,7 @@ function setupUnixToggleSocket(): void {
     conn.on('data', (buf) => {
       const cmd = buf.toString('utf8').trim();
       if (cmd === 'show') {
-        mainWindow?.show();
-        mainWindow?.focus();
-        mainWindow?.webContents.send('window:focus-composer');
+        showAndFocusOverlay();
       } else if (cmd === 'hide') {
         mainWindow?.hide();
       } else {
@@ -306,10 +399,28 @@ function openAgentMarkupOverlay(annotations: MarkupAnnotation[]): void {
   }
 }
 
-async function openInteractiveMarkupCapture(): Promise<ChatAttachment | null> {
-  const shot = await captureScreenDataUrl('fullscreen', mainWindow, settings.screenshotQuality);
-  closeMarkupWindow();
+async function openInteractiveScreenOverlay(
+  overlayMode: 'annotate' | 'region',
+): Promise<ChatAttachment | null> {
+  const wasVisible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
+  if (wasVisible) {
+    mainWindow?.hide();
+    await new Promise((r) => setTimeout(r, 30));
+  }
 
+  let shot: { dataUrl: string; mimeType: string; name: string };
+  try {
+    // Capture fullscreen directly without calling captureScreenDataUrl's auto-show so overlay doesn't flash twice
+    shot = await captureScreenDataUrl('fullscreen', null, settings.screenshotQuality);
+  } catch (err) {
+    if (wasVisible && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+    throw err;
+  }
+
+  closeMarkupWindow();
   const display = screen.getPrimaryDisplay();
   const { x, y, width, height } = display.bounds;
 
@@ -321,19 +432,27 @@ async function openInteractiveMarkupCapture(): Promise<ChatAttachment | null> {
       ipcMain.removeListener('markup:submit-image', onSubmit);
       ipcMain.removeListener('markup:cancel', onCancel);
       closeMarkupWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
+      if (wasVisible && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.show();
         mainWindow.focus();
       }
       resolve(att);
     };
 
-    const onSubmit = (_ev: Electron.IpcMainEvent, dataUrl: string) => {
+    const onSubmit = (
+      _ev: Electron.IpcMainEvent,
+      payload: string | { dataUrl: string; mimeType?: string },
+    ) => {
+      const dataUrl = typeof payload === 'string' ? payload : payload.dataUrl;
+      const mimeType =
+        (typeof payload === 'string' ? undefined : payload.mimeType) || 'image/jpeg';
+      const ext = mimeType === 'image/png' ? 'png' : 'jpg';
+      const prefix = overlayMode === 'region' ? 'region' : 'markup';
       finish({
         id: `att_${Date.now()}`,
         kind: 'image',
-        name: `markup-${Date.now()}.png`,
-        mimeType: 'image/png',
+        name: `${prefix}-${Date.now()}.${ext}`,
+        mimeType,
         dataUrl,
       });
     };
@@ -365,8 +484,9 @@ async function openInteractiveMarkupCapture(): Promise<ChatAttachment | null> {
     markupWindow.loadFile(path.join(__dirname, '../renderer/markup.html'));
     markupWindow.webContents.once('did-finish-load', () => {
       markupWindow?.webContents.send('markup:init', {
-        mode: 'annotate',
+        mode: overlayMode,
         screenshotDataUrl: shot.dataUrl,
+        quality: settings.screenshotQuality,
       });
     });
   });
@@ -384,7 +504,9 @@ function registerIpcHandlers(): void {
     const prevWorkspace = settings.workspaceDir;
     const prevHarness = settings.harness;
     const prevEdge = settings.edge;
-    const prevPreset = settings.widthPreset;
+    const prevWPreset = settings.widthPreset;
+    const prevHPreset = settings.heightPreset;
+    const prevLaunch = settings.launchAtLogin;
     settings = {
       ...settings,
       ...patch,
@@ -397,6 +519,9 @@ function registerIpcHandlers(): void {
     saveSettings(settings);
     acpController.setPermissionPolicy(settings.permissionPolicy);
 
+    if (patch.launchAtLogin !== undefined && patch.launchAtLogin !== prevLaunch) {
+      applyLaunchAtLoginSetting(settings.launchAtLogin);
+    }
     if (
       patch.shortcut !== undefined ||
       patch.backupShortcut !== undefined ||
@@ -405,11 +530,12 @@ function registerIpcHandlers(): void {
       registerShortcuts();
     }
     if (
-      patch.edge !== undefined && patch.edge !== prevEdge ||
-      patch.widthPreset !== undefined && patch.widthPreset !== prevPreset ||
+      (patch.edge !== undefined && patch.edge !== prevEdge) ||
+      (patch.widthPreset !== undefined && patch.widthPreset !== prevWPreset) ||
+      (patch.heightPreset !== undefined && patch.heightPreset !== prevHPreset) ||
       patch.opacity !== undefined
     ) {
-      applyWindowLayout(settings.widthPreset);
+      applyWindowLayout(settings.widthPreset, settings.heightPreset);
     }
     if (settings.workspaceDir !== prevWorkspace) {
       void refreshWorkspaceMentions();
@@ -501,12 +627,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle('context:clipboard', (): ChatAttachment | null => {
     const img = clipboard.readImage();
     if (!img.isEmpty()) {
+      const encoded = encodeNativeImage(img, settings.screenshotQuality);
       return {
         id: `att_${Date.now()}`,
         kind: 'image',
-        name: `clipboard-${Date.now()}.png`,
-        mimeType: 'image/png',
-        dataUrl: img.toDataURL(),
+        name: `clipboard-${Date.now()}.${encoded.mimeType === 'image/png' ? 'png' : 'jpg'}`,
+        mimeType: encoded.mimeType,
+        dataUrl: encoded.dataUrl,
       };
     }
     const text = clipboard.readText().trim();
@@ -520,6 +647,13 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('capture:screen', async (_ev, kind: CaptureKind): Promise<ChatAttachment> => {
+    if (kind === 'region') {
+      const att = await openInteractiveScreenOverlay('region');
+      if (!att) {
+        throw new Error('Region capture cancelled');
+      }
+      return att;
+    }
     const shot = await captureScreenDataUrl(kind, mainWindow, settings.screenshotQuality);
     return {
       id: `att_${Date.now()}`,
@@ -530,7 +664,7 @@ function registerIpcHandlers(): void {
     };
   });
 
-  ipcMain.handle('capture:markup', () => openInteractiveMarkupCapture());
+  ipcMain.handle('capture:markup', () => openInteractiveScreenOverlay('annotate'));
   ipcMain.handle('markup:clear-agent', () => closeMarkupWindow());
 
   ipcMain.on('markup:set-click-through', (_ev, ignore: boolean) => {
@@ -558,9 +692,12 @@ function registerIpcHandlers(): void {
   ipcMain.handle('window:hide', () => {
     mainWindow?.hide();
   });
-  ipcMain.handle('window:apply-layout', (_ev, preset?: WidthPreset) => {
-    applyWindowLayout(preset);
-  });
+  ipcMain.handle(
+    'window:apply-layout',
+    (_ev, wPreset?: WidthPreset, hPreset?: HeightPreset) => {
+      applyWindowLayout(wPreset, hPreset);
+    },
+  );
   ipcMain.handle('window:toggle-ghost', () => {
     setGhostMode(!ghostMode);
     return ghostMode;
@@ -609,7 +746,11 @@ if (!gotLock) {
     });
 
     registerIpcHandlers();
-    createMainWindow();
+    if (!START_HIDDEN || AUDIT_DIR) {
+      createMainWindow();
+      void refreshWorkspaceMentions();
+      void acpController.warmup(settings);
+    }
     if (!AUDIT_DIR) {
       registerShortcuts();
       setupUnixToggleSocket();
@@ -622,9 +763,7 @@ if (!gotLock) {
           {
             label: 'New Conversation',
             click: () => {
-              mainWindow?.show();
-              mainWindow?.focus();
-              void acpController.warmup(settings);
+              showAndFocusOverlay();
             },
           },
           { type: 'separator' },
@@ -639,13 +778,11 @@ if (!gotLock) {
       );
       tray.on('click', () => toggleOverlay());
     }
-
-    void refreshWorkspaceMentions();
-    void acpController.warmup(settings);
   });
 
   app.on('before-quit', () => {
     quitting = true;
+    clearIdleSleepTimer();
     acpController?.dispose();
     globalShortcut.unregisterAll();
     ipcSocketServer?.close();

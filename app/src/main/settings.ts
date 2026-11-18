@@ -58,7 +58,7 @@ export function defaultWorkspaceDir(): string {
   return cwd || os.homedir();
 }
 
-export const CURRENT_LAYOUT_VERSION = 2;
+export const CURRENT_LAYOUT_VERSION = 3;
 
 export function defaultSettings(): AppSettings {
   return {
@@ -89,7 +89,10 @@ export function defaultSettings(): AppSettings {
     opacity: 1,
     fontSize: 13,
     edge: 'right',
-    widthPreset: 'narrow_15',
+    widthPreset: 'wide_25',
+    heightPreset: 'balanced_78',
+    launchAtLogin: false,
+    idleSleepMinutes: 15,
     shortcut: 'CommandOrControl+Alt+L',
     backupShortcut: 'Super+Shift+L',
     ghostShortcut: 'CommandOrControl+Alt+G',
@@ -167,8 +170,11 @@ export function loadSettings(): AppSettings {
       ? (parsed.harness as HarnessKind)
       : defaults.harness;
 
-    const migratedBounds =
-      (parsed.layoutVersion ?? 1) < CURRENT_LAYOUT_VERSION ? undefined : parsed.windowBounds;
+    const prevLayout = parsed.layoutVersion ?? 1;
+    const isLegacyLayout = prevLayout < CURRENT_LAYOUT_VERSION;
+    const migratedBounds = isLegacyLayout ? undefined : parsed.windowBounds;
+    const widthPreset = isLegacyLayout ? defaults.widthPreset : (parsed.widthPreset ?? defaults.widthPreset);
+    const heightPreset = isLegacyLayout ? defaults.heightPreset : (parsed.heightPreset ?? defaults.heightPreset);
     const permissionPolicy =
       parsed.permissionPolicy ??
       (parsed.autoApprovePermissions ? 'yolo' : defaults.permissionPolicy);
@@ -177,6 +183,8 @@ export function loadSettings(): AppSettings {
       ...defaults,
       ...parsed,
       layoutVersion: CURRENT_LAYOUT_VERSION,
+      widthPreset,
+      heightPreset,
       windowBounds: migratedBounds,
       permissionPolicy,
       harness: validHarness,
@@ -220,6 +228,41 @@ export function saveSessionRecord(session: SavedSession): SavedSession[] {
   fs.mkdirSync(configDir(), { recursive: true });
   fs.writeFileSync(sessionsFilePath(), JSON.stringify(next, null, 2), 'utf8');
   return next;
+}
+
+export function linuxAutostartFilePath(autostartDir?: string): string {
+  const base =
+    autostartDir ||
+    path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'autostart');
+  return path.join(base, 'chat-overlay.desktop');
+}
+
+export function syncLinuxAutostartDesktopFile(
+  enabled: boolean,
+  execLine: string,
+  autostartDir?: string,
+): void {
+  const target = linuxAutostartFilePath(autostartDir);
+  if (!enabled) {
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { force: true });
+    }
+    return;
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const content = [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Version=1.0',
+    'Name=Chat Overlay',
+    'Comment=Cross-platform ACP coding and screen assistant overlay',
+    `Exec=${execLine}`,
+    'Terminal=false',
+    'X-GNOME-Autostart-enabled=true',
+    'StartupNotify=false',
+    '',
+  ].join('\n');
+  fs.writeFileSync(target, content, 'utf8');
 }
 
 export function deleteSessionRecord(sessionId: string): SavedSession[] {

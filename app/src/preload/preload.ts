@@ -5,9 +5,11 @@ import type {
   GitGlance,
   HarnessDiagnostic,
   HarnessKind,
+  HeightPreset,
   MarkupAnnotation,
   MentionItem,
   SavedSession,
+  ScreenshotQuality,
   SessionCatalog,
   StreamEvent,
   WidthPreset,
@@ -54,7 +56,7 @@ export interface AgentOverlayApi {
     workspaceDir?: string,
   ) => Promise<{ restored: boolean; message: string }>;
   hideWindow: () => Promise<void>;
-  applyWindowLayout: (preset?: WidthPreset) => Promise<void>;
+  applyWindowLayout: (wPreset?: WidthPreset, hPreset?: HeightPreset) => Promise<void>;
   toggleGhostMode: () => Promise<boolean>;
   flashAttention: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
@@ -96,7 +98,8 @@ const api: AgentOverlayApi = {
   restoreCheckpoint: (treeSha, workspaceDir) =>
     ipcRenderer.invoke('checkpoint:restore', treeSha, workspaceDir),
   hideWindow: () => ipcRenderer.invoke('window:hide'),
-  applyWindowLayout: (preset) => ipcRenderer.invoke('window:apply-layout', preset),
+  applyWindowLayout: (wPreset, hPreset) =>
+    ipcRenderer.invoke('window:apply-layout', wPreset, hPreset),
   toggleGhostMode: () => ipcRenderer.invoke('window:toggle-ghost'),
   flashAttention: () => ipcRenderer.invoke('window:flash-attention'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
@@ -122,26 +125,31 @@ const api: AgentOverlayApi = {
 const markupBridge = {
   onInit: (
     cb: (payload: {
-      mode: 'annotate' | 'agent';
+      mode: 'annotate' | 'region' | 'agent';
       screenshotDataUrl?: string;
+      quality?: ScreenshotQuality;
       annotations?: MarkupAnnotation[];
     }) => void,
   ) => {
     const handler = (
       _ev: Electron.IpcRendererEvent,
       payload: {
-        mode: 'annotate' | 'agent';
+        mode: 'annotate' | 'region' | 'agent';
         screenshotDataUrl?: string;
+        quality?: ScreenshotQuality;
         annotations?: MarkupAnnotation[];
       },
     ) => cb(payload);
     ipcRenderer.on('markup:init', handler);
     return () => ipcRenderer.off('markup:init', handler);
   },
-  submitImage: (dataUrl: string) => ipcRenderer.send('markup:submit-image', dataUrl),
+  submitImage: (dataUrl: string, mimeType?: string) =>
+    ipcRenderer.send('markup:submit-image', { dataUrl, mimeType }),
   cancel: () => ipcRenderer.send('markup:cancel'),
   setClickThrough: (ignore: boolean) => ipcRenderer.send('markup:set-click-through', ignore),
 };
+
+export type MarkupBridgeApi = typeof markupBridge;
 
 contextBridge.exposeInMainWorld('agentOverlay', api);
 contextBridge.exposeInMainWorld('markupBridge', markupBridge);

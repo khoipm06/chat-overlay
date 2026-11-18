@@ -492,6 +492,29 @@ export class AcpAgentController {
     }
   }
 
+  isBusy(): boolean {
+    return this.turnActive;
+  }
+
+  /**
+   * Stops the idle ACP subprocess cleanly to reclaim RAM when the overlay stays hidden.
+   * Returns true if a live session was put to sleep.
+   */
+  sleepIfIdle(): boolean {
+    if (this.turnActive || (!this.proc && !this.catalog.sessionId)) {
+      return false;
+    }
+    ++this.warmupSeq;
+    void this.shutdownProcess();
+    this.catalog = this.emptyCatalog(
+      this.currentHarness,
+      'idle',
+      'Sleeping to save memory — will reconnect on open',
+    );
+    this.emitCatalog();
+    return true;
+  }
+
   dispose(): void {
     this.disposed = true;
     void this.shutdownProcess();
