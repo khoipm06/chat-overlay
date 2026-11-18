@@ -41,6 +41,7 @@ import { indexWorkspaceFiles, matchMentionItems } from './mentions';
 import {
   deleteSessionRecord,
   inspectHarnesses,
+  installHarnessPackage,
   loadSessions,
   loadSettings,
   saveSessionRecord,
@@ -640,6 +641,9 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('settings:inspect-harnesses', () => inspectHarnesses(settings));
+  ipcMain.handle('settings:install-harness', (_ev, harness: HarnessKind) =>
+    installHarnessPackage(harness),
+  );
   ipcMain.handle('acp:test-harness', (_ev, harness: HarnessKind) =>
     testHarnessConnection(settings, harness),
   );

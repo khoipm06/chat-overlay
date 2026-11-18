@@ -224,18 +224,25 @@ export function renderTabbedSettingsDrawer(opts: {
         const top = document.createElement('div');
         top.className = 'diag-card-top';
         const left = document.createElement('div');
-        left.innerHTML = `<span class="harness-dot ${d.installed ? 'ready' : 'error'}" style="display:inline-block;margin-right:6px;"></span><strong>${escapeHtmlText(d.label)}</strong>`;
+        const dotCls = d.installed ? 'ready' : d.viaRunner ? 'warming' : 'error';
+        left.innerHTML = `<span class="harness-dot ${dotCls}" style="display:inline-block;margin-right:6px;"></span><strong>${escapeHtmlText(d.label)}</strong>`;
+
+        const btns = document.createElement('div');
+        btns.style.cssText = 'display:inline-flex;align-items:center;gap:5px;';
+
         const pingBtn = document.createElement('button');
         pingBtn.type = 'button';
         pingBtn.className = 'mini-action-btn';
-        pingBtn.textContent = d.installed ? 'Test ACP' : 'Missing';
-        pingBtn.disabled = !d.installed;
+        pingBtn.textContent = d.installed || d.viaRunner ? 'Test ACP' : 'Missing';
+        pingBtn.disabled = !d.installed && !d.viaRunner;
 
         const detail = document.createElement('div');
         detail.className = 'diag-card-sub';
         detail.textContent = d.installed
           ? `${d.resolvedPath}${d.version ? ` (${d.version})` : ''}`
-          : `${d.resolvedPath} not found on PATH`;
+          : d.viaRunner
+            ? `Auto-run via ${d.resolvedPath}`
+            : `${d.resolvedPath} not found on PATH`;
 
         pingBtn.addEventListener('click', async () => {
           pingBtn.disabled = true;
@@ -248,7 +255,29 @@ export function renderTabbedSettingsDrawer(opts: {
             : res.message;
         });
 
-        top.append(left, pingBtn);
+        if (!d.installed && d.npmPackage) {
+          const installBtn = document.createElement('button');
+          installBtn.type = 'button';
+          installBtn.className = 'mini-action-btn primary';
+          installBtn.textContent = 'Install';
+          installBtn.addEventListener('click', async () => {
+            installBtn.disabled = true;
+            installBtn.textContent = 'Installing...';
+            const res = await window.agentOverlay.installHarness(d.id);
+            detail.textContent = res.message;
+            if (res.ok) {
+              diagnostics = await window.agentOverlay.inspectHarnesses();
+              render();
+            } else {
+              installBtn.disabled = false;
+              installBtn.textContent = 'Retry Install';
+            }
+          });
+          btns.appendChild(installBtn);
+        }
+
+        btns.appendChild(pingBtn);
+        top.append(left, btns);
         card.append(top, detail);
         diagList.appendChild(card);
       }

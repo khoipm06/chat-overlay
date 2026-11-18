@@ -35,6 +35,9 @@ export function resolveExecutable(configured: string): string {
     path.join(home, '.opencode', 'bin'),
     path.join(home, '.bun', 'bin'),
     path.join(home, '.cargo', 'bin'),
+    path.join(home, '.npm-global', 'bin'),
+    path.join(home, '.local', 'share', 'mise', 'shims'),
+    '/home/linuxbrew/.linuxbrew/bin',
     '/usr/local/bin',
   ];
 
@@ -68,6 +71,8 @@ export function defaultSettings(): AppSettings {
     commands: {
       agy_acp: { command: 'agy', args: ['acp'] },
       opencode_acp: { command: 'opencode', args: ['acp'] },
+      codex_acp: { command: 'codex-acp', args: [] },
+      claude_acp: { command: 'claude-agent-acp', args: [] },
       pi_acp: { command: 'pi', args: ['acp'] },
     },
     harnessEnv: {},
@@ -103,12 +108,83 @@ export function defaultSettings(): AppSettings {
   };
 }
 
+export function resolveHarnessLaunch(
+  settings: AppSettings,
+  harness: HarnessKind,
+): { binary: string; args: string[]; viaRunner: boolean; meta: (typeof HARNESS_LIST)[number] } {
+  const meta = HARNESS_LIST.find((h) => h.id === harness) ?? HARNESS_LIST[0];
+  const cmdCfg = settings.commands?.[harness] ?? {
+    command: meta.defaultCommand,
+    args: [...meta.defaultArgs],
+  };
+  const directCmd = cmdCfg.command || meta.defaultCommand;
+  const resolved = resolveExecutable(directCmd);
+  const directArgs = cmdCfg.args.length > 0 ? cmdCfg.args : [...meta.defaultArgs];
+
+  if (fs.existsSync(resolved)) {
+    return { binary: resolved, args: directArgs, viaRunner: false, meta };
+  }
+
+  if (meta.npmPackage) {
+    const npx = resolveExecutable('npx');
+    if (fs.existsSync(npx)) {
+      return {
+        binary: npx,
+        args: ['-y', meta.npmPackage, ...directArgs],
+        viaRunner: true,
+        meta,
+      };
+    }
+    const bunx = resolveExecutable('bunx');
+    if (fs.existsSync(bunx)) {
+      return {
+        binary: bunx,
+        args: [meta.npmPackage, ...directArgs],
+        viaRunner: true,
+        meta,
+      };
+    }
+  }
+
+  return { binary: resolved, args: directArgs, viaRunner: false, meta };
+}
+
+export async function installHarnessPackage(
+  harness: HarnessKind,
+): Promise<{ ok: boolean; message: string }> {
+  const meta = HARNESS_LIST.find((h) => h.id === harness);
+  if (!meta?.npmPackage) {
+    return { ok: false, message: 'No installable npm package configured for this harness.' };
+  }
+  const bunBin = resolveExecutable('bun');
+  const npmBin = resolveExecutable('npm');
+  const installer = fs.existsSync(bunBin) ? bunBin : npmBin;
+  const installArgs = fs.existsSync(bunBin)
+    ? ['add', '-g', meta.npmPackage]
+    : ['install', '-g', meta.npmPackage];
+
+  if (!fs.existsSync(installer)) {
+    return { ok: false, message: 'Neither npm nor bun was found on PATH.' };
+  }
+
+  try {
+    await execFileAsync(installer, installArgs, { timeout: 120_000 });
+    return { ok: true, message: `Installed ${meta.npmPackage}` };
+  } catch (err) {
+    return {
+      ok: false,
+      message: `Install failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 export async function inspectHarnesses(settings: AppSettings): Promise<HarnessDiagnostic[]> {
   return Promise.all(
     HARNESS_LIST.map(async (meta) => {
-      const cmd = settings.commands[meta.id]?.command || meta.defaultCommand;
+      const cmd = settings.commands?.[meta.id]?.command || meta.defaultCommand;
       const resolvedPath = resolveExecutable(cmd);
       const installed = fs.existsSync(resolvedPath);
+      const launch = resolveHarnessLaunch(settings, meta.id);
       let version: string | null = null;
       if (installed) {
         try {
@@ -122,8 +198,10 @@ export async function inspectHarnesses(settings: AppSettings): Promise<HarnessDi
         id: meta.id,
         label: meta.label,
         installed,
-        resolvedPath,
+        resolvedPath: installed ? resolvedPath : launch.viaRunner ? `${launch.binary} ${launch.args.join(' ')}` : resolvedPath,
         version,
+        viaRunner: !installed && launch.viaRunner,
+        npmPackage: meta.npmPackage,
       };
     }),
   );
