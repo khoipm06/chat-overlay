@@ -1,8 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+vi.mock('electron', () => ({
+  desktopCapturer: {},
+  nativeImage: {},
+  screen: {},
+}));
+
 import {
   applyConfigOptionsToCatalog,
   classifyAcpLine,
@@ -10,6 +17,7 @@ import {
   parseSessionNewCatalog,
   pickMarkupAnnotationsFromText,
 } from '../src/main/acp-parser';
+import { kwinPixelsToBgra } from '../src/main/capture';
 import {
   captureWorkspaceCheckpoint,
   getGitGlance,
@@ -17,6 +25,7 @@ import {
 } from '../src/main/checkpoint';
 import { expandSlashTemplate, parseLocalCommand } from '../src/main/commands';
 import { extractActiveTrigger, matchMentionItems } from '../src/main/mentions';
+import { defaultSettings, syncLinuxAutostartDesktopFile } from '../src/main/settings';
 import { presentToolCall } from '../src/renderer/tool-presenter';
 import { HARNESS_LIST } from '../src/shared/types';
 
@@ -404,5 +413,46 @@ describe('Git Workspace Checkpoint & Revert', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('v3.1 layout defaults, autostart, and fast KWin pixel conversion', () => {
+  it('defaults to 25% width and 78% compact height', () => {
+    const d = defaultSettings();
+    expect(d.widthPreset).toBe('wide_25');
+    expect(d.heightPreset).toBe('balanced_78');
+    expect(d.launchAtLogin).toBe(false);
+    expect(d.idleSleepMinutes).toBe(15);
+  });
+
+  it('creates and removes XDG autostart desktop entries cleanly', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-overlay-autostart-'));
+    try {
+      const desktopFile = path.join(dir, 'chat-overlay.desktop');
+      syncLinuxAutostartDesktopFile(true, '"/usr/bin/chat-overlay" --daemon', dir);
+      expect(fs.existsSync(desktopFile)).toBe(true);
+      const content = fs.readFileSync(desktopFile, 'utf8');
+      expect(content).toContain('Exec="/usr/bin/chat-overlay" --daemon');
+
+      syncLinuxAutostartDesktopFile(false, '"/usr/bin/chat-overlay" --daemon', dir);
+      expect(fs.existsSync(desktopFile)).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('converts RGBX8888 (fmt 16) with stride padding to tight BGRA', () => {
+    // 2x2 image with stride=12 (4 bytes padding per row)
+    const raw = Buffer.from([
+      // Row 0: R=10, G=20, B=30, X=0 | R=40, G=50, B=60, X=99 | padding 4B
+      10, 20, 30, 0, 40, 50, 60, 99, 255, 255, 255, 255,
+      // Row 1: R=70, G=80, B=90, X=1 | R=1, G=2, B=3, X=2 | padding 4B
+      70, 80, 90, 1, 1, 2, 3, 2, 128, 128, 128, 128,
+    ]);
+    const bgra = kwinPixelsToBgra(raw, 2, 2, 12, 16);
+    expect([...bgra]).toEqual([
+      30, 20, 10, 255, 60, 50, 40, 255,
+      90, 80, 70, 255, 3, 2, 1, 255,
+    ]);
   });
 });

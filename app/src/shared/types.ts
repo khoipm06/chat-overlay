@@ -128,6 +128,7 @@ export type RevertMode = 'workspace_and_chat' | 'chat_only';
 export type PermissionPolicy = 'ask' | 'auto_read' | 'auto_workspace' | 'yolo';
 export type FollowUpBehavior = 'queue' | 'steer';
 export type WidthPreset = 'narrow_15' | 'balanced_20' | 'wide_25' | 'custom';
+export type HeightPreset = 'compact_72' | 'balanced_78' | 'full' | 'custom';
 export type ScreenshotQuality = 'compressed' | 'original';
 
 export interface HarnessDiagnostic {
@@ -173,6 +174,9 @@ export interface AppSettings {
   fontSize: number;
   edge: 'right' | 'left';
   widthPreset: WidthPreset;
+  heightPreset: HeightPreset;
+  launchAtLogin: boolean;
+  idleSleepMinutes: number;
   windowBounds?: {
     x: number;
     y: number;
