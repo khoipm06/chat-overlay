@@ -1,10 +1,11 @@
 {
   "name": "chat-overlay",
   "version": "0.3.0",
-  "description": "Universal cross-platform ACP chat & live screen overlay (inspired by VS Code Chat & T3 Code)",
+  "description": "Universal cross-platform ACP chat & live screen overlay",
   "main": "dist/main/main.js",
   "scripts": {
     "build": "node esbuild.mjs",
+    "build:prod": "node esbuild.mjs --prod",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "start": "npm run build && electron dist/main/main.js",

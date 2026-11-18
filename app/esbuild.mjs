@@ -2,7 +2,10 @@ import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 
+const IS_PROD = process.argv.includes('--prod') || process.env.NODE_ENV === 'production';
+
 const distDir = path.resolve('dist');
+fs.rmSync(distDir, { recursive: true, force: true });
 fs.mkdirSync(path.join(distDir, 'main'), { recursive: true });
 fs.mkdirSync(path.join(distDir, 'preload'), { recursive: true });
 fs.mkdirSync(path.join(distDir, 'renderer'), { recursive: true });
@@ -16,7 +19,8 @@ await Promise.all([
     format: 'cjs',
     outfile: 'dist/main/main.js',
     external: ['electron'],
-    sourcemap: true,
+    minify: IS_PROD,
+    sourcemap: !IS_PROD,
   }),
   esbuild.build({
     entryPoints: ['src/preload/preload.ts'],
@@ -26,7 +30,8 @@ await Promise.all([
     format: 'cjs',
     outfile: 'dist/preload/preload.js',
     external: ['electron'],
-    sourcemap: true,
+    minify: IS_PROD,
+    sourcemap: !IS_PROD,
   }),
   esbuild.build({
     entryPoints: ['src/renderer/app.ts'],
@@ -43,7 +48,8 @@ await Promise.all([
       '.eot': 'file',
       '.svg': 'file',
     },
-    sourcemap: true,
+    minify: IS_PROD,
+    sourcemap: !IS_PROD,
   }),
   esbuild.build({
     entryPoints: ['src/renderer/markup-app.ts'],
@@ -52,7 +58,8 @@ await Promise.all([
     target: 'chrome132',
     format: 'esm',
     outfile: 'dist/renderer/markup-app.js',
-    sourcemap: true,
+    minify: IS_PROD,
+    sourcemap: !IS_PROD,
   }),
 ]);
 

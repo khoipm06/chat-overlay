@@ -743,7 +743,7 @@ body {
   border-color: var(--border-strong);
 }
 
-/* Visual Tool Cards (T3 Code inspired) */
+/* Visual Tool Cards */
 .tool-card {
   margin-left: 10px;
   border: 1px solid var(--border);
