@@ -4,10 +4,10 @@ import MarkdownIt from 'markdown-it';
 import markdownItDeflist from 'markdown-it-deflist';
 import markdownItFootnote from 'markdown-it-footnote';
 import markdownItTaskLists from 'markdown-it-task-lists';
-import type { Highlighter } from 'shiki';
+import type { HighlighterCore, LanguageRegistration } from 'shiki/core';
 
-let highlighterPromise: Promise<Highlighter> | null = null;
-let cachedHighlighter: Highlighter | null = null;
+let highlighterPromise: Promise<HighlighterCore> | null = null;
+let cachedHighlighter: HighlighterCore | null = null;
 let mermaidReadyPromise: Promise<typeof import('mermaid').default> | null = null;
 
 async function getMermaid() {
@@ -26,15 +26,65 @@ async function getMermaid() {
   return mermaidReadyPromise;
 }
 
-const CORE_LANGS = ['typescript', 'javascript', 'python', 'bash', 'json', 'rust'] as const;
+type LangLoader = () => Promise<{ default: LanguageRegistration[] }>;
 
-async function getHighlighterForLang(lang?: string): Promise<Highlighter> {
+const LANG_LOADERS: Record<string, LangLoader> = {
+  typescript: () => import('shiki/langs/typescript.mjs'),
+  tsx: () => import('shiki/langs/tsx.mjs'),
+  javascript: () => import('shiki/langs/javascript.mjs'),
+  jsx: () => import('shiki/langs/jsx.mjs'),
+  python: () => import('shiki/langs/python.mjs'),
+  bash: () => import('shiki/langs/bash.mjs'),
+  shellscript: () => import('shiki/langs/shellscript.mjs'),
+  json: () => import('shiki/langs/json.mjs'),
+  rust: () => import('shiki/langs/rust.mjs'),
+  go: () => import('shiki/langs/go.mjs'),
+  html: () => import('shiki/langs/html.mjs'),
+  css: () => import('shiki/langs/css.mjs'),
+  yaml: () => import('shiki/langs/yaml.mjs'),
+  toml: () => import('shiki/langs/toml.mjs'),
+  sql: () => import('shiki/langs/sql.mjs'),
+  diff: () => import('shiki/langs/diff.mjs'),
+  markdown: () => import('shiki/langs/markdown.mjs'),
+  c: () => import('shiki/langs/c.mjs'),
+  cpp: () => import('shiki/langs/cpp.mjs'),
+  java: () => import('shiki/langs/java.mjs'),
+  xml: () => import('shiki/langs/xml.mjs'),
+};
+
+const LANG_ALIASES: Record<string, string> = {
+  ts: 'typescript',
+  js: 'javascript',
+  py: 'python',
+  sh: 'bash',
+  shell: 'shellscript',
+  zsh: 'bash',
+  yml: 'yaml',
+  md: 'markdown',
+  rs: 'rust',
+};
+
+function canonicalLang(lang?: string): string {
+  const clean = (lang || '').trim().toLowerCase();
+  return LANG_ALIASES[clean] ?? clean;
+}
+
+async function getHighlighterForLang(lang?: string): Promise<HighlighterCore> {
   if (!highlighterPromise) {
-    highlighterPromise = import('shiki')
-      .then((m) =>
-        m.createHighlighter({
-          themes: ['dark-plus'],
-          langs: [...CORE_LANGS],
+    highlighterPromise = Promise.all([
+      import('shiki/core'),
+      import('shiki/engine/javascript'),
+      import('shiki/themes/dark-plus.mjs'),
+      import('shiki/langs/typescript.mjs'),
+      import('shiki/langs/javascript.mjs'),
+      import('shiki/langs/bash.mjs'),
+      import('shiki/langs/json.mjs'),
+    ])
+      .then(([core, engine, theme, ts, js, bash, json]) =>
+        core.createHighlighterCore({
+          themes: [theme.default],
+          langs: [ts.default, js.default, bash.default, json.default],
+          engine: engine.createJavaScriptRegexEngine(),
         }),
       )
       .then((hl) => {
@@ -43,11 +93,16 @@ async function getHighlighterForLang(lang?: string): Promise<Highlighter> {
       });
   }
   const hl = await highlighterPromise;
-  if (lang && lang !== 'text' && !hl.getLoadedLanguages().includes(lang)) {
-    try {
-      await hl.loadLanguage(lang as Parameters<Highlighter['loadLanguage']>[0]);
-    } catch {
-      // Unsupported grammar name; caller falls back to plain <pre><code>
+  const resolved = canonicalLang(lang);
+  if (resolved && resolved !== 'text' && !hl.getLoadedLanguages().includes(resolved)) {
+    const loader = LANG_LOADERS[resolved];
+    if (loader) {
+      try {
+        const mod = await loader();
+        await hl.loadLanguage(mod.default);
+      } catch {
+        // Fallback to plain <pre><code>
+      }
     }
   }
   return hl;
@@ -291,10 +346,11 @@ export async function hydrateRenderedMarkdown(
       if (!lang) continue;
       try {
         const hl = await getHighlighterForLang(lang);
-        if (hl.getLoadedLanguages().includes(lang)) {
+        const resolved = canonicalLang(lang);
+        if (hl.getLoadedLanguages().includes(resolved)) {
           const body = card.querySelector<HTMLElement>('.md-code-body');
           if (body) {
-            body.innerHTML = hl.codeToHtml(raw, { lang, theme: 'dark-plus' });
+            body.innerHTML = hl.codeToHtml(raw, { lang: resolved, theme: 'dark-plus' });
             card.dataset.highlighted = '1';
           }
         }
