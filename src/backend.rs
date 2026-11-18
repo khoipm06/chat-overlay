@@ -727,8 +727,18 @@ pub fn query_pi_models_sync() -> Vec<(String, String)> {
 }
 
 pub fn resolve_pi_binary() -> std::path::PathBuf {
-    if let Ok(path) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path) {
+    resolve_pi_binary_in(
+        std::env::var_os("PATH").as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+    )
+}
+
+fn resolve_pi_binary_in(
+    path_env: Option<&std::ffi::OsStr>,
+    home: Option<&str>,
+) -> std::path::PathBuf {
+    if let Some(path) = path_env {
+        for dir in std::env::split_paths(path) {
             let candidate = dir.join("pi");
             if candidate.is_file() {
                 return candidate;
@@ -736,7 +746,7 @@ pub fn resolve_pi_binary() -> std::path::PathBuf {
         }
     }
 
-    if let Ok(home) = std::env::var("HOME") {
+    if let Some(home) = home {
         let home_path = std::path::PathBuf::from(home);
         let candidates = [
             home_path.join(".bun/bin/pi"),
@@ -1225,8 +1235,24 @@ mod tests {
 
     #[test]
     fn test_resolve_pi_binary() {
-        let bin = resolve_pi_binary();
-        assert!(bin.exists(), "Resolved pi binary at {:?} should exist", bin);
+        let dir = std::env::temp_dir().join(format!("pi-overlay-test-bin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake_pi = dir.join("pi");
+        std::fs::write(&fake_pi, "#!/bin/sh\n").unwrap();
+
+        let resolved = resolve_pi_binary_in(Some(dir.as_os_str()), None);
+        assert_eq!(resolved, fake_pi);
+
+        let fallback =
+            resolve_pi_binary_in(Some(std::ffi::OsStr::new("")), Some("/nonexistent-home"));
+        assert!(
+            fallback.is_file() || fallback == std::path::Path::new("pi"),
+            "unexpected fallback {:?}",
+            fallback
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
