@@ -1,227 +1,127 @@
+//! Syntax highlighting via `syntect` (replaces the old hand-rolled keyword tables).
+
+use std::sync::LazyLock;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::ThemeSet;
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
+
+static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
+static THEME_SET: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
+
+pub const THEME_NAME: &str = "base16-ocean.dark";
+
+/// Maps markdown fence info strings onto syntect syntax tokens.
+pub fn normalize_lang(lang: &str) -> String {
+    let lower = lang.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "rs" => "rust",
+        "py" | "python3" => "python",
+        "js" | "jsx" | "mjs" | "cjs" => "javascript",
+        "ts" | "tsx" => "typescript",
+        "sh" | "zsh" | "shell" | "console" => "bash",
+        "yml" => "yaml",
+        "md" => "markdown",
+        "htm" => "html",
+        "h" | "hpp" | "cc" | "cxx" | "c++" => "c++",
+        "golang" => "go",
+        "kt" => "kotlin",
+        "rb" => "ruby",
+        "patch" => "diff",
+        "makefile" => "make",
+        other => other,
+    }
+    .to_string()
+}
+
+/// Renders a fenced code block into valid Pango markup using syntect colours.
+pub fn highlight_to_pango(code: &str, lang: &str) -> String {
+    let ps = &*SYNTAX_SET;
+    let themes = &*THEME_SET;
+    let theme = themes
+        .themes
+        .get(THEME_NAME)
+        .or_else(|| themes.themes.values().next())
+        .expect("syntect ships default themes");
+
+    let token = normalize_lang(lang);
+    let token = token.as_str();
+    let syntax = ps
+        .find_syntax_by_token(token)
+        .or_else(|| ps.find_syntax_by_extension(token))
+        .unwrap_or_else(|| ps.find_syntax_plain_text());
+
+    let mut highlighter = HighlightLines::new(syntax, theme);
+    let mut out = String::with_capacity(code.len() * 2);
+
+    for line in LinesWithEndings::from(code) {
+        match highlighter.highlight_line(line, ps) {
+            Ok(ranges) => {
+                for (style, piece) in ranges {
+                    let text = glib::markup_escape_text(piece.trim_end_matches('\n'));
+                    if text.is_empty() {
+                        continue;
+                    }
+                    let c = style.foreground;
+                    out.push_str(&format!(
+                        "<span foreground=\"#{:02X}{:02X}{:02X}\">{}</span>",
+                        c.r, c.g, c.b, text
+                    ));
+                }
+                if line.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+            Err(_) => {
+                out.push_str(&glib::markup_escape_text(line));
+            }
+        }
+    }
+
+    out
+}
+
 use gtk4::glib;
 
-/// Syntax highlighter for code blocks with popular programming languages:
-/// python, typescript/javascript, shell/bash, json, rust, c/cpp, html/xml, sql
-pub fn highlight_code_to_pango(lang: &str, code: &str) -> String {
-    let lang_lower = lang.trim().to_lowercase();
-    let mut out = String::with_capacity(code.len() + 256);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    for line in code.lines() {
-        out.push_str("  ");
-        let highlighted_line = match lang_lower.as_str() {
-            "python" | "py" => highlight_python_line(line),
-            "typescript" | "ts" | "javascript" | "js" => highlight_ts_line(line),
-            "bash" | "sh" | "shell" | "zsh" => highlight_sh_line(line),
-            "json" => highlight_json_line(line),
-            "rust" | "rs" => highlight_rust_line(line),
-            _ => glib::markup_escape_text(line).to_string(),
-        };
-        out.push_str(&highlighted_line);
-        out.push('\n');
+    #[test]
+    fn test_normalize_lang_aliases() {
+        assert_eq!(normalize_lang("rs"), "rust");
+        assert_eq!(normalize_lang("Python"), "python");
+        assert_eq!(normalize_lang(" tsx "), "typescript");
+        assert_eq!(normalize_lang("shell"), "bash");
+        assert_eq!(normalize_lang("unknownlang"), "unknownlang");
     }
 
-    out
-}
-
-fn highlight_python_line(line: &str) -> String {
-    let keywords = [
-        "def", "class", "import", "from", "return", "if", "else", "elif", "for", "while", "try",
-        "except", "finally", "with", "as", "pass", "break", "continue", "async", "await", "lambda",
-        "yield",
-    ];
-    let builtins = [
-        "True", "False", "None", "self", "print", "len", "range", "str", "int", "float", "bool",
-        "dict", "list", "set",
-    ];
-    highlight_generic_keywords(line, &keywords, &builtins, "#")
-}
-
-fn highlight_rust_line(line: &str) -> String {
-    let keywords = [
-        "fn", "let", "mut", "pub", "struct", "enum", "impl", "trait", "match", "if", "else", "for",
-        "while", "loop", "return", "use", "mod", "async", "await", "where", "type", "const",
-        "static", "ref", "move", "unsafe",
-    ];
-    let builtins = [
-        "true", "false", "Some", "None", "Ok", "Err", "Self", "String", "Vec", "Option", "Result",
-        "u8", "u32", "u64", "usize", "i32", "i64", "f64", "bool",
-    ];
-    highlight_generic_keywords(line, &keywords, &builtins, "//")
-}
-
-fn highlight_ts_line(line: &str) -> String {
-    let keywords = [
-        "function",
-        "const",
-        "let",
-        "var",
-        "return",
-        "if",
-        "else",
-        "for",
-        "while",
-        "switch",
-        "case",
-        "break",
-        "continue",
-        "import",
-        "export",
-        "from",
-        "default",
-        "class",
-        "interface",
-        "type",
-        "extends",
-        "implements",
-        "async",
-        "await",
-        "new",
-        "typeof",
-        "instanceof",
-        "try",
-        "catch",
-    ];
-    let builtins = [
-        "true",
-        "false",
-        "null",
-        "undefined",
-        "this",
-        "console",
-        "Promise",
-        "Array",
-        "Object",
-        "String",
-        "Number",
-        "Boolean",
-        "Date",
-    ];
-    highlight_generic_keywords(line, &keywords, &builtins, "//")
-}
-
-fn highlight_sh_line(line: &str) -> String {
-    let keywords = [
-        "if", "then", "else", "elif", "fi", "for", "while", "do", "done", "case", "esac",
-        "function", "return", "exit", "set",
-    ];
-    let builtins = [
-        "echo", "printf", "cd", "pwd", "ls", "find", "grep", "cat", "mkdir", "rm", "cp", "mv",
-        "chmod", "curl", "tar", "gzip",
-    ];
-    highlight_generic_keywords(line, &keywords, &builtins, "#")
-}
-
-fn highlight_json_line(line: &str) -> String {
-    let trimmed = line.trim();
-    if trimmed.starts_with('"') && trimmed.contains(':') {
-        let parts: Vec<&str> = line.splitn(2, ':').collect();
-        if parts.len() == 2 {
-            let key = glib::markup_escape_text(parts[0]);
-            let rest = highlight_json_value(parts[1]);
-            return format!("<span foreground=\"#93c5fd\">{}</span>:{}", key, rest);
-        }
-    }
-    highlight_json_value(line)
-}
-
-fn highlight_json_value(val: &str) -> String {
-    let escaped = glib::markup_escape_text(val);
-    let mut out = escaped.to_string();
-    let literals = [
-        ("true", "#4ade80"),
-        ("false", "#f87171"),
-        ("null", "#a1a1aa"),
-    ];
-    for (lit, col) in literals {
-        let pattern = format!("<span foreground=\"{}\"><b>{}</b></span>", col, lit);
-        out = out.replace(lit, &pattern);
-    }
-    out
-}
-
-fn highlight_generic_keywords(
-    line: &str,
-    keywords: &[&str],
-    builtins: &[&str],
-    comment_prefix: &str,
-) -> String {
-    let trimmed = line.trim_start();
-    if trimmed.starts_with(comment_prefix) {
-        return format!(
-            "<span foreground=\"#71717a\" style=\"italic\">{}</span>",
-            glib::markup_escape_text(line)
-        );
+    #[test]
+    fn test_highlight_produces_valid_pango() {
+        let code = "fn main() {\n    let x: u32 = 42;\n    println!(\"{}\", x);\n}\n";
+        let pango = highlight_to_pango(code, "rust");
+        assert!(pango.contains("<span foreground=\"#"));
+        assert!(gtk4::pango::parse_markup(&pango, '\0').is_ok());
     }
 
-    // Tokenize line respecting strings
-    let mut out = String::with_capacity(line.len() + 64);
-    let mut in_str = false;
-    let mut str_char = '"';
-    let mut cur_word = String::new();
-
-    for c in line.chars() {
-        if in_str {
-            cur_word.push(c);
-            if c == str_char {
-                in_str = false;
-                out.push_str(&format!(
-                    "<span foreground=\"#86efac\">{}</span>",
-                    glib::markup_escape_text(&cur_word)
-                ));
-                cur_word.clear();
-            }
-            continue;
-        }
-
-        if c == '"' || c == '\'' || c == '`' {
-            if !cur_word.is_empty() {
-                out.push_str(&format_token(&cur_word, keywords, builtins));
-                cur_word.clear();
-            }
-            in_str = true;
-            str_char = c;
-            cur_word.push(c);
-            continue;
-        }
-
-        if c.is_alphanumeric() || c == '_' {
-            cur_word.push(c);
-        } else {
-            if !cur_word.is_empty() {
-                out.push_str(&format_token(&cur_word, keywords, builtins));
-                cur_word.clear();
-            }
-            out.push_str(&glib::markup_escape_text(&c.to_string()));
-        }
+    #[test]
+    fn test_highlight_escapes_xml() {
+        let pango = highlight_to_pango("if a < b && c > d { }", "rust");
+        assert!(!pango.contains("< b"));
+        assert!(gtk4::pango::parse_markup(&pango, '\0').is_ok());
     }
 
-    if in_str {
-        out.push_str(&format!(
-            "<span foreground=\"#86efac\">{}</span>",
-            glib::markup_escape_text(&cur_word)
-        ));
-    } else if !cur_word.is_empty() {
-        out.push_str(&format_token(&cur_word, keywords, builtins));
+    #[test]
+    fn test_highlight_plaintext_fallback() {
+        let pango = highlight_to_pango("just text\n", "not-a-real-lang");
+        assert!(gtk4::pango::parse_markup(&pango, '\0').is_ok());
     }
 
-    out
-}
-
-fn format_token(token: &str, keywords: &[&str], builtins: &[&str]) -> String {
-    let escaped = glib::markup_escape_text(token);
-    if keywords.contains(&token) {
-        // Linear/Raycast magenta/violet keyword tone
-        format!(
-            "<span foreground=\"#c084fc\" weight=\"bold\">{}</span>",
-            escaped
-        )
-    } else if builtins.contains(&token) {
-        // Cyan/amber tone for types/builtins
-        format!("<span foreground=\"#38bdf8\">{}</span>", escaped)
-    } else if token.chars().all(|c| c.is_ascii_digit() || c == '.') {
-        // Numbers
-        format!("<span foreground=\"#fbbf24\">{}</span>", escaped)
-    } else {
-        escaped.to_string()
+    #[test]
+    fn test_highlight_preserves_line_breaks() {
+        // Line structure must survive highlighting: one `\n` per source line.
+        let pango = highlight_to_pango("let a = 1;\nlet b = 2;\n", "rust");
+        assert_eq!(pango.matches('\n').count(), 2);
+        assert!(gtk4::pango::parse_markup(&pango, '\0').is_ok());
     }
 }

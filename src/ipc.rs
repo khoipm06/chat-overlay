@@ -3,22 +3,28 @@ use tokio::io::AsyncReadExt;
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum IpcCommand {
+    Toggle,
+    Prompt(String),
+}
+
 pub fn get_socket_path() -> PathBuf {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     PathBuf::from(runtime_dir).join("pi-ephemeral-overlay.sock")
 }
 
-pub fn try_send_toggle() -> bool {
+pub fn try_send_command(cmd: &str) -> bool {
     use std::io::Write;
     use std::os::unix::net::UnixStream as StdUnixStream;
 
     let socket_path = get_socket_path();
     if let Ok(mut stream) = StdUnixStream::connect(&socket_path) {
-        let _ = stream.write_all(b"TOGGLE\n");
+        let _ = stream.write_all(cmd.as_bytes());
+        let _ = stream.write_all(b"\n");
         let _ = stream.flush();
         true
     } else {
-        // Stale socket or not running: remove if broken file exists
         if socket_path.exists() {
             let _ = std::fs::remove_file(&socket_path);
         }
@@ -26,7 +32,26 @@ pub fn try_send_toggle() -> bool {
     }
 }
 
-pub fn start_ipc_listener(tx: mpsc::UnboundedSender<()>) {
+pub fn try_send_toggle() -> bool {
+    try_send_command("TOGGLE")
+}
+
+/// Returns true if an active instance is already listening on the IPC socket.
+pub fn is_daemon_running() -> bool {
+    use std::os::unix::net::UnixStream as StdUnixStream;
+
+    let socket_path = get_socket_path();
+    if StdUnixStream::connect(&socket_path).is_ok() {
+        true
+    } else {
+        if socket_path.exists() {
+            let _ = std::fs::remove_file(&socket_path);
+        }
+        false
+    }
+}
+
+pub fn start_ipc_listener(tx: mpsc::UnboundedSender<IpcCommand>) {
     let socket_path = get_socket_path();
     let _ = std::fs::remove_file(&socket_path);
 
@@ -34,12 +59,17 @@ pub fn start_ipc_listener(tx: mpsc::UnboundedSender<()>) {
         match UnixListener::bind(&socket_path) {
             Ok(listener) => {
                 while let Ok((mut stream, _)) = listener.accept().await {
-                    let mut buf = [0u8; 32];
+                    let mut buf = [0u8; 4096];
                     if let Ok(n) = stream.read(&mut buf).await {
                         if n > 0 {
-                            let msg = String::from_utf8_lossy(&buf[..n]);
-                            if msg.trim() == "TOGGLE" {
-                                let _ = tx.send(());
+                            let text = String::from_utf8_lossy(&buf[..n]);
+                            for line in text.lines() {
+                                let line = line.trim();
+                                if line == "TOGGLE" {
+                                    let _ = tx.send(IpcCommand::Toggle);
+                                } else if let Some(p) = line.strip_prefix("PROMPT:") {
+                                    let _ = tx.send(IpcCommand::Prompt(p.to_string()));
+                                }
                             }
                         }
                     }

@@ -11,6 +11,10 @@ echo "Building pi-overlay (release)..."
 cd "${SCRIPT_DIR}"
 LIBRARY_PATH=/var/home/khoipm/.local/lib64 cargo build --release
 
+echo "Stopping any existing pi-overlay instance..."
+pkill -x pi-overlay || true
+rm -f "${XDG_RUNTIME_DIR:-/tmp}/pi-ephemeral-overlay.sock" || true
+
 echo "Installing binary to ${BIN_DIR}/pi-overlay..."
 mkdir -p "${BIN_DIR}"
 install -m 755 "${SCRIPT_DIR}/target/release/pi-overlay" "${BIN_DIR}/pi-overlay"
@@ -21,7 +25,8 @@ install -m 644 "${SCRIPT_DIR}/resources/icons/pi-overlay.svg" "${ICON_DIR}/pi-ov
 
 echo "Installing desktop entry to ${APP_DIR}/pi-overlay.desktop..."
 mkdir -p "${APP_DIR}"
-install -m 644 "${SCRIPT_DIR}/resources/pi-overlay.desktop" "${APP_DIR}/pi-overlay.desktop"
+sed "s|^Exec=pi-overlay$|Exec=${BIN_DIR}/pi-overlay|" "${SCRIPT_DIR}/resources/pi-overlay.desktop" > "${APP_DIR}/pi-overlay.desktop"
+chmod 644 "${APP_DIR}/pi-overlay.desktop"
 
 echo "Updating desktop database..."
 update-desktop-database "${APP_DIR}" || true
@@ -29,10 +34,36 @@ update-desktop-database "${APP_DIR}" || true
 echo "Updating icon cache..."
 gtk-update-icon-cache -f "${HOME}/.local/share/icons/hicolor" || true
 
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    echo "Registering KDE Plasma global shortcuts (Ctrl+Alt+L / Meta+Shift+L)..."
+    kwriteconfig6 --file kglobalshortcutsrc --group services --group pi-overlay.desktop --key _launch "Ctrl+Alt+L	Meta+Shift+L,Ctrl+Alt+L	Meta+Shift+L,Pi Overlay" || true
+fi
+
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    echo "Refreshing KDE service cache..."
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
+
+if command -v busctl >/dev/null 2>&1; then
+    busctl --user call org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel setForeignShortcutKeys \
+        "asa(ai)" 4 "pi-overlay.desktop" "_launch" "Pi Overlay" "Pi Overlay" 2 1 201326668 1 301989964 >/dev/null 2>&1 || true
+fi
+
 if [[ "${1:-}" == "--autostart" ]]; then
     echo "Installing autostart entry to ${AUTOSTART_DIR}/pi-overlay.desktop..."
     mkdir -p "${AUTOSTART_DIR}"
-    install -m 644 "${SCRIPT_DIR}/resources/pi-overlay.desktop" "${AUTOSTART_DIR}/pi-overlay.desktop"
+    sed "s|^Exec=pi-overlay$|Exec=${BIN_DIR}/pi-overlay|" "${SCRIPT_DIR}/resources/pi-overlay.desktop" > "${AUTOSTART_DIR}/pi-overlay.desktop"
+    chmod 644 "${AUTOSTART_DIR}/pi-overlay.desktop"
+fi
+
+if [[ -n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}" ]]; then
+    echo "Starting pi-overlay background daemon for instant Ctrl+Alt+L toggle..."
+    if command -v systemd-run >/dev/null 2>&1; then
+        systemd-run --user --quiet --collect --description="Pi Overlay Daemon" \
+            "${BIN_DIR}/pi-overlay" --daemon >/dev/null 2>&1 || true
+    else
+        nohup "${BIN_DIR}/pi-overlay" --daemon </dev/null >/dev/null 2>&1 &
+    fi
 fi
 
 echo "Installation complete."
