@@ -44,7 +44,7 @@ export class AcpAgentController {
   private rpcSeq = 1;
   private warmupSeq = 0;
   private pendingRpc = new Map<string, PendingRpc>();
-  private pendingPermissions = new Set<string>();
+  private pendingPermissions = new Map<string, { toolKey: string; allowAlwaysIds: Set<string> }>();
   private stderrTail: string[] = [];
   private activeTools = new Map<string, ToolTracker>();
 
@@ -144,7 +144,7 @@ export class AcpAgentController {
         },
         clientInfo: {
           name: 'chat-overlay',
-          version: '0.3.0',
+          version: '3.2.3',
         },
       }, 20_000);
       if (gen !== this.warmupSeq) return this.catalog;
@@ -230,7 +230,7 @@ export class AcpAgentController {
         this.stderrTail.length > 0 ? `\n\nStderr:\n${this.stderrTail.slice(-6).join('\n')}` : '';
       const hint =
         settings.harness === 'pi_acp'
-          ? 'Pi (ACP) requires `pi acp` ACP server support (not yet installed/supported by the current `pi` binary).'
+          ? 'Pi (ACP) failed handshake. Ensure `pi-acp` is installed and `pi` is authenticated (`pi auth`).'
           : `Failed to start ${meta.label}: ${msg}`;
       this.catalog = this.emptyCatalog(
         settings.harness,
@@ -456,7 +456,7 @@ export class AcpAgentController {
   }
 
   async cancelTurn(): Promise<void> {
-    for (const reqId of [...this.pendingPermissions]) {
+    for (const [reqId] of [...this.pendingPermissions]) {
       this.respondPermission(reqId, null);
     }
     this.pendingPermissions.clear();
@@ -472,7 +472,11 @@ export class AcpAgentController {
   }
 
   respondPermission(requestId: string, optionId: string | null): void {
+    const meta = this.pendingPermissions.get(requestId);
     this.pendingPermissions.delete(requestId);
+    if (meta && optionId && meta.allowAlwaysIds.has(optionId) && meta.toolKey) {
+      this.sessionAllowedTools.add(meta.toolKey);
+    }
     const numId = Number(requestId);
     const id = Number.isNaN(numId) ? requestId : numId;
     if (optionId) {
@@ -833,7 +837,12 @@ export class AcpAgentController {
             : '';
 
       const reqKey = String(id);
-      this.pendingPermissions.add(reqKey);
+      const allowAlwaysIds = new Set<string>(
+        options
+          .filter((o) => o.kind === 'allow_always' || o.kind === 'allowAlways')
+          .map((o) => o.optionId),
+      );
+      this.pendingPermissions.set(reqKey, { toolKey, allowAlwaysIds });
       this.onEvent({
         type: 'permission_request',
         request: {

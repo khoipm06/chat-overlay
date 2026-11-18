@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -18,7 +19,7 @@ export function encodeNativeImage(
   if (quality === 'compressed') {
     const resized =
       size.width > 1600 ? img.resize({ width: 1600, quality: 'good' }) : img;
-    const jpg = resized.toJPEG(82);
+    const jpg = resized.toJPEG(84);
     return {
       dataUrl: `data:image/jpeg;base64,${jpg.toString('base64')}`,
       mimeType: 'image/jpeg',
@@ -91,7 +92,7 @@ res, _ = bus.call_with_unix_fd_list_sync(
     "/org/kde/KWin/ScreenShot2",
     "org.kde.KWin.ScreenShot2",
     method,
-    GLib.Variant("(a{sv}h)", ({"include-cursor": GLib.Variant("b", True)}, idx)),
+    GLib.Variant("(a{sv}h)", ({"include-cursor": GLib.Variant("b", False)}, idx)),
     GLib.VariantType("(a{sv})"),
     Gio.DBusCallFlags.NONE,
     3000,
@@ -116,12 +117,37 @@ for c in chunks:
 sys.stdout.buffer.flush()
 `;
 
-async function captureViaKwinDBus(kind: 'fullscreen' | 'window'): Promise<Electron.NativeImage | null> {
-  const method = kind === 'window' ? 'CaptureActiveWindow' : 'CaptureActiveScreen';
+let cachedGiPython: string | null | undefined;
+
+async function resolveSystemPythonWithGi(): Promise<string | null> {
+  if (cachedGiPython !== undefined) return cachedGiPython;
+  // Prefer system `/usr/bin/python3` first so mise / homebrew / conda shims on PATH
+  // never shadow distro `python3-gobject` (`gi`).
+  const candidates = ['/usr/bin/python3', '/bin/python3', 'python3'];
+  for (const bin of candidates) {
+    if (bin.startsWith('/') && !fsSync.existsSync(bin)) continue;
+    try {
+      await execFileAsync(bin, ['-c', 'import gi; gi.require_version("Gio", "2.0")'], {
+        timeout: 1500,
+      });
+      cachedGiPython = bin;
+      return bin;
+    } catch {
+      // try next candidate
+    }
+  }
+  cachedGiPython = null;
+  return null;
+}
+
+async function runKwinMethod(
+  pythonBin: string,
+  method: 'CaptureActiveScreen' | 'CaptureActiveWindow' | 'CaptureWorkspace',
+): Promise<Electron.NativeImage | null> {
   try {
     const out = await new Promise<Buffer>((resolve, reject) => {
       const child = execFile(
-        'python3',
+        pythonBin,
         ['-c', KWIN_SHOT_SCRIPT, method],
         { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 3500 },
         (err, stdout) => {
@@ -146,9 +172,22 @@ async function captureViaKwinDBus(kind: 'fullscreen' | 'window'): Promise<Electr
   }
 }
 
+async function captureViaKwinDBus(kind: 'fullscreen' | 'window'): Promise<Electron.NativeImage | null> {
+  const pythonBin = await resolveSystemPythonWithGi();
+  if (!pythonBin) return null;
+
+  if (kind === 'window') {
+    const winImg = await runKwinMethod(pythonBin, 'CaptureActiveWindow');
+    if (winImg) return winImg;
+  }
+  const screenImg = await runKwinMethod(pythonBin, 'CaptureActiveScreen');
+  if (screenImg) return screenImg;
+  return runKwinMethod(pythonBin, 'CaptureWorkspace');
+}
+
 async function commandExists(cmd: string): Promise<boolean> {
   const pathDirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
-  for (const dir of pathDirs) {
+  for (const dir of [...pathDirs, '/usr/bin', '/bin', '/usr/local/bin']) {
     try {
       const stat = await fs.stat(path.join(dir, cmd));
       if (stat.isFile()) return true;
@@ -162,32 +201,64 @@ async function commandExists(cmd: string): Promise<boolean> {
 export async function captureScreenNativeImage(
   kind: CaptureKind,
   excludeWindow?: Electron.BrowserWindow | null,
+  restoreOpacity = 1,
 ): Promise<Electron.NativeImage> {
   const wasVisible = Boolean(
     excludeWindow && !excludeWindow.isDestroyed() && excludeWindow.isVisible(),
   );
-  if (wasVisible) {
-    excludeWindow?.hide();
-    await new Promise((r) => setTimeout(r, 30));
+  if (wasVisible && excludeWindow && !excludeWindow.isDestroyed()) {
+    excludeWindow.setOpacity(0);
+    excludeWindow.hide();
+    // Allow compositor frame + focus handoff to underlying window before grabbing pixels
+    await new Promise((r) => setTimeout(r, kind === 'window' ? 90 : 55));
   }
 
   try {
-    if (process.platform === 'linux' && process.env.WAYLAND_DISPLAY) {
-      // 1. Direct KDE KWin ScreenShot2 D-Bus capture (~40ms, zero temp files, zero portal lag)
+    const isLinuxWayland = process.platform === 'linux' && Boolean(process.env.WAYLAND_DISPLAY);
+
+    if (isLinuxWayland) {
+      // 1. Direct KDE KWin ScreenShot2 D-Bus capture (~40ms, zero temp files, zero portal popup)
       const kwinMode = kind === 'window' ? 'window' : 'fullscreen';
       const kwinImg = await captureViaKwinDBus(kwinMode);
       if (kwinImg) return kwinImg;
 
-      // 2. Fast wlroots grim (+ slurp only when raw region capture is called directly)
+      // 2. Fast wlroots grim (silent, zero portal popup)
       if (await commandExists('grim')) {
         const tmpPath = path.join(os.tmpdir(), `chat-overlay-${Date.now()}.png`);
         try {
-          if (kind === 'region' && (await commandExists('slurp'))) {
-            const { stdout: geom } = await execFileAsync('slurp', []);
-            await execFileAsync('grim', ['-g', geom.trim(), tmpPath]);
-          } else {
-            await execFileAsync('grim', [tmpPath]);
-          }
+          await execFileAsync('grim', [tmpPath], { timeout: 4000 });
+          const buf = await fs.readFile(tmpPath);
+          await fs.unlink(tmpPath).catch(() => {});
+          const img = nativeImage.createFromBuffer(buf);
+          if (!img.isEmpty()) return img;
+        } catch {
+          await fs.unlink(tmpPath).catch(() => {});
+        }
+      }
+
+      // 3. Silent KDE Spectacle background CLI (-b -n) BEFORE desktopCapturer so KDE never shows ScreenCast portal
+      if (await commandExists('spectacle')) {
+        const tmpPath = path.join(os.tmpdir(), `chat-overlay-${Date.now()}.png`);
+        const modeFlag = kind === 'window' ? '-a' : '-f';
+        try {
+          await execFileAsync('spectacle', ['-b', '-n', modeFlag, '-o', tmpPath], {
+            timeout: 5000,
+          });
+          const buf = await fs.readFile(tmpPath);
+          await fs.unlink(tmpPath).catch(() => {});
+          const img = nativeImage.createFromBuffer(buf);
+          if (!img.isEmpty()) return img;
+        } catch {
+          await fs.unlink(tmpPath).catch(() => {});
+        }
+      }
+
+      // 4. Silent GNOME screenshot CLI if available
+      if (await commandExists('gnome-screenshot')) {
+        const tmpPath = path.join(os.tmpdir(), `chat-overlay-${Date.now()}.png`);
+        const args = kind === 'window' ? ['-w', '-f', tmpPath] : ['-f', tmpPath];
+        try {
+          await execFileAsync('gnome-screenshot', args, { timeout: 5000 });
           const buf = await fs.readFile(tmpPath);
           await fs.unlink(tmpPath).catch(() => {});
           const img = nativeImage.createFromBuffer(buf);
@@ -198,7 +269,7 @@ export async function captureScreenNativeImage(
       }
     }
 
-    // 3. Universal Electron desktopCapturer (Windows, macOS, X11, Wayland w/ portal)
+    // 5. Electron desktopCapturer (instant & silent on Windows, macOS, X11; absolute last resort on Wayland)
     const primary = screen.getPrimaryDisplay();
     const width = Math.round(primary.size.width * primary.scaleFactor);
     const height = Math.round(primary.size.height * primary.scaleFactor);
@@ -212,24 +283,10 @@ export async function captureScreenNativeImage(
       return chosen.thumbnail;
     }
 
-    // 4. Last-resort Spectacle fallback on KDE systems without KWin D-Bus
-    if (process.platform === 'linux' && (await commandExists('spectacle'))) {
-      const tmpPath = path.join(os.tmpdir(), `chat-overlay-${Date.now()}.png`);
-      const modeFlag = kind === 'region' ? '-r' : kind === 'window' ? '-a' : '-f';
-      try {
-        await execFileAsync('spectacle', ['-b', '-n', '-p', modeFlag, '-o', tmpPath]);
-        const buf = await fs.readFile(tmpPath);
-        await fs.unlink(tmpPath).catch(() => {});
-        const img = nativeImage.createFromBuffer(buf);
-        if (!img.isEmpty()) return img;
-      } catch {
-        await fs.unlink(tmpPath).catch(() => {});
-      }
-    }
-
     throw new Error('No screen capture source available.');
   } finally {
     if (wasVisible && excludeWindow && !excludeWindow.isDestroyed()) {
+      excludeWindow.setOpacity(Math.min(1, Math.max(0.5, restoreOpacity)));
       excludeWindow.showInactive?.();
     }
   }
@@ -239,7 +296,8 @@ export async function captureScreenDataUrl(
   kind: CaptureKind,
   excludeWindow?: Electron.BrowserWindow | null,
   quality: ScreenshotQuality = 'compressed',
+  restoreOpacity = 1,
 ): Promise<{ dataUrl: string; mimeType: string; name: string }> {
-  const img = await captureScreenNativeImage(kind, excludeWindow);
+  const img = await captureScreenNativeImage(kind, excludeWindow, restoreOpacity);
   return encodeNativeImage(img, quality);
 }

@@ -303,8 +303,17 @@ function createMarkdownInstance(codePlaceholders: ExtractedBlock[]): MarkdownIt 
   return md;
 }
 
+export function stripActionTags(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\[\[desktop:\s*[^\]]+\]\]/g, '')
+    .replace(/\[\[markup:\s*[^\]]+\]\]/g, '')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
 export function renderMarkdownHtml(source: string): string {
-  const { markdown, mathBlocks } = preprocessMathOutsideCode(source || '');
+  const cleanSource = stripActionTags(source || '');
+  const { markdown, mathBlocks } = preprocessMathOutsideCode(cleanSource);
   const codePlaceholders: ExtractedBlock[] = [];
   const md = createMarkdownInstance(codePlaceholders);
 

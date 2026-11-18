@@ -20,6 +20,7 @@ import type {
   AppSettings,
   ChatAttachment,
   DesktopAction,
+  FilePreviewResult,
   HarnessKind,
   HeightPreset,
   MarkupAnnotation,
@@ -61,6 +62,7 @@ let markupAutoClearTimer: NodeJS.Timeout | null = null;
 let idleSleepTimer: NodeJS.Timeout | null = null;
 let ghostMode = false;
 let quitting = false;
+let interactiveCaptureActive = false;
 
 const START_HIDDEN = process.argv.includes('--daemon');
 const AUDIT_ARG = process.argv.find((a) => a.startsWith('--audit-dir='));
@@ -72,8 +74,37 @@ function sendStreamEvent(ev: StreamEvent): void {
   }
 }
 
+function getTrayIconPath(): string | null {
+  const candidates = [
+    path.join(__dirname, '../../resources/icons/tray.png'),
+    path.join(__dirname, '../resources/icons/tray.png'),
+    path.join(app.getAppPath(), 'resources/icons/tray.png'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
+function getAppIconPath(): string | null {
+  const candidates = [
+    path.join(__dirname, '../../resources/icons/icon.png'),
+    path.join(__dirname, '../resources/icons/icon.png'),
+    path.join(app.getAppPath(), 'resources/icons/icon.png'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
 function createTrayIcon(): Electron.NativeImage {
-  // 16x16 minimal crisp dark badge PNG (encoded dynamically via minimal SVG data URL)
+  const iconPath = getTrayIconPath();
+  if (iconPath) {
+    const img = nativeImage.createFromPath(iconPath);
+    if (!img.isEmpty()) return img;
+  }
+  // Fallback 16x16 minimal crisp dark badge PNG (encoded dynamically via minimal SVG data URL)
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24">
     <rect x="2" y="2" width="20" height="20" rx="5" fill="#18181b" stroke="#0078d4" stroke-width="1.6"/>
     <path d="M8 9l4 3-4 3m5 0h3" stroke="#e4e4e7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
@@ -268,6 +299,7 @@ function setGhostMode(enabled: boolean): void {
 
 function createMainWindow(): void {
   const bounds = computeDefaultBounds();
+  const appIconPath = getAppIconPath();
   mainWindow = new BrowserWindow({
     x: bounds.x,
     y: bounds.y,
@@ -283,6 +315,7 @@ function createMainWindow(): void {
     resizable: true,
     show: !START_HIDDEN,
     title: 'Chat Overlay',
+    icon: appIconPath ? nativeImage.createFromPath(appIconPath) : undefined,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
@@ -331,6 +364,7 @@ function createMainWindow(): void {
   });
 
   mainWindow.on('blur', () => {
+    if (interactiveCaptureActive) return;
     if (mainWindow && !mainWindow.isDestroyed() && !markupWindow) {
       if (settings.autoHideOnBlur) {
         mainWindow.hide();
@@ -494,19 +528,25 @@ function openAgentMarkupOverlay(annotations: MarkupAnnotation[]): void {
 async function openInteractiveScreenOverlay(
   overlayMode: 'annotate' | 'region',
 ): Promise<ChatAttachment | null> {
+  interactiveCaptureActive = true;
   const wasVisible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
-  if (wasVisible) {
-    mainWindow?.hide();
+  if (wasVisible && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setOpacity(0);
+    await new Promise((r) => setTimeout(r, 45));
+    mainWindow.hide();
     await new Promise((r) => setTimeout(r, 30));
   }
 
   let shot: { dataUrl: string; mimeType: string; name: string };
   try {
     // Capture fullscreen directly without calling captureScreenDataUrl's auto-show so overlay doesn't flash twice
-    shot = await captureScreenDataUrl('fullscreen', null, settings.screenshotQuality);
+    shot = await captureScreenDataUrl('fullscreen', null, settings.screenshotQuality, settings.opacity ?? 1);
   } catch (err) {
+    interactiveCaptureActive = false;
     if (wasVisible && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setOpacity(0);
       mainWindow.show();
+      mainWindow.setOpacity(Math.min(1, Math.max(0.5, settings.opacity ?? 1)));
       mainWindow.focus();
     }
     throw err;
@@ -525,9 +565,14 @@ async function openInteractiveScreenOverlay(
       ipcMain.removeListener('markup:cancel', onCancel);
       closeMarkupWindow();
       if (wasVisible && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setOpacity(0);
         mainWindow.show();
+        mainWindow.setOpacity(Math.min(1, Math.max(0.5, settings.opacity ?? 1)));
         mainWindow.focus();
       }
+      setTimeout(() => {
+        interactiveCaptureActive = false;
+      }, 120);
       resolve(att);
     };
 
@@ -725,22 +770,115 @@ function registerIpcHandlers(): void {
     return readClipboardAttachment(Boolean(preferSelection));
   });
 
-  ipcMain.handle('capture:screen', async (_ev, kind: CaptureKind): Promise<ChatAttachment> => {
-    if (kind === 'region') {
-      const att = await openInteractiveScreenOverlay('region');
-      if (!att) {
-        throw new Error('Region capture cancelled');
+  ipcMain.handle(
+    'context:read-file-preview',
+    async (_ev, targetPath: string): Promise<FilePreviewResult> => {
+      try {
+        const resolved = path.isAbsolute(targetPath)
+          ? path.resolve(targetPath)
+          : path.resolve(settings.workspaceDir, targetPath);
+        const stat = await fs.promises.stat(resolved);
+        const maxBytes = 400 * 1024; // 400 KB cap for instant preview
+        const fd = await fs.promises.open(resolved, 'r');
+        const buf = Buffer.alloc(Math.min(stat.size, maxBytes));
+        await fd.read(buf, 0, buf.length, 0);
+        await fd.close();
+        const content = buf.toString('utf8');
+        return {
+          ok: true,
+          name: path.basename(resolved),
+          resolvedPath: resolved,
+          content,
+          truncated: stat.size > maxBytes,
+          totalBytes: stat.size,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          name: path.basename(targetPath),
+          resolvedPath: targetPath,
+          content: '',
+          truncated: false,
+          totalBytes: 0,
+          error: err instanceof Error ? err.message : String(err),
+        };
       }
-      return att;
+    },
+  );
+
+  ipcMain.handle('context:pick-file', async (): Promise<ChatAttachment | null> => {
+    if (!mainWindow || mainWindow.isDestroyed()) return null;
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: 'Attach File or Image to Chat',
+      defaultPath: settings.workspaceDir,
+      properties: ['openFile', 'showHiddenFiles'],
+    });
+    if (res.canceled || res.filePaths.length === 0) return null;
+    const picked = res.filePaths[0];
+    const name = path.basename(picked);
+    const ext = path.extname(picked).toLowerCase();
+    const isImg = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
+    if (isImg) {
+      try {
+        const img = nativeImage.createFromPath(picked);
+        if (!img.isEmpty()) {
+          const encoded = encodeNativeImage(img, settings.screenshotQuality);
+          return {
+            id: `att_${Date.now()}`,
+            kind: 'image',
+            name,
+            mimeType: encoded.mimeType,
+            dataUrl: encoded.dataUrl,
+            path: picked,
+          };
+        }
+      } catch {
+        // Fall back to file
+      }
     }
-    const shot = await captureScreenDataUrl(kind, mainWindow, settings.screenshotQuality);
     return {
       id: `att_${Date.now()}`,
-      kind: 'image',
-      name: shot.name,
-      mimeType: shot.mimeType,
-      dataUrl: shot.dataUrl,
+      kind: 'file',
+      name,
+      mimeType: 'text/plain',
+      path: picked,
     };
+  });
+
+  ipcMain.handle('clipboard:write-image', (_ev, dataUrl: string): boolean => {
+    const img = nativeImage.createFromDataURL(dataUrl);
+    clipboard.writeImage(img);
+    return true;
+  });
+
+  ipcMain.handle('clipboard:write-text', (_ev, text: string): boolean => {
+    clipboard.writeText(text);
+    return true;
+  });
+
+  ipcMain.handle('capture:screen', async (_ev, kind: CaptureKind): Promise<ChatAttachment> => {
+    interactiveCaptureActive = true;
+    try {
+      if (kind === 'region') {
+        const att = await openInteractiveScreenOverlay('region');
+        if (!att) {
+          throw new Error('Region capture cancelled');
+        }
+        return att;
+      }
+      const shot = await captureScreenDataUrl(kind, mainWindow, settings.screenshotQuality, settings.opacity ?? 1);
+      return {
+        id: `att_${Date.now()}`,
+        kind: 'image',
+        name: shot.name,
+        mimeType: shot.mimeType,
+        dataUrl: shot.dataUrl,
+      };
+    } finally {
+      setTimeout(() => {
+        interactiveCaptureActive = false;
+      }, 100);
+    }
   });
 
   ipcMain.handle('capture:markup', () => openInteractiveScreenOverlay('annotate'));

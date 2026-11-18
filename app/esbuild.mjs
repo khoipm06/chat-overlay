@@ -69,6 +69,11 @@ fs.copyFileSync('src/renderer/markup.html', 'dist/renderer/markup.html');
 fs.copyFileSync('src/renderer/styles.css', 'dist/renderer/styles.css');
 fs.copyFileSync('src/renderer/markup.css', 'dist/renderer/markup.css');
 
+// Copy application icons and resources into dist/resources
+if (fs.existsSync('resources')) {
+  fs.cpSync('resources', 'dist/resources', { recursive: true });
+}
+
 // Bundle KaTeX CSS + fonts and Codicons CSS + fonts locally so zero CDN is needed
 const katexDist = path.resolve('node_modules/katex/dist');
 if (fs.existsSync(katexDist)) {

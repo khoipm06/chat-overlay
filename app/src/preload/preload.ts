@@ -4,6 +4,7 @@ import type {
   ChatAttachment,
   DesktopAction,
   DesktopCapabilities,
+  FilePreviewResult,
   GitDiffReport,
   GitGlance,
   HarnessDiagnostic,
@@ -40,6 +41,10 @@ export interface AgentOverlayApi {
   respondPermission: (requestId: string, optionId: string | null) => Promise<void>;
   getMentions: (query: string) => Promise<MentionItem[]>;
   readClipboardContext: (preferSelection?: boolean) => Promise<ChatAttachment | null>;
+  readFilePreview: (filePath: string) => Promise<FilePreviewResult>;
+  pickFileToAttach: () => Promise<ChatAttachment | null>;
+  copyImageToClipboard: (dataUrl: string) => Promise<boolean>;
+  copyTextToClipboard: (text: string) => Promise<boolean>;
   getFilePath: (file: File) => string;
   captureScreen: (kind: CaptureKind) => Promise<ChatAttachment>;
   openMarkupCapture: () => Promise<ChatAttachment | null>;
@@ -109,6 +114,10 @@ const api: AgentOverlayApi = {
   getMentions: (query) => ipcRenderer.invoke('mentions:query', query),
   readClipboardContext: (preferSelection) =>
     ipcRenderer.invoke('context:clipboard', preferSelection),
+  readFilePreview: (filePath) => ipcRenderer.invoke('context:read-file-preview', filePath),
+  pickFileToAttach: () => ipcRenderer.invoke('context:pick-file'),
+  copyImageToClipboard: (dataUrl) => ipcRenderer.invoke('clipboard:write-image', dataUrl),
+  copyTextToClipboard: (text) => ipcRenderer.invoke('clipboard:write-text', text),
   getFilePath: (file) => {
     try {
       return webUtils.getPathForFile(file);

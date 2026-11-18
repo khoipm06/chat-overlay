@@ -43,9 +43,10 @@ export const HARNESS_LIST: readonly HarnessInfo[] = [
   {
     id: 'pi_acp',
     label: 'Pi (ACP)',
-    shortLabel: 'pi acp',
-    defaultCommand: 'pi',
-    defaultArgs: ['acp'],
+    shortLabel: 'pi-acp',
+    defaultCommand: 'pi-acp',
+    defaultArgs: [],
+    npmPackage: 'pi-acp',
   },
 ] as const;
 
@@ -145,7 +146,7 @@ export interface MentionItem {
 
 export type RevertMode = 'workspace_and_chat' | 'chat_only';
 export type PermissionPolicy = 'ask' | 'auto_read' | 'auto_workspace' | 'yolo';
-export type DesktopControlMode = 'off' | 'confirm' | 'preview_auto';
+export type DesktopControlMode = 'off' | 'confirm' | 'preview_auto' | 'auto';
 export type FollowUpBehavior = 'queue' | 'steer';
 
 export type DesktopActionKind =
@@ -184,6 +185,8 @@ export type WidthPreset = 'narrow_15' | 'balanced_20' | 'wide_25' | 'custom';
 export type HeightPreset = 'compact_72' | 'balanced_78' | 'full' | 'custom';
 export type ScreenshotQuality = 'compressed' | 'original';
 
+export type HarnessAcpState = 'unverified' | 'checking' | 'ok' | 'failed';
+
 export interface HarnessDiagnostic {
   id: HarnessKind;
   label: string;
@@ -192,6 +195,16 @@ export interface HarnessDiagnostic {
   version: string | null;
   viaRunner?: boolean;
   npmPackage?: string;
+}
+
+export interface FilePreviewResult {
+  ok: boolean;
+  name: string;
+  resolvedPath: string;
+  content: string;
+  truncated: boolean;
+  totalBytes: number;
+  error?: string;
 }
 
 export interface GitGlance {

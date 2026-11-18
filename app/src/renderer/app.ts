@@ -90,11 +90,21 @@ const modelLabel = document.getElementById('model-label')!;
 const btnEffortPicker = document.getElementById('btn-effort-picker')!;
 const effortLabel = document.getElementById('effort-label')!;
 
-const btnCaptureMenu = document.getElementById('btn-capture-menu')!;
 const btnPinScreen = document.getElementById('btn-pin-screen')!;
 const btnClearMarkup = document.getElementById('btn-clear-markup')!;
 const btnSend = document.getElementById('btn-send') as HTMLButtonElement;
 const sendIcon = document.getElementById('send-icon')!;
+
+const contextPreviewDialog = document.getElementById('context-preview-dialog') as HTMLDialogElement;
+const previewDialogTitle = document.getElementById('preview-dialog-title')!;
+const previewDialogIcon = document.getElementById('preview-dialog-icon')!;
+const previewDialogBadge = document.getElementById('preview-dialog-badge')!;
+const previewDialogBody = document.getElementById('preview-dialog-body')!;
+const btnPreviewZoom = document.getElementById('btn-preview-zoom') as HTMLButtonElement;
+const previewZoomLabel = document.getElementById('preview-zoom-label')!;
+const btnPreviewCopy = document.getElementById('btn-preview-copy') as HTMLButtonElement;
+const previewCopyLabel = document.getElementById('preview-copy-label')!;
+const btnPreviewClose = document.getElementById('btn-preview-close') as HTMLButtonElement;
 
 const modalBackdrop = document.getElementById('modal-backdrop')!;
 const modalTitle = document.getElementById('modal-title')!;
@@ -442,11 +452,184 @@ function updateSendButton(): void {
   }
 }
 
+interface PreviewTarget {
+  name: string;
+  kind?: string;
+  content?: string;
+  dataUrl?: string;
+  filePath?: string;
+  mimeType?: string;
+}
+
+let activePreviewCopyHandler: (() => Promise<void>) | null = null;
+let activePreviewZoomToggle: (() => void) | null = null;
+
+async function openContextPreview(target: PreviewTarget): Promise<void> {
+  if (!contextPreviewDialog) return;
+  previewDialogTitle.textContent = target.name || 'Context Preview';
+  previewDialogTitle.title = target.filePath || target.name || '';
+  previewDialogBody.innerHTML = '';
+  btnPreviewZoom.classList.add('hidden');
+  previewCopyLabel.textContent = 'Copy';
+  btnPreviewCopy.disabled = false;
+
+  const isImage =
+    target.kind === 'image' ||
+    Boolean(target.dataUrl) ||
+    /\.(png|jpe?g|webp|gif|svg)$/i.test(target.name);
+
+  if (isImage && target.dataUrl) {
+    previewDialogIcon.className = 'codicon codicon-device-camera';
+    previewDialogBadge.textContent = 'IMAGE';
+    btnPreviewZoom.classList.remove('hidden');
+    previewZoomLabel.textContent = 'Zoom 2.5x';
+    const zoomIcon = btnPreviewZoom.querySelector('i');
+    if (zoomIcon) zoomIcon.className = 'codicon codicon-zoom-in';
+
+    const viewport = document.createElement('div');
+    viewport.className = 'preview-image-viewport';
+    const img = document.createElement('img');
+    img.src = target.dataUrl;
+    img.className = 'preview-image';
+    img.alt = target.name;
+    viewport.appendChild(img);
+    previewDialogBody.appendChild(viewport);
+
+    let isZoomed = false;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+
+    const updateTransform = () => {
+      if (isZoomed) {
+        img.style.transform = `scale(2.5) translate(${panX / 2.5}px, ${panY / 2.5}px)`;
+      } else {
+        img.style.transform = 'none';
+      }
+    };
+
+    const toggleZoom = () => {
+      isZoomed = !isZoomed;
+      if (isZoomed) {
+        img.classList.add('is-zoomed');
+        previewZoomLabel.textContent = 'Fit (1x)';
+        if (zoomIcon) zoomIcon.className = 'codicon codicon-zoom-out';
+      } else {
+        isZoomed = false;
+        panX = 0;
+        panY = 0;
+        img.classList.remove('is-zoomed', 'is-dragging');
+        previewZoomLabel.textContent = 'Zoom 2.5x';
+        if (zoomIcon) zoomIcon.className = 'codicon codicon-zoom-in';
+      }
+      updateTransform();
+    };
+
+    activePreviewZoomToggle = toggleZoom;
+
+    // Pointer events for 2D Panning (Modern Web Guidance compliant)
+    img.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (!isZoomed) {
+        toggleZoom();
+        return;
+      }
+      isDragging = true;
+      startX = e.clientX - panX;
+      startY = e.clientY - panY;
+      img.setPointerCapture(e.pointerId);
+      img.classList.add('is-dragging');
+    });
+
+    img.addEventListener('pointermove', (e: PointerEvent) => {
+      if (!isDragging || !isZoomed) return;
+      panX = e.clientX - startX;
+      panY = e.clientY - startY;
+      updateTransform();
+    });
+
+    const stopDrag = (e: PointerEvent) => {
+      if (!isDragging) return;
+      isDragging = false;
+      img.classList.remove('is-dragging');
+      try {
+        img.releasePointerCapture(e.pointerId);
+      } catch {
+        // pointer capture release fallback
+      }
+    };
+
+    img.addEventListener('pointerup', stopDrag);
+    img.addEventListener('pointercancel', stopDrag);
+
+    activePreviewCopyHandler = async () => {
+      await window.agentOverlay.copyImageToClipboard(target.dataUrl!);
+      previewCopyLabel.textContent = 'Copied Image ✓';
+      setTimeout(() => {
+        previewCopyLabel.textContent = 'Copy';
+      }, 1500);
+    };
+  } else {
+    // Text / Code / File Preview
+    previewDialogIcon.className = 'codicon codicon-file-code';
+    previewDialogBadge.textContent = 'FILE';
+
+    let content = target.content || '';
+    let isTruncated = false;
+
+    if (!content && (target.filePath || target.name)) {
+      previewDialogBody.innerHTML =
+        '<div style="padding:16px;color:var(--text-muted);"><i class="codicon codicon-loading codicon-modifier-spin"></i> Loading file preview...</div>';
+      const fileRes = await window.agentOverlay.readFilePreview(target.filePath || target.name);
+      previewDialogBody.innerHTML = '';
+      if (fileRes.ok) {
+        content = fileRes.content;
+        isTruncated = fileRes.truncated;
+        const lineCount = content.split('\n').length;
+        const kb = Math.round(fileRes.totalBytes / 1024);
+        previewDialogBadge.textContent = `${lineCount} lines · ${kb} KB`;
+      } else {
+        content = fileRes.error || 'Failed to read file';
+        previewDialogBadge.textContent = 'ERROR';
+      }
+    } else {
+      const lineCount = content.split('\n').length;
+      previewDialogBadge.textContent = `${lineCount} lines`;
+    }
+
+    const pre = document.createElement('pre');
+    pre.className = 'preview-code-block';
+    const code = document.createElement('code');
+    code.textContent = content;
+    pre.appendChild(code);
+    previewDialogBody.appendChild(pre);
+
+    if (isTruncated) {
+      const notice = document.createElement('div');
+      notice.className = 'preview-truncation-notice';
+      notice.textContent = 'Preview capped at 400KB for responsiveness.';
+      previewDialogBody.appendChild(notice);
+    }
+
+    activePreviewCopyHandler = async () => {
+      await window.agentOverlay.copyTextToClipboard(content);
+      previewCopyLabel.textContent = 'Copied ✓';
+      setTimeout(() => {
+        previewCopyLabel.textContent = 'Copy';
+      }, 1500);
+    };
+  }
+
+  contextPreviewDialog.showModal();
+}
+
 function renderAttachments(): void {
   attachmentsRow.innerHTML = '';
   for (const att of pendingAttachments) {
     const chip = document.createElement('div');
     chip.className = 'att-chip';
+    chip.title = 'Click to preview context';
     if (att.kind === 'image' && att.dataUrl) {
       const img = document.createElement('img');
       img.src = att.dataUrl;
@@ -460,6 +643,11 @@ function renderAttachments(): void {
     const name = document.createElement('span');
     name.textContent = att.name;
     chip.appendChild(name);
+
+    chip.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('.att-remove')) return;
+      void openContextPreview(att);
+    });
 
     const rm = document.createElement('button');
     rm.type = 'button';
@@ -708,20 +896,6 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   const userBubble = document.createElement('div');
   userBubble.className = 'user-bubble';
 
-  const userTop = document.createElement('div');
-  userTop.className = 'user-bubble-top';
-  const attsWrap = document.createElement('div');
-  attsWrap.className = 'user-attachments';
-  for (const att of turn.attachments) {
-    const c = document.createElement('span');
-    c.className = 'user-att-chip';
-    const ic = document.createElement('i');
-    ic.className = `codicon ${att.kind === 'image' ? 'codicon-device-camera' : 'codicon-file-code'}`;
-    const lbl = document.createElement('span');
-    lbl.textContent = att.name;
-    c.append(ic, lbl);
-    attsWrap.appendChild(c);
-  }
   const revertBtn = document.createElement('button');
   revertBtn.type = 'button';
   revertBtn.className = 'turn-revert-btn';
@@ -733,8 +907,30 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   revertBtn.addEventListener('click', () => {
     void revertToTurn(turn.id);
   });
-  userTop.append(attsWrap, revertBtn);
-  userBubble.appendChild(userTop);
+  userBubble.appendChild(revertBtn);
+
+  if (turn.attachments && turn.attachments.length > 0) {
+    const userTop = document.createElement('div');
+    userTop.className = 'user-bubble-top';
+    const attsWrap = document.createElement('div');
+    attsWrap.className = 'user-attachments';
+    for (const att of turn.attachments) {
+      const c = document.createElement('span');
+      c.className = 'user-att-chip';
+      c.title = 'Click to preview context';
+      const ic = document.createElement('i');
+      ic.className = `codicon ${att.kind === 'image' ? 'codicon-device-camera' : 'codicon-file-code'}`;
+      const lbl = document.createElement('span');
+      lbl.textContent = att.name;
+      c.append(ic, lbl);
+      c.addEventListener('click', () => {
+        void openContextPreview(att);
+      });
+      attsWrap.appendChild(c);
+    }
+    userTop.appendChild(attsWrap);
+    userBubble.appendChild(userTop);
+  }
 
   const userText = document.createElement('div');
   userText.className = 'user-text';
@@ -1276,7 +1472,14 @@ function appendDesktopActionsCard(
   runAllBtn.addEventListener('click', () => void runAllSequence());
   container.appendChild(card);
 
-  if (autoPreview && !window.location.search.includes('audit=1')) {
+  if (settings.desktopControlMode === 'auto' && !window.location.search.includes('audit=1')) {
+    title.textContent = 'Auto-running desktop actions...';
+    window.setTimeout(() => {
+      if (desktopPanicToken === epoch) {
+        void runAllSequence();
+      }
+    }, 60);
+  } else if (autoPreview && !window.location.search.includes('audit=1')) {
     void window.agentOverlay.previewDesktopActions(actions);
     title.textContent = 'Auto-running in 1.2s (Ctrl+Alt+X stops)...';
     window.setTimeout(() => {
@@ -1638,43 +1841,63 @@ function openHarnessMenu(): void {
   });
 }
 
-function openCaptureMenu(): void {
+function openAddContextMenu(): void {
   popovers.openList({
-    anchor: btnCaptureMenu,
+    anchor: btnAddContext,
     placement: 'above',
-    headerText: 'Screen & Context',
+    headerText: 'Context & Capture',
     items: [
       {
         id: 'full',
-        title: 'Capture Full Screen',
+        title: 'Capture Full Screen (@screen)',
         icon: 'codicon-device-camera',
         onSelect: () => void executeLocalCommand('screen'),
       },
       {
         id: 'markup',
-        title: 'Annotate Screen (Markup)',
+        title: 'Annotate Screen (/markup)',
         icon: 'codicon-edit',
         onSelect: () => void executeLocalCommand('markup'),
       },
       {
         id: 'region',
-        title: 'Capture Region',
+        title: 'Capture Region (/region)',
         icon: 'codicon-symbol-structure',
         onSelect: () => void executeLocalCommand('region'),
       },
       {
         id: 'window',
-        title: 'Capture Active Window',
+        title: 'Capture Active Window (/window)',
         icon: 'codicon-window',
         onSelect: () => void executeLocalCommand('window'),
       },
       {
+        id: 'file',
+        title: 'Attach File or Image...',
+        icon: 'codicon-file-add',
+        onSelect: async () => {
+          const att = await window.agentOverlay.pickFileToAttach();
+          if (att) addAttachment(att);
+        },
+      },
+      {
         id: 'clipboard',
-        title: 'Attach Clipboard',
+        title: 'Attach Clipboard (Ctrl+Alt+Q)',
         icon: 'codicon-clippy',
         onSelect: async () => {
           const clip = await window.agentOverlay.readClipboardContext();
           if (clip) addAttachment(clip);
+        },
+      },
+      {
+        id: 'pin_toggle',
+        title: settings.pinLiveScreen ? 'Unpin Live Screen' : 'Pin Live Screen on Send',
+        icon: 'codicon-eye',
+        onSelect: async () => {
+          settings = await window.agentOverlay.updateSettings({
+            pinLiveScreen: !settings.pinLiveScreen,
+          });
+          renderHeaderAndPickers();
         },
       },
     ],
@@ -1974,11 +2197,28 @@ btnRetryWarmup.addEventListener('click', () => {
   void window.agentOverlay.resetSession();
 });
 
-btnAddContext.addEventListener('click', openCaptureMenu);
+btnAddContext.addEventListener('click', openAddContextMenu);
 btnModePicker.addEventListener('click', openModePicker);
 btnModelPicker.addEventListener('click', openModelPicker);
 btnEffortPicker.addEventListener('click', openEffortPicker);
-btnCaptureMenu.addEventListener('click', openCaptureMenu);
+
+if (contextPreviewDialog) {
+  // Light dismiss fallback for <dialog closedby="any">
+  contextPreviewDialog.addEventListener('click', (e) => {
+    if (e.target === contextPreviewDialog) {
+      contextPreviewDialog.close();
+    }
+  });
+  btnPreviewClose?.addEventListener('click', () => {
+    contextPreviewDialog.close();
+  });
+  btnPreviewZoom?.addEventListener('click', () => {
+    if (activePreviewZoomToggle) activePreviewZoomToggle();
+  });
+  btnPreviewCopy?.addEventListener('click', () => {
+    if (activePreviewCopyHandler) void activePreviewCopyHandler();
+  });
+}
 
 btnPinScreen.addEventListener('click', async () => {
   settings = await window.agentOverlay.updateSettings({

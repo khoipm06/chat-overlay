@@ -27,6 +27,10 @@ export function renderTabbedSettingsDrawer(opts: {
   let diagnostics: HarnessDiagnostic[] = [];
   let diagnosticsLoading = true;
   let desktopCaps: DesktopCapabilities | null = null;
+  const harnessAcpState = new Map<
+    HarnessKind,
+    { tested: boolean; ok: boolean; latencyMs?: number; message?: string }
+  >();
 
   const render = () => {
     opts.container.innerHTML = '';
@@ -123,8 +127,9 @@ export function renderTabbedSettingsDrawer(opts: {
         <div class="field-group">
           <label>Desktop Actions &amp; Computer Use Policy</label>
           <select id="set-desktop-mode" class="field-select">
-            <option value="confirm" ${current.desktopControlMode === 'confirm' ? 'selected' : ''}>Confirm every UI / OS action (Recommended)</option>
+            <option value="auto" ${current.desktopControlMode === 'auto' ? 'selected' : ''}>Auto-run immediately (no delay)</option>
             <option value="preview_auto" ${current.desktopControlMode === 'preview_auto' ? 'selected' : ''}>Visual Preview + Auto-Run (1.2s Panic Stop)</option>
+            <option value="confirm" ${current.desktopControlMode === 'confirm' ? 'selected' : ''}>Confirm every UI / OS action (Recommended)</option>
             <option value="off" ${current.desktopControlMode === 'off' ? 'selected' : ''}>Disabled for AI prompts</option>
           </select>
         </div>
@@ -224,8 +229,22 @@ export function renderTabbedSettingsDrawer(opts: {
         const top = document.createElement('div');
         top.className = 'diag-card-top';
         const left = document.createElement('div');
-        const dotCls = d.installed ? 'ready' : d.viaRunner ? 'warming' : 'error';
-        left.innerHTML = `<span class="harness-dot ${dotCls}" style="display:inline-block;margin-right:6px;"></span><strong>${escapeHtmlText(d.label)}</strong>`;
+        const testState = harnessAcpState.get(d.id);
+        const dotCls = testState
+          ? testState.ok
+            ? 'ready'
+            : 'error'
+          : d.installed || d.viaRunner
+            ? 'warming'
+            : 'error';
+        const dotTitle = testState
+          ? testState.ok
+            ? `ACP Verified (${testState.latencyMs}ms)`
+            : `ACP Failed: ${testState.message}`
+          : d.installed
+            ? 'Installed (ACP unverified - click Test ACP)'
+            : 'Not installed';
+        left.innerHTML = `<span class="harness-dot ${dotCls}" title="${escapeHtmlText(dotTitle)}" style="display:inline-block;margin-right:6px;"></span><strong>${escapeHtmlText(d.label)}</strong>`;
 
         const btns = document.createElement('div');
         btns.style.cssText = 'display:inline-flex;align-items:center;gap:5px;';
@@ -233,23 +252,42 @@ export function renderTabbedSettingsDrawer(opts: {
         const pingBtn = document.createElement('button');
         pingBtn.type = 'button';
         pingBtn.className = 'mini-action-btn';
-        pingBtn.textContent = d.installed || d.viaRunner ? 'Test ACP' : 'Missing';
+        pingBtn.textContent = testState ? (testState.ok ? `OK ${testState.latencyMs}ms` : 'Failed') : d.installed || d.viaRunner ? 'Test ACP' : 'Missing';
         pingBtn.disabled = !d.installed && !d.viaRunner;
 
         const detail = document.createElement('div');
         detail.className = 'diag-card-sub';
-        detail.textContent = d.installed
-          ? `${d.resolvedPath}${d.version ? ` (${d.version})` : ''}`
-          : d.viaRunner
-            ? `Auto-run via ${d.resolvedPath}`
-            : `${d.resolvedPath} not found on PATH`;
+        detail.textContent = testState
+          ? testState.ok
+            ? `${testState.message || 'Ready'} · ${testState.latencyMs}ms`
+            : testState.message || 'ACP handshake failed'
+          : d.installed
+            ? `${d.resolvedPath}${d.version ? ` (${d.version})` : ''} · Click 'Test ACP' to verify server`
+            : d.viaRunner
+              ? `Auto-run via ${d.resolvedPath}`
+              : `${d.resolvedPath} not found on PATH`;
 
         pingBtn.addEventListener('click', async () => {
           pingBtn.disabled = true;
           pingBtn.textContent = 'Testing...';
+          const dotEl = left.querySelector<HTMLElement>('.harness-dot');
+          if (dotEl) dotEl.className = 'harness-dot warming';
           const res = await window.agentOverlay.testHarness(d.id);
+          harnessAcpState.set(d.id, {
+            tested: true,
+            ok: res.ok,
+            latencyMs: res.latencyMs,
+            message: res.message,
+          });
           pingBtn.disabled = false;
           pingBtn.textContent = res.ok ? `OK ${res.latencyMs}ms` : 'Failed';
+          if (dotEl) {
+            dotEl.className = `harness-dot ${res.ok ? 'ready' : 'error'}`;
+            dotEl.setAttribute(
+              'title',
+              res.ok ? `ACP Verified (${res.latencyMs}ms)` : `ACP Failed: ${res.message}`,
+            );
+          }
           detail.textContent = res.ok
             ? `${res.message} · ${res.latencyMs}ms`
             : res.message;
@@ -345,6 +383,19 @@ export function renderTabbedSettingsDrawer(opts: {
       diagnosticsLoading = false;
       if (activeTab === 'harnesses' && opts.container.isConnected) {
         render();
+      }
+      if (current.harness) {
+        void window.agentOverlay.testHarness(current.harness).then((testRes) => {
+          harnessAcpState.set(current.harness, {
+            tested: true,
+            ok: testRes.ok,
+            latencyMs: testRes.latencyMs,
+            message: testRes.message,
+          });
+          if (activeTab === 'harnesses' && opts.container.isConnected) {
+            render();
+          }
+        });
       }
     })
     .catch(() => {
