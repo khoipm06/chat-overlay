@@ -80,6 +80,7 @@ export function defaultSettings(): AppSettings {
     followUpBehavior: 'queue',
     soundCues: true,
     flashOnAttention: true,
+    backgroundNotifications: true,
     showGitGlance: true,
     screenshotQuality: 'compressed',
     markupAutoClearSeconds: 12,
@@ -96,6 +97,7 @@ export function defaultSettings(): AppSettings {
     shortcut: 'CommandOrControl+Alt+L',
     backupShortcut: 'Super+Shift+L',
     ghostShortcut: 'CommandOrControl+Alt+G',
+    quickClipboardShortcut: 'CommandOrControl+Alt+Q',
   };
 }
 

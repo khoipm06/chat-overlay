@@ -1,7 +1,8 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   AppSettings,
   ChatAttachment,
+  GitDiffReport,
   GitGlance,
   HarnessDiagnostic,
   HarnessKind,
@@ -35,7 +36,8 @@ export interface AgentOverlayApi {
   cancelTurn: () => Promise<void>;
   respondPermission: (requestId: string, optionId: string | null) => Promise<void>;
   getMentions: (query: string) => Promise<MentionItem[]>;
-  readClipboardContext: () => Promise<ChatAttachment | null>;
+  readClipboardContext: (preferSelection?: boolean) => Promise<ChatAttachment | null>;
+  getFilePath: (file: File) => string;
   captureScreen: (kind: CaptureKind) => Promise<ChatAttachment>;
   openMarkupCapture: () => Promise<ChatAttachment | null>;
   clearAgentMarkup: () => Promise<void>;
@@ -43,6 +45,11 @@ export interface AgentOverlayApi {
   saveSession: (session: SavedSession) => Promise<SavedSession[]>;
   deleteSession: (id: string) => Promise<SavedSession[]>;
   getGitGlance: (workspaceDir?: string) => Promise<GitGlance>;
+  getGitDiffReport: (workspaceDir?: string, targetFile?: string) => Promise<GitDiffReport>;
+  restoreGitFile: (
+    filePath: string,
+    workspaceDir?: string,
+  ) => Promise<{ restored: boolean; message: string }>;
   captureCheckpoint: (workspaceDir?: string) => Promise<{
     id: string;
     isGit: boolean;
@@ -59,12 +66,14 @@ export interface AgentOverlayApi {
   applyWindowLayout: (wPreset?: WidthPreset, hPreset?: HeightPreset) => Promise<void>;
   toggleGhostMode: () => Promise<boolean>;
   flashAttention: () => Promise<void>;
+  notifyBackground: (title: string, body: string) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   auditCapture: (filename: string) => Promise<void>;
   auditDone: () => Promise<void>;
   onStreamEvent: (cb: (event: StreamEvent) => void) => () => void;
   onFocusComposer: (cb: () => void) => () => void;
   onGhostModeChanged: (cb: (enabled: boolean) => void) => () => void;
+  onClipboardCompanion: (cb: (att: ChatAttachment | null) => void) => () => void;
 }
 
 const api: AgentOverlayApi = {
@@ -86,7 +95,15 @@ const api: AgentOverlayApi = {
   respondPermission: (requestId, optionId) =>
     ipcRenderer.invoke('acp:respond-permission', requestId, optionId),
   getMentions: (query) => ipcRenderer.invoke('mentions:query', query),
-  readClipboardContext: () => ipcRenderer.invoke('context:clipboard'),
+  readClipboardContext: (preferSelection) =>
+    ipcRenderer.invoke('context:clipboard', preferSelection),
+  getFilePath: (file) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
+  },
   captureScreen: (kind) => ipcRenderer.invoke('capture:screen', kind),
   openMarkupCapture: () => ipcRenderer.invoke('capture:markup'),
   clearAgentMarkup: () => ipcRenderer.invoke('markup:clear-agent'),
@@ -94,6 +111,10 @@ const api: AgentOverlayApi = {
   saveSession: (session) => ipcRenderer.invoke('sessions:save', session),
   deleteSession: (id) => ipcRenderer.invoke('sessions:delete', id),
   getGitGlance: (workspaceDir) => ipcRenderer.invoke('git:glance', workspaceDir),
+  getGitDiffReport: (workspaceDir, targetFile) =>
+    ipcRenderer.invoke('git:diff-report', workspaceDir, targetFile),
+  restoreGitFile: (filePath, workspaceDir) =>
+    ipcRenderer.invoke('git:restore-file', filePath, workspaceDir),
   captureCheckpoint: (workspaceDir) => ipcRenderer.invoke('checkpoint:capture', workspaceDir),
   restoreCheckpoint: (treeSha, workspaceDir) =>
     ipcRenderer.invoke('checkpoint:restore', treeSha, workspaceDir),
@@ -102,6 +123,7 @@ const api: AgentOverlayApi = {
     ipcRenderer.invoke('window:apply-layout', wPreset, hPreset),
   toggleGhostMode: () => ipcRenderer.invoke('window:toggle-ghost'),
   flashAttention: () => ipcRenderer.invoke('window:flash-attention'),
+  notifyBackground: (title, body) => ipcRenderer.invoke('window:notify', title, body),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   auditCapture: (filename) => ipcRenderer.invoke('audit:capture', filename),
   auditDone: () => ipcRenderer.invoke('audit:done'),
@@ -119,6 +141,11 @@ const api: AgentOverlayApi = {
     const handler = (_ev: Electron.IpcRendererEvent, enabled: boolean) => cb(enabled);
     ipcRenderer.on('window:ghost-mode', handler);
     return () => ipcRenderer.off('window:ghost-mode', handler);
+  },
+  onClipboardCompanion: (cb) => {
+    const handler = (_ev: Electron.IpcRendererEvent, att: ChatAttachment | null) => cb(att);
+    ipcRenderer.on('context:clipboard-companion', handler);
+    return () => ipcRenderer.off('context:clipboard-companion', handler);
   },
 };
 
