@@ -18,6 +18,7 @@ import {
   classifyAcpLine,
   parseAvailableCommands,
   parseSessionNewCatalog,
+  pickDesktopActionsFromText,
   pickMarkupAnnotationsFromText,
 } from './acp-parser';
 import { resolveExecutable } from './settings';
@@ -33,7 +34,10 @@ interface ToolTracker {
 }
 
 const SCREEN_MARKUP_HINT =
-  '\n\n[Screen context attached. To point at something on the user\'s screen, emit an inline tag like [[markup: box x=12 y=30 w=25 h=10 label="Retry button"]] or [[markup: arrow x1=50 y1=50 x2=25 y2=30 label="here"]]. Coordinates are percentages of the screen (0-100), origin top-left.]';
+  '\n\n[Screen context attached. To highlight steps or targets on the user\'s screen, emit inline tags like [[markup: box x=12 y=30 w=25 h=10 step=1 pulse=true label="Retry button"]] or [[markup: arrow x1=50 y1=50 x2=25 y2=30 step=2 label="Click here"]]. Coordinates are percentages of the screen (0-100), origin top-left.]';
+
+const DESKTOP_CONTROL_HINT =
+  '\n\n[Desktop Quick Actions & UI Control are available (user-confirmed). Only when the user asks to perform an OS setting or UI interaction, emit inline tags: [[desktop: os action=theme_dark|theme_light|snap_left|snap_right|snap_maximize|volume_mute|dnd_on|dnd_off]], [[desktop: os action=volume_set value=50]], [[desktop: os action=open_app target="konsole"]], [[desktop: click x=45 y=20 label="Save"]], [[desktop: double_click x=45 y=20]], [[desktop: right_click x=45 y=20]], [[desktop: scroll x=50 y=50 delta=-3]], [[desktop: type text="hello"]], or [[desktop: key combo="ctrl+s"]]. Pointer x/y are 0-100 screen percentages.]';
 
 export class AcpAgentController {
   private proc: ChildProcessWithoutNullStreams | null = null;
@@ -400,7 +404,7 @@ export class AcpAgentController {
       return;
     }
 
-    const blocks = await this.buildPromptBlocks(promptText, attachments);
+    const blocks = await this.buildPromptBlocks(promptText, attachments, settings);
     this.turnActive = true;
     this.turnStartedAt = Date.now();
     this.assistantTextBuffer = '';
@@ -434,6 +438,11 @@ export class AcpAgentController {
       const markupMatches = pickMarkupAnnotationsFromText(this.assistantTextBuffer);
       if (markupMatches.length > 0) {
         this.onMarkupAnnotations(markupMatches as unknown as MarkupAnnotation[]);
+      }
+
+      const desktopMatches = pickDesktopActionsFromText(this.assistantTextBuffer);
+      if (desktopMatches.length > 0 && settings.desktopControlMode !== 'off') {
+        this.onEvent({ type: 'desktop_actions', actions: desktopMatches });
       }
 
       const stopReason = typeof res?.stopReason === 'string' ? res.stopReason : 'end_turn';
@@ -523,6 +532,7 @@ export class AcpAgentController {
   private async buildPromptBlocks(
     promptText: string,
     attachments: ChatAttachment[],
+    settings: AppSettings,
   ): Promise<Array<Record<string, unknown>>> {
     const blocks: Array<Record<string, unknown>> = [];
     let hasImage = false;
@@ -570,6 +580,9 @@ export class AcpAgentController {
     if (hasImage) {
       finalText = finalText.replace(/@screen\b/g, '[attached screenshot]');
       finalText += SCREEN_MARKUP_HINT;
+    }
+    if (settings.desktopControlMode !== 'off') {
+      finalText += DESKTOP_CONTROL_HINT;
     }
     blocks.push({ type: 'text', text: finalText });
     return blocks;

@@ -19,6 +19,7 @@ import path from 'node:path';
 import type {
   AppSettings,
   ChatAttachment,
+  DesktopAction,
   HarnessKind,
   HeightPreset,
   MarkupAnnotation,
@@ -35,6 +36,7 @@ import {
   restoreGitFile,
   restoreWorkspaceCheckpoint,
 } from './checkpoint';
+import { detectDesktopCapabilities, executeDesktopAction } from './desktop-actions';
 import { indexWorkspaceFiles, matchMentionItems } from './mentions';
 import {
   deleteSessionRecord,
@@ -395,6 +397,18 @@ function registerShortcuts(): void {
       // Optional on compositor
     }
   }
+  if (settings.panicShortcut) {
+    try {
+      globalShortcut.register(settings.panicShortcut, () => {
+        closeMarkupWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('desktop:panic');
+        }
+      });
+    } catch {
+      // Optional on compositor
+    }
+  }
 }
 
 function setupUnixToggleSocket(): void {
@@ -603,7 +617,8 @@ function registerIpcHandlers(): void {
       patch.shortcut !== undefined ||
       patch.backupShortcut !== undefined ||
       patch.ghostShortcut !== undefined ||
-      patch.quickClipboardShortcut !== undefined
+      patch.quickClipboardShortcut !== undefined ||
+      patch.panicShortcut !== undefined
     ) {
       registerShortcuts();
     }
@@ -786,6 +801,48 @@ function registerIpcHandlers(): void {
       });
       n.on('click', () => showAndFocusOverlay());
       n.show();
+    }
+  });
+
+  ipcMain.handle('desktop:capabilities', () => detectDesktopCapabilities());
+
+  ipcMain.handle('desktop:preview-actions', (_ev, actions: DesktopAction[]) => {
+    const anns: MarkupAnnotation[] = actions
+      .filter((a) => typeof a.x === 'number' && typeof a.y === 'number')
+      .map((a, idx) => ({
+        kind: 'box',
+        x: Math.max(0, (a.x ?? 50) - 2.5),
+        y: Math.max(0, (a.y ?? 50) - 3.5),
+        w: 5,
+        h: 7,
+        step: idx + 1,
+        pulse: true,
+        label: a.label || `${a.kind} (${Math.round(a.x ?? 0)}%, ${Math.round(a.y ?? 0)}%)`,
+      }));
+    if (anns.length > 0) {
+      openAgentMarkupOverlay(anns);
+    }
+  });
+
+  ipcMain.handle(
+    'desktop:execute-action',
+    async (_ev, action: DesktopAction, isUserSlashCommand = false) => {
+      if (settings.desktopControlMode === 'off' && !isUserSlashCommand) {
+        return { ok: false, message: 'Desktop Control is disabled in Settings > Safety.' };
+      }
+      if (action.kind !== 'os' && mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+        // Hide markup preview overlay right before pointer/key injection so clicks land underneath cleanly
+        closeMarkupWindow();
+      }
+      const bounds = screen.getPrimaryDisplay().bounds;
+      return executeDesktopAction(action, bounds);
+    },
+  );
+
+  ipcMain.handle('desktop:panic-stop', () => {
+    closeMarkupWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('desktop:panic');
     }
   });
 

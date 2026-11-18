@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   AppSettings,
   ChatAttachment,
+  DesktopAction,
+  DesktopCapabilities,
   GitDiffReport,
   GitGlance,
   HarnessDiagnostic,
@@ -67,6 +69,13 @@ export interface AgentOverlayApi {
   toggleGhostMode: () => Promise<boolean>;
   flashAttention: () => Promise<void>;
   notifyBackground: (title: string, body: string) => Promise<void>;
+  getDesktopCapabilities: () => Promise<DesktopCapabilities>;
+  previewDesktopActions: (actions: DesktopAction[]) => Promise<void>;
+  executeDesktopAction: (
+    action: DesktopAction,
+    isUserSlashCommand?: boolean,
+  ) => Promise<{ ok: boolean; message: string }>;
+  panicStopDesktop: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   auditCapture: (filename: string) => Promise<void>;
   auditDone: () => Promise<void>;
@@ -74,6 +83,7 @@ export interface AgentOverlayApi {
   onFocusComposer: (cb: () => void) => () => void;
   onGhostModeChanged: (cb: (enabled: boolean) => void) => () => void;
   onClipboardCompanion: (cb: (att: ChatAttachment | null) => void) => () => void;
+  onDesktopPanic: (cb: () => void) => () => void;
 }
 
 const api: AgentOverlayApi = {
@@ -124,6 +134,11 @@ const api: AgentOverlayApi = {
   toggleGhostMode: () => ipcRenderer.invoke('window:toggle-ghost'),
   flashAttention: () => ipcRenderer.invoke('window:flash-attention'),
   notifyBackground: (title, body) => ipcRenderer.invoke('window:notify', title, body),
+  getDesktopCapabilities: () => ipcRenderer.invoke('desktop:capabilities'),
+  previewDesktopActions: (actions) => ipcRenderer.invoke('desktop:preview-actions', actions),
+  executeDesktopAction: (action, isUserSlashCommand) =>
+    ipcRenderer.invoke('desktop:execute-action', action, isUserSlashCommand),
+  panicStopDesktop: () => ipcRenderer.invoke('desktop:panic-stop'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   auditCapture: (filename) => ipcRenderer.invoke('audit:capture', filename),
   auditDone: () => ipcRenderer.invoke('audit:done'),
@@ -146,6 +161,11 @@ const api: AgentOverlayApi = {
     const handler = (_ev: Electron.IpcRendererEvent, att: ChatAttachment | null) => cb(att);
     ipcRenderer.on('context:clipboard-companion', handler);
     return () => ipcRenderer.off('context:clipboard-companion', handler);
+  },
+  onDesktopPanic: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on('desktop:panic', handler);
+    return () => ipcRenderer.off('desktop:panic', handler);
   },
 };
 
