@@ -108,8 +108,9 @@ impl Harness {
                     settings.acp_args.clone(),
                     workspace,
                 );
-                runner
-                    .set_auto_approve(settings.auto_approve_permissions || settings.acp_mode == "auto");
+                runner.set_auto_approve(
+                    settings.auto_approve_permissions || settings.acp_mode == "auto",
+                );
                 Harness::Acp(runner)
             }
             crate::settings::HarnessKind::OpenCodeAcp => {
@@ -118,8 +119,9 @@ impl Harness {
                     settings.opencode_args.clone(),
                     workspace,
                 );
-                runner
-                    .set_auto_approve(settings.auto_approve_permissions || settings.acp_mode == "auto");
+                runner.set_auto_approve(
+                    settings.auto_approve_permissions || settings.acp_mode == "auto",
+                );
                 Harness::Acp(runner)
             }
         }
@@ -276,7 +278,11 @@ pub struct AgyAcpRunner {
 }
 
 impl AgyAcpRunner {
-    pub fn new(acp_command: String, acp_args: Vec<String>, workspace_dir: std::path::PathBuf) -> Self {
+    pub fn new(
+        acp_command: String,
+        acp_args: Vec<String>,
+        workspace_dir: std::path::PathBuf,
+    ) -> Self {
         Self {
             tx: None,
             generation: 1,
@@ -394,7 +400,10 @@ impl AgyAcpRunner {
     }
 
     /// Starts the controller task if needed and returns its command channel.
-    fn ensure_controller(&mut self, tx: mpsc::UnboundedSender<(u64, StreamEvent)>) -> mpsc::UnboundedSender<AcpCommand> {
+    fn ensure_controller(
+        &mut self,
+        tx: mpsc::UnboundedSender<(u64, StreamEvent)>,
+    ) -> mpsc::UnboundedSender<AcpCommand> {
         if let Some(existing) = &self.tx {
             if !existing.is_closed() {
                 return existing.clone();
@@ -520,8 +529,18 @@ async fn acp_controller(
             AcpCommand::Warmup { gen } => {
                 let _ = ensure_acp_client(&mut client, &settings, gen, &tx).await;
             }
-            AcpCommand::Configure { command, args, workspace, auto_approve } => {
-                settings = AcpSettings { command, args, workspace, auto_approve };
+            AcpCommand::Configure {
+                command,
+                args,
+                workspace,
+                auto_approve,
+            } => {
+                settings = AcpSettings {
+                    command,
+                    args,
+                    workspace,
+                    auto_approve,
+                };
                 if let Some(handle) = in_flight.take() {
                     handle.abort();
                 }
@@ -548,7 +567,10 @@ async fn acp_controller(
                     let _ = c.cancel().await;
                 }
             }
-            AcpCommand::RespondPermission { request_id, option_id } => {
+            AcpCommand::RespondPermission {
+                request_id,
+                option_id,
+            } => {
                 if let Some(c) = client.as_ref() {
                     let _ = c.respond_permission(request_id, &option_id).await;
                 }
@@ -556,7 +578,10 @@ async fn acp_controller(
             AcpCommand::SetConfigOption { config_id, value } => {
                 if let Some(c) = client.as_ref() {
                     let supported = match config_id.as_str() {
-                        "model" => c.config.models.is_empty() || c.config.models.iter().any(|(id, _)| id == &value),
+                        "model" => {
+                            c.config.models.is_empty()
+                                || c.config.models.iter().any(|(id, _)| id == &value)
+                        }
                         "thought_level" => c.config.thinking_levels.iter().any(|l| l == &value),
                         _ => true,
                     };
@@ -569,7 +594,9 @@ async fn acp_controller(
                 if let Some(c) = client.as_ref() {
                     let target = if c.config.modes.iter().any(|(id, _)| id == &mode_id) {
                         Some(mode_id)
-                    } else if mode_id != "plan" && c.config.modes.iter().any(|(id, _)| id == "build") {
+                    } else if mode_id != "plan"
+                        && c.config.modes.iter().any(|(id, _)| id == "build")
+                    {
                         Some("build".to_string())
                     } else {
                         None
@@ -579,7 +606,14 @@ async fn acp_controller(
                     }
                 }
             }
-            AcpCommand::Prompt { prompt, attached_files, model, thinking_level, mode, gen } => {
+            AcpCommand::Prompt {
+                prompt,
+                attached_files,
+                model,
+                thinking_level,
+                mode,
+                gen,
+            } => {
                 if let Some(handle) = in_flight.take() {
                     if !handle.is_finished() {
                         if let Some(c) = client.as_ref() {
@@ -685,10 +719,12 @@ pub fn query_pi_models_sync() -> Vec<(String, String)> {
         }
     }
 
-    results.insert(0, ("default".to_string(), "Auto (system preset)".to_string()));
+    results.insert(
+        0,
+        ("default".to_string(), "Auto (system preset)".to_string()),
+    );
     results
 }
-
 
 pub fn resolve_pi_binary() -> std::path::PathBuf {
     if let Ok(path) = std::env::var("PATH") {
@@ -715,7 +751,11 @@ pub fn resolve_pi_binary() -> std::path::PathBuf {
         }
     }
 
-    for sys in ["/home/linuxbrew/.linuxbrew/bin/pi", "/usr/local/bin/pi", "/usr/bin/pi"] {
+    for sys in [
+        "/home/linuxbrew/.linuxbrew/bin/pi",
+        "/usr/local/bin/pi",
+        "/usr/bin/pi",
+    ] {
         let p = std::path::PathBuf::from(sys);
         if p.is_file() {
             return p;
@@ -731,7 +771,8 @@ impl PiRunner {
             child: None,
             generation: 1,
             session_id: new_session_id(),
-            workspace_dir: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            workspace_dir: std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from(".")),
         }
     }
 
@@ -800,13 +841,14 @@ impl PiRunner {
         let augmented_path = augmented_path();
 
         if !workspace_dir.is_dir() {
-            return Err(format!("workspace directory not found: {}", workspace_dir.display()).into());
+            return Err(
+                format!("workspace directory not found: {}", workspace_dir.display()).into(),
+            );
         }
 
         let pi_bin = resolve_pi_binary();
         let mut cmd = Command::new(&pi_bin);
-        cmd.env("PATH", &augmented_path)
-            .current_dir(&workspace_dir);
+        cmd.env("PATH", &augmented_path).current_dir(&workspace_dir);
 
         let args = build_pi_command_args(
             &session_state_dir(),
@@ -931,16 +973,13 @@ fn parse_and_dispatch_line(
                         .and_then(|n| n.as_str())
                         .unwrap_or("tool_call")
                         .to_string();
-                    let name = v.get("toolName").and_then(|n| n.as_str()).unwrap_or("tool").to_string();
+                    let name = v
+                        .get("toolName")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("tool")
+                        .to_string();
                     let args = v.get("args").map(|a| a.to_string()).unwrap_or_default();
-                    let _ = tx.send((
-                        gen,
-                        StreamEvent::ToolStart {
-                            id,
-                            name,
-                            args,
-                        },
-                    ));
+                    let _ = tx.send((gen, StreamEvent::ToolStart { id, name, args }));
                 }
                 "tool_execution_end" => {
                     let id = v
@@ -948,7 +987,11 @@ fn parse_and_dispatch_line(
                         .and_then(|n| n.as_str())
                         .unwrap_or("tool_call")
                         .to_string();
-                    let name = v.get("toolName").and_then(|n| n.as_str()).unwrap_or("tool").to_string();
+                    let name = v
+                        .get("toolName")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("tool")
+                        .to_string();
                     let is_error = v.get("isError").and_then(|b| b.as_bool()).unwrap_or(false);
                     let duration_ms = v.get("durationMs").and_then(|d| d.as_u64()).unwrap_or(0);
                     let result_str = if let Some(res) = v.get("result") {
@@ -1437,7 +1480,10 @@ mod tests {
         assert!(parse_and_dispatch_line(turn_end_json, gen, &tx).is_ok());
 
         // Nothing must have leaked to TextDelta
-        assert!(rx.try_recv().is_err(), "Tool output must NOT leak into receiver");
+        assert!(
+            rx.try_recv().is_err(),
+            "Tool output must NOT leak into receiver"
+        );
     }
 
     #[test]
@@ -1463,31 +1509,70 @@ mod tests {
         assert_eq!(args1[5], "--session-id");
         assert_eq!(args1[6], "pi-1");
         assert!(!args1.contains(&"--model".to_string()));
-        assert_eq!(args1[args1.iter().position(|r| r == "--thinking").unwrap() + 1], "medium");
+        assert_eq!(
+            args1[args1.iter().position(|r| r == "--thinking").unwrap() + 1],
+            "medium"
+        );
         assert_eq!(args1[args1.len() - 2], "--");
         assert_eq!(args1[args1.len() - 1], "Hello");
 
         // 2. Specific model and ask mode
         let args2 = build_pi_command_args(
-            dummy_dir, "pi-2", "Review", Some("claude-3-7-sonnet"), Some("high"), Some("ask"), &no_files,
+            dummy_dir,
+            "pi-2",
+            "Review",
+            Some("claude-3-7-sonnet"),
+            Some("high"),
+            Some("ask"),
+            &no_files,
         );
-        assert_eq!(args2[args2.iter().position(|r| r == "--model").unwrap() + 1], "claude-3-7-sonnet");
-        assert_eq!(args2[args2.iter().position(|r| r == "--thinking").unwrap() + 1], "high");
-        assert_eq!(args2[args2.iter().position(|r| r == "--exclude-tools").unwrap() + 1], "edit,write");
+        assert_eq!(
+            args2[args2.iter().position(|r| r == "--model").unwrap() + 1],
+            "claude-3-7-sonnet"
+        );
+        assert_eq!(
+            args2[args2.iter().position(|r| r == "--thinking").unwrap() + 1],
+            "high"
+        );
+        assert_eq!(
+            args2[args2.iter().position(|r| r == "--exclude-tools").unwrap() + 1],
+            "edit,write"
+        );
 
         // 3. Plan mode disables write tools
         let args3 = build_pi_command_args(
-            dummy_dir, "pi-3", "Plan arch", None, Some("off"), Some("plan"), &no_files,
+            dummy_dir,
+            "pi-3",
+            "Plan arch",
+            None,
+            Some("off"),
+            Some("plan"),
+            &no_files,
         );
-        assert_eq!(args3[args3.iter().position(|r| r == "--exclude-tools").unwrap() + 1], "edit,write");
-        assert_eq!(args3[args3.iter().position(|r| r == "--thinking").unwrap() + 1], "off");
+        assert_eq!(
+            args3[args3.iter().position(|r| r == "--exclude-tools").unwrap() + 1],
+            "edit,write"
+        );
+        assert_eq!(
+            args3[args3.iter().position(|r| r == "--thinking").unwrap() + 1],
+            "off"
+        );
 
         // 4. Edit mode keeps tools enabled
         let args4 = build_pi_command_args(
-            dummy_dir, "pi-4", "Refactor", Some("gpt-4o"), None, Some("edit"), &no_files,
+            dummy_dir,
+            "pi-4",
+            "Refactor",
+            Some("gpt-4o"),
+            None,
+            Some("edit"),
+            &no_files,
         );
         assert!(!args4.contains(&"--exclude-tools".to_string()));
-        assert_eq!(args4[args4.iter().position(|r| r == "--model").unwrap() + 1], "gpt-4o");
+        assert_eq!(
+            args4[args4.iter().position(|r| r == "--model").unwrap() + 1],
+            "gpt-4o"
+        );
     }
 
     #[test]
@@ -1536,7 +1621,10 @@ mod tests {
 
     #[test]
     fn test_screen_attachment_appends_markup_hint() {
-        let attached = vec![("/tmp/pi-overlay-captures/screen.png".to_string(), String::new())];
+        let attached = vec![(
+            "/tmp/pi-overlay-captures/screen.png".to_string(),
+            String::new(),
+        )];
         assert!(has_screen_attachment(&attached));
 
         let args = build_pi_command_args(
@@ -1556,7 +1644,10 @@ mod tests {
 
         let last = args.last().unwrap();
         assert!(!last.starts_with('@'), "message arg must not start with @");
-        assert!(!last.contains("[[markup: box"), "markup hint must not pollute user prompt");
+        assert!(
+            !last.contains("[[markup: box"),
+            "markup hint must not pollute user prompt"
+        );
         assert!(last.contains("What is on screen?"));
     }
 
@@ -1591,7 +1682,10 @@ mod tests {
 
         // stdout and stderr object
         let v2 = serde_json::json!({"stdout": "line 1\nline 2", "stderr": "warn: low memory"});
-        assert_eq!(extract_tool_result_text(&v2), "line 1\nline 2\nwarn: low memory");
+        assert_eq!(
+            extract_tool_result_text(&v2),
+            "line 1\nline 2\nwarn: low memory"
+        );
 
         // Text field object
         let v3 = serde_json::json!({"text": "custom tool output"});

@@ -24,7 +24,11 @@ pub const THINKING_LEVELS: &[(&str, &str)] = &[
 /// `default` is the ACP name; the Pi harness maps it onto its own "agent" mode.
 pub const AGENT_MODES: &[(&str, &str, &str)] = &[
     ("default", "Default", "Ask before changing anything"),
-    ("accept-edits", "Accept Edits", "Apply file edits without asking"),
+    (
+        "accept-edits",
+        "Accept Edits",
+        "Apply file edits without asking",
+    ),
     ("auto", "Auto", "Run tools and edits autonomously"),
     ("plan", "Plan", "Research and plan, no changes"),
 ];
@@ -35,7 +39,10 @@ pub fn model_display_name(model_id: &str) -> String {
     model_display_name_with_list(model_id, &models)
 }
 
-pub fn model_display_name_with_list(model_id: &str, available_models: &[(String, String)]) -> String {
+pub fn model_display_name_with_list(
+    model_id: &str,
+    available_models: &[(String, String)],
+) -> String {
     if model_id.is_empty() {
         return "Model".to_string();
     }
@@ -140,7 +147,10 @@ pub fn collapse_and_finalize_progress(target: &ActiveStreamTarget) {
         let total_elapsed = p.start_time.elapsed().as_secs();
         let dur_str = format::format_duration_sec(total_elapsed);
         let lbl = if p.has_error {
-            format!("Completed {} steps with errors in {}", p.steps_count, dur_str)
+            format!(
+                "Completed {} steps with errors in {}",
+                p.steps_count, dur_str
+            )
         } else {
             format!("Completed {} steps in {}", p.steps_count, dur_str)
         };
@@ -186,7 +196,10 @@ pub fn apply_session_config(state: &Rc<RefCell<AppState>>, cfg: &backend::Sessio
 
     if !cfg.models.is_empty() {
         st.available_models = cfg.models.clone();
-        let current_known = st.available_models.iter().any(|(id, _)| id == &st.settings.model);
+        let current_known = st
+            .available_models
+            .iter()
+            .any(|(id, _)| id == &st.settings.model);
         if (st.settings.model.is_empty() || !current_known) && !cfg.current_model.is_empty() {
             let kind = st.settings.harness;
             st.settings.set_model_for_harness(kind, &cfg.current_model);

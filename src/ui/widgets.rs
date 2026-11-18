@@ -212,7 +212,10 @@ pub fn add_context_chip(
     let path_clone = full_path.to_string();
     chip_del.connect_clicked(move |_| {
         chips_box_clone.remove(&chip_clone);
-        state.borrow_mut().attached_files.retain(|(p, _)| p != &path_clone);
+        state
+            .borrow_mut()
+            .attached_files
+            .retain(|(p, _)| p != &path_clone);
         if let Some(ref cb) = on_change_clone {
             cb();
         }

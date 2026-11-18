@@ -87,7 +87,14 @@ pub fn snapshot_window_with_popovers(
                 ) {
                     let bounds = anchor.compute_bounds(window);
                     let (ax, ay, aw, ah) = bounds
-                        .map(|b| (b.x() as f64, b.y() as f64, b.width() as f64, b.height() as f64))
+                        .map(|b| {
+                            (
+                                b.x() as f64,
+                                b.y() as f64,
+                                b.width() as f64,
+                                b.height() as f64,
+                            )
+                        })
                         .unwrap_or((16.0, height as f64 - 160.0, 200.0, 30.0));
                     let mut x = (ax + aw - pw as f64).max(8.0);
                     if x + pw as f64 > width as f64 - 8.0 {

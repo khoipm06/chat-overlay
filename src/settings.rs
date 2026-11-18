@@ -123,7 +123,11 @@ impl HarnessKind {
     }
 
     pub fn all() -> [HarnessKind; 3] {
-        [HarnessKind::PiJson, HarnessKind::AgyAcp, HarnessKind::OpenCodeAcp]
+        [
+            HarnessKind::PiJson,
+            HarnessKind::AgyAcp,
+            HarnessKind::OpenCodeAcp,
+        ]
     }
 }
 

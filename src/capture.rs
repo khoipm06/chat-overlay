@@ -127,7 +127,10 @@ pub fn png_dimensions(path: &std::path::Path) -> Option<(u32, u32)> {
 pub fn capture_screen(mode: CaptureMode) -> Result<PathBuf, String> {
     let capture_dir = std::env::temp_dir().join("pi-overlay-captures");
     if let Err(e) = std::fs::create_dir_all(&capture_dir) {
-        return Err(format!("Failed to create capture dir {:?}: {}", capture_dir, e));
+        return Err(format!(
+            "Failed to create capture dir {:?}: {}",
+            capture_dir, e
+        ));
     }
 
     let now_ts = SystemTime::now()
@@ -143,7 +146,9 @@ pub fn capture_screen(mode: CaptureMode) -> Result<PathBuf, String> {
             cmd.arg(arg);
         }
 
-        let status = cmd.status().map_err(|e| format!("Failed to run spectacle: {}", e))?;
+        let status = cmd
+            .status()
+            .map_err(|e| format!("Failed to run spectacle: {}", e))?;
         if !status.success() {
             return Err(format!("spectacle exited with status {}", status));
         }
@@ -153,14 +158,18 @@ pub fn capture_screen(mode: CaptureMode) -> Result<PathBuf, String> {
             let slurp_out = Command::new("slurp")
                 .output()
                 .map_err(|e| format!("Failed to run slurp: {}", e))?;
-            let geom = String::from_utf8_lossy(&slurp_out.stdout).trim().to_string();
+            let geom = String::from_utf8_lossy(&slurp_out.stdout)
+                .trim()
+                .to_string();
             if geom.is_empty() {
                 return Err("Region selection cancelled".to_string());
             }
             cmd.arg("-g").arg(geom);
         }
         cmd.arg(&out_str);
-        let status = cmd.status().map_err(|e| format!("Failed to run grim: {}", e))?;
+        let status = cmd
+            .status()
+            .map_err(|e| format!("Failed to run grim: {}", e))?;
         if !status.success() {
             return Err(format!("grim exited with status {}", status));
         }
@@ -193,15 +202,24 @@ pub fn capture_screen(mode: CaptureMode) -> Result<PathBuf, String> {
             }
         }
         cmd.arg(&out_str);
-        let status = cmd.status().map_err(|e| format!("Failed to run import: {}", e))?;
+        let status = cmd
+            .status()
+            .map_err(|e| format!("Failed to run import: {}", e))?;
         if !status.success() {
             return Err(format!("import exited with status {}", status));
         }
     } else {
-        return Err("No supported screenshot tool found on system (need spectacle, grim, or import)".to_string());
+        return Err(
+            "No supported screenshot tool found on system (need spectacle, grim, or import)"
+                .to_string(),
+        );
     }
 
-    if !out_file.exists() || std::fs::metadata(&out_file).map(|m| m.len() == 0).unwrap_or(true) {
+    if !out_file.exists()
+        || std::fs::metadata(&out_file)
+            .map(|m| m.len() == 0)
+            .unwrap_or(true)
+    {
         return Err("Screenshot file was not generated or is empty".to_string());
     }
 

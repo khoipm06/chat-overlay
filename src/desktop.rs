@@ -30,8 +30,8 @@ pub fn ensure_desktop_integration() {
     let mut wrote_desktop = false;
     if !target_desktop.exists() {
         let _ = std::fs::create_dir_all(&desktop_dir);
-        let content = include_str!("../resources/pi-overlay.desktop")
-            .replace("Exec=pi-overlay", &exec_line);
+        let content =
+            include_str!("../resources/pi-overlay.desktop").replace("Exec=pi-overlay", &exec_line);
         let _ = std::fs::write(&target_desktop, content);
         wrote_desktop = true;
     } else if exec_path.is_absolute() {
@@ -81,7 +81,9 @@ pub fn ensure_desktop_integration() {
         let _ = std::process::Command::new("gtk-update-icon-cache")
             .args([
                 "-f",
-                home.join(".local/share/icons/hicolor").to_str().unwrap_or(""),
+                home.join(".local/share/icons/hicolor")
+                    .to_str()
+                    .unwrap_or(""),
             ])
             .status();
     }

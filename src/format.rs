@@ -30,7 +30,12 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
     let generic = summarize_args(parsed.as_ref(), args_json);
     let lower = name.to_lowercase();
 
-    if lower == "bash" || lower == "powershell" || lower == "terminal" || lower == "exec" || lower == "run_command" {
+    if lower == "bash"
+        || lower == "powershell"
+        || lower == "terminal"
+        || lower == "exec"
+        || lower == "run_command"
+    {
         let cmd = parsed
             .as_ref()
             .and_then(|v| {
@@ -41,7 +46,12 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
             .and_then(|c| c.as_str())
             .unwrap_or(generic.as_str());
         format!("Terminal: {} ›", truncate_summary(cmd, 36))
-    } else if lower == "read" || lower == "view" || lower.contains("read_") || lower.contains("view_") || lower.contains("get_file") {
+    } else if lower == "read"
+        || lower == "view"
+        || lower.contains("read_")
+        || lower.contains("view_")
+        || lower.contains("get_file")
+    {
         let path = parsed
             .as_ref()
             .and_then(|v| {
@@ -54,7 +64,11 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
             .and_then(|p| p.as_str())
             .unwrap_or(generic.as_str());
         format!("Read {} ›", truncate_summary(path, 40))
-    } else if lower == "edit" || lower.contains("edit_") || lower.contains("replace_") || lower.contains("patch") {
+    } else if lower == "edit"
+        || lower.contains("edit_")
+        || lower.contains("replace_")
+        || lower.contains("patch")
+    {
         let path = parsed
             .as_ref()
             .and_then(|v| {
@@ -78,7 +92,14 @@ pub fn format_tool_call_label(name: &str, args_json: &str) -> String {
             .and_then(|p| p.as_str())
             .unwrap_or(generic.as_str());
         format!("Created {} ›", truncate_summary(path, 40))
-    } else if lower == "search" || lower == "grep" || lower == "find" || lower.contains("search") || lower.contains("grep") || lower.contains("find_") || lower.contains("list_") {
+    } else if lower == "search"
+        || lower == "grep"
+        || lower == "find"
+        || lower.contains("search")
+        || lower.contains("grep")
+        || lower.contains("find_")
+        || lower.contains("list_")
+    {
         let query = parsed
             .as_ref()
             .and_then(|v| {
@@ -140,13 +161,36 @@ pub fn tool_icon_name(name: &str) -> &'static str {
 #[cfg(test)]
 pub fn tool_icon_for_name(name: &str) -> &'static str {
     let lower = name.to_lowercase();
-    if lower == "bash" || lower == "powershell" || lower == "terminal" || lower == "exec" || lower == "run_command" {
+    if lower == "bash"
+        || lower == "powershell"
+        || lower == "terminal"
+        || lower == "exec"
+        || lower == "run_command"
+    {
         "⚙"
-    } else if lower == "read" || lower == "view" || lower.contains("read_") || lower.contains("view_") || lower.contains("get_file") {
+    } else if lower == "read"
+        || lower == "view"
+        || lower.contains("read_")
+        || lower.contains("view_")
+        || lower.contains("get_file")
+    {
         "📄"
-    } else if lower == "edit" || lower == "write" || lower.contains("edit_") || lower.contains("replace_") || lower.contains("patch") || lower.contains("write_") {
+    } else if lower == "edit"
+        || lower == "write"
+        || lower.contains("edit_")
+        || lower.contains("replace_")
+        || lower.contains("patch")
+        || lower.contains("write_")
+    {
         "✏"
-    } else if lower == "search" || lower == "grep" || lower == "find" || lower.contains("search") || lower.contains("grep") || lower.contains("find_") || lower.contains("list_") {
+    } else if lower == "search"
+        || lower == "grep"
+        || lower == "find"
+        || lower.contains("search")
+        || lower.contains("grep")
+        || lower.contains("find_")
+        || lower.contains("list_")
+    {
         "🔍"
     } else {
         "⚡"
@@ -162,7 +206,7 @@ pub fn strip_ansi_escapes(input: &str) -> String {
             if let Some(&next) = chars.peek() {
                 if next == '[' {
                     chars.next(); // consume '['
-                    // Consume until a command byte in 0x40..=0x7E
+                                  // Consume until a command byte in 0x40..=0x7E
                     while let Some(&cmd) = chars.peek() {
                         chars.next();
                         if ('\x40'..='\x7e').contains(&cmd) {
@@ -171,7 +215,7 @@ pub fn strip_ansi_escapes(input: &str) -> String {
                     }
                 } else if next == ']' {
                     chars.next(); // consume ']'
-                    // Consume until BEL (\x07) or ST (\x1b\\)
+                                  // Consume until BEL (\x07) or ST (\x1b\\)
                     while let Some(&osc) = chars.peek() {
                         chars.next();
                         if osc == '\x07' {
@@ -196,7 +240,19 @@ pub fn strip_ansi_escapes(input: &str) -> String {
 
 fn summarize_args(parsed: Option<&serde_json::Value>, raw: &str) -> String {
     if let Some(serde_json::Value::Object(map)) = parsed {
-        for key in ["command", "CommandLine", "path", "pattern", "Pattern", "query", "Query", "url", "file", "TargetFile", "SearchPath"] {
+        for key in [
+            "command",
+            "CommandLine",
+            "path",
+            "pattern",
+            "Pattern",
+            "query",
+            "Query",
+            "url",
+            "file",
+            "TargetFile",
+            "SearchPath",
+        ] {
             if let Some(v) = map.get(key).and_then(|v| v.as_str()) {
                 return v.to_string();
             }
@@ -232,7 +288,8 @@ mod tests {
         let label_search = format_tool_call_label("grep_search", r#"{"Query":"fn main"}"#);
         assert!(label_search.contains("Search: fn main"));
 
-        let label_edit = format_tool_call_label("replace_file_content", r#"{"TargetFile":"src/main.rs"}"#);
+        let label_edit =
+            format_tool_call_label("replace_file_content", r#"{"TargetFile":"src/main.rs"}"#);
         assert!(label_edit.contains("Edited src/main.rs"));
     }
 

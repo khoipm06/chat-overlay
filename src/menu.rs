@@ -119,7 +119,14 @@ impl FloatingMenuHost {
         let drawer_h = self.drawer.height().max(700);
         let anchor_bounds = anchor.as_ref().compute_bounds(&self.drawer);
         let (ax, ay, aw, ah) = anchor_bounds
-            .map(|b| (b.x() as i32, b.y() as i32, b.width() as i32, b.height() as i32))
+            .map(|b| {
+                (
+                    b.x() as i32,
+                    b.y() as i32,
+                    b.width() as i32,
+                    b.height() as i32,
+                )
+            })
             .unwrap_or((12, drawer_h - 140, 120, 26));
 
         let target_w = min_width.max(aw).min(drawer_w - 16);
@@ -158,7 +165,11 @@ impl FloatingMenuHost {
 
     /// Shows or hides the non-blocking `@` / `#` / `/` autocomplete panel flush
     /// above `composer_widget`. Does not activate `backdrop`, keeping editor typing live.
-    pub fn show_suggest(&self, composer_widget: &impl IsA<gtk4::Widget>, content: &impl IsA<gtk4::Widget>) {
+    pub fn show_suggest(
+        &self,
+        composer_widget: &impl IsA<gtk4::Widget>,
+        content: &impl IsA<gtk4::Widget>,
+    ) {
         let drawer_h = self.drawer.height();
         let bottom_margin = if drawer_h > 0 {
             composer_widget

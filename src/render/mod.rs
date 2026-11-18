@@ -23,7 +23,10 @@ pub enum MarkdownBlock {
     BlockQuote(String),
     /// Items of `(marker, inline markup)`.
     List(Vec<(String, String)>),
-    Code { lang: String, code: String },
+    Code {
+        lang: String,
+        code: String,
+    },
     Table(table::TableData),
     Rule,
 }
@@ -353,7 +356,9 @@ pub fn parse_markdown_blocks(input: &str) -> Vec<MarkdownBlock> {
                 blocks.push(MarkdownBlock::Rule);
             }
             Event::TaskListMarker(checked) => {
-                inline.out.push_str(if checked { "\u{2611} " } else { "\u{2610} " });
+                inline
+                    .out
+                    .push_str(if checked { "\u{2611} " } else { "\u{2610} " });
             }
             Event::FootnoteReference(name) => {
                 inline

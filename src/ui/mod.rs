@@ -24,7 +24,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use menus::{build_menus, MenuBuildArgs};
 use state::{
-    collapse_and_finalize_thinking, model_display_name_with_list, mode_display_name,
+    collapse_and_finalize_thinking, mode_display_name, model_display_name_with_list,
     thinking_display_name, workspace_label, ActiveStreamTarget, AppContext, AppState, OverlayMode,
 };
 use std::cell::{Cell, RefCell};
@@ -98,10 +98,30 @@ pub fn build_ui(
     header_spacer.set_hexpand(true);
     panel_header.append(&header_spacer);
 
-    let btn_new_chat = icons::icon_button("codicon-add-symbolic", 15, "New Chat (Ctrl+N)", &["header-icon-btn"]);
-    let btn_session_list = icons::icon_button("codicon-history-symbolic", 15, "Show Chats / History", &["header-icon-btn"]);
-    let btn_more = icons::icon_button("codicon-settings-gear-symbolic", 15, "Settings & Session Options", &["header-icon-btn"]);
-    let btn_close = icons::icon_button("codicon-close-symbolic", 15, "Close Overlay (Esc)", &["header-icon-btn", "close"]);
+    let btn_new_chat = icons::icon_button(
+        "codicon-add-symbolic",
+        15,
+        "New Chat (Ctrl+N)",
+        &["header-icon-btn"],
+    );
+    let btn_session_list = icons::icon_button(
+        "codicon-history-symbolic",
+        15,
+        "Show Chats / History",
+        &["header-icon-btn"],
+    );
+    let btn_more = icons::icon_button(
+        "codicon-settings-gear-symbolic",
+        15,
+        "Settings & Session Options",
+        &["header-icon-btn"],
+    );
+    let btn_close = icons::icon_button(
+        "codicon-close-symbolic",
+        15,
+        "Close Overlay (Esc)",
+        &["header-icon-btn", "close"],
+    );
     panel_header.append(&btn_new_chat);
     panel_header.append(&btn_session_list);
     panel_header.append(&btn_more);
@@ -131,7 +151,12 @@ pub fn build_ui(
     btn_workspace.set_child(Some(&ws_inner));
     session_subheader.append(&btn_workspace);
 
-    session_subheader.append(&gtk4::Label::builder().label("/").css_classes(["session-sep"]).build());
+    session_subheader.append(
+        &gtk4::Label::builder()
+            .label("/")
+            .css_classes(["session-sep"])
+            .build(),
+    );
 
     let (btn_harness, lbl_harness) = make_picker_button(
         initial_settings.harness.label(),
@@ -183,7 +208,9 @@ pub fn build_ui(
     );
     welcome_box.append(
         &gtk4::Label::builder()
-            .label("Ask about your workspace, run edits, or attach live screen context with @screen.")
+            .label(
+                "Ask about your workspace, run edits, or attach live screen context with @screen.",
+            )
             .css_classes(["welcome-subtitle"])
             .wrap(true)
             .wrap_mode(gtk4::pango::WrapMode::WordChar)
@@ -257,7 +284,12 @@ pub fn build_ui(
     let scrolled_overlay = gtk4::Overlay::new();
     scrolled_overlay.set_child(Some(&scrolled));
     scrolled_overlay.set_vexpand(true);
-    let btn_scroll_bottom = icons::icon_button("codicon-arrow-down-symbolic", 13, "Scroll to bottom", &["btn-scroll-bottom"]);
+    let btn_scroll_bottom = icons::icon_button(
+        "codicon-arrow-down-symbolic",
+        13,
+        "Scroll to bottom",
+        &["btn-scroll-bottom"],
+    );
     btn_scroll_bottom.set_halign(gtk4::Align::End);
     btn_scroll_bottom.set_valign(gtk4::Align::End);
     btn_scroll_bottom.set_margin_end(14);
@@ -340,23 +372,40 @@ pub fn build_ui(
     composer_toolbar.add_css_class("composer-toolbar");
 
     let initial_mode_name = mode_display_name(&initial_settings.acp_mode);
-    let (btn_mode_pill, lbl_mode_pill) = make_picker_button(&initial_mode_name, "composer-picker-btn", "Switch Agent Mode");
+    let (btn_mode_pill, lbl_mode_pill) = make_picker_button(
+        &initial_mode_name,
+        "composer-picker-btn",
+        "Switch Agent Mode",
+    );
     composer_toolbar.append(&btn_mode_pill);
 
     let initial_model_name = model_display_name_with_list(&initial_settings.model, &initial_models);
-    let (btn_model_pill, lbl_model_pill) = make_picker_button(&initial_model_name, "composer-picker-btn", "Select Language Model (Ctrl+.)");
+    let (btn_model_pill, lbl_model_pill) = make_picker_button(
+        &initial_model_name,
+        "composer-picker-btn",
+        "Select Language Model (Ctrl+.)",
+    );
     lbl_model_pill.set_max_width_chars(24);
     composer_toolbar.append(&btn_model_pill);
 
     let initial_think_name = thinking_display_name(&initial_settings.thinking_level);
-    let (btn_think_pill, lbl_think_pill) = make_picker_button(&initial_think_name, "composer-picker-btn", "Reasoning Depth");
+    let (btn_think_pill, lbl_think_pill) = make_picker_button(
+        &initial_think_name,
+        "composer-picker-btn",
+        "Reasoning Depth",
+    );
     composer_toolbar.append(&btn_think_pill);
 
     let tb_spacer = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
     tb_spacer.set_hexpand(true);
     composer_toolbar.append(&tb_spacer);
 
-    let btn_capture = icons::icon_button("codicon-device-camera-symbolic", 14, "Capture screen context (Ctrl+Shift+S)", &["composer-tool-btn"]);
+    let btn_capture = icons::icon_button(
+        "codicon-device-camera-symbolic",
+        14,
+        "Capture screen context (Ctrl+Shift+S)",
+        &["composer-tool-btn"],
+    );
     composer_toolbar.append(&btn_capture);
 
     let btn_pin_screen = gtk4::ToggleButton::builder()
@@ -370,7 +419,12 @@ pub fn build_ui(
     }
     composer_toolbar.append(&btn_pin_screen);
 
-    let btn_send_stop = icons::icon_button("codicon-arrow-up-symbolic", 13, "Send (Enter)", &["composer-send-btn"]);
+    let btn_send_stop = icons::icon_button(
+        "codicon-arrow-up-symbolic",
+        13,
+        "Send (Enter)",
+        &["composer-send-btn"],
+    );
     composer_toolbar.append(&btn_send_stop);
 
     composer_box.append(&composer_toolbar);
@@ -475,7 +529,8 @@ pub fn build_ui(
         let drawer_u = drawer.clone();
         let st_u = state.clone();
         drag.connect_drag_update(move |_, dx, _| {
-            let next_w = (start_w.get() - dx as i32).clamp(crate::settings::MIN_WIDTH, crate::settings::MAX_WIDTH);
+            let next_w = (start_w.get() - dx as i32)
+                .clamp(crate::settings::MIN_WIDTH, crate::settings::MAX_WIDTH);
             drawer_u.set_width_request(next_w);
             st_u.borrow_mut().settings.width = next_w;
         });
@@ -591,9 +646,12 @@ pub fn build_ui(
     let scroll_to_widget: Rc<dyn Fn(&gtk4::Box)> = {
         let scrolled = scrolled.clone();
         Rc::new(move |widget: &gtk4::Box| {
-            let (_, y) = widget.translate_coordinates(&scrolled, 0.0, 0.0).unwrap_or((0.0, 0.0));
+            let (_, y) = widget
+                .translate_coordinates(&scrolled, 0.0, 0.0)
+                .unwrap_or((0.0, 0.0));
             let adj = scrolled.vadjustment();
-            let target_val = (adj.value() + y - 40.0).clamp(adj.lower(), adj.upper() - adj.page_size());
+            let target_val =
+                (adj.value() + y - 40.0).clamp(adj.lower(), adj.upper() - adj.page_size());
             adj.set_value(target_val);
         })
     };

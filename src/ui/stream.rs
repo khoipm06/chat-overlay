@@ -2,7 +2,7 @@
 
 use super::state::{
     apply_session_config, collapse_and_finalize_progress, collapse_and_finalize_thinking,
-    model_display_name_with_list, mode_display_name, ActiveStreamTarget, AppState,
+    mode_display_name, model_display_name_with_list, ActiveStreamTarget, AppState,
     ProgressDisclosureState, StepItemEntry, ThinkingDisclosureState,
 };
 use super::widgets::{build_permission_card, MarkdownStream};
@@ -142,7 +142,8 @@ pub fn spawn_stream_consumer(args: StreamConsumerArgs) {
 
                         let mut p_opt = target.progress.borrow_mut();
                         if p_opt.is_none() {
-                            let disclosure = super::widgets::Disclosure::new("Running steps…", true);
+                            let disclosure =
+                                super::widgets::Disclosure::new("Running steps…", true);
                             let steps_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
                             steps_box.add_css_class("steps-list-box");
                             disclosure.rail.append(&steps_box);
@@ -220,7 +221,8 @@ pub fn spawn_stream_consumer(args: StreamConsumerArgs) {
 
                         let mut p_opt = target.progress.borrow_mut();
                         if p_opt.is_none() {
-                            let disclosure = super::widgets::Disclosure::new("Running steps…", true);
+                            let disclosure =
+                                super::widgets::Disclosure::new("Running steps…", true);
                             let steps_box = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
                             steps_box.add_css_class("steps-list-box");
                             disclosure.rail.append(&steps_box);
@@ -324,7 +326,10 @@ pub fn spawn_stream_consumer(args: StreamConsumerArgs) {
                             let total_elapsed = p.start_time.elapsed().as_secs();
                             let dur_str = format::format_duration_sec(total_elapsed);
                             let lbl = if p.has_error {
-                                format!("Completed {} steps with errors in {}", p.steps_count, dur_str)
+                                format!(
+                                    "Completed {} steps with errors in {}",
+                                    p.steps_count, dur_str
+                                )
                             } else {
                                 format!("Completed {} steps in {}", p.steps_count, dur_str)
                             };
@@ -491,7 +496,8 @@ pub fn spawn_stream_consumer(args: StreamConsumerArgs) {
                                 &stream.text,
                             );
                         }
-                        agent_shapes = sync_live_markup_overlay(&app, &active_markup_overlay, &full);
+                        agent_shapes =
+                            sync_live_markup_overlay(&app, &active_markup_overlay, &full);
                     }
                     if !agent_shapes.is_empty() {
                         let count = agent_shapes.len();

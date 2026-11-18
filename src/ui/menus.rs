@@ -2,7 +2,7 @@
 //! Agent Mode, Reasoning Depth, Session History, Settings, and New Chat confirmation.
 
 use super::state::{
-    model_display_name_with_list, mode_display_name, thinking_display_name, AppState,
+    mode_display_name, model_display_name_with_list, thinking_display_name, AppState,
     DeferredAction, AGENT_MODES, THINKING_LEVELS,
 };
 use super::widgets::set_text_view_content;
@@ -267,37 +267,35 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
         let mh_nav = menu_host.clone();
         let tv_nav = text_view.clone();
         let key_ctrl = gtk4::EventControllerKey::new();
-        key_ctrl.connect_key_pressed(move |_, key, _, _| {
-            match key {
-                gdk::Key::Escape => {
-                    mh_nav.close_menu();
-                    tv_nav.grab_focus();
-                    glib::Propagation::Stop
-                }
-                gdk::Key::Down | gdk::Key::Up => {
-                    let count = filt_nav.borrow().len() as i32;
-                    if count == 0 {
-                        return glib::Propagation::Stop;
-                    }
-                    let cur = list_nav.selected_row().map(|r| r.index()).unwrap_or(0);
-                    let delta = if key == gdk::Key::Down { 1 } else { -1 };
-                    let next = (cur + delta).rem_euclid(count);
-                    if let Some(row) = list_nav.row_at_index(next) {
-                        list_nav.select_row(Some(&row));
-                        row.grab_focus();
-                    }
-                    glib::Propagation::Stop
-                }
-                gdk::Key::Return | gdk::Key::KP_Enter => {
-                    let idx = list_nav
-                        .selected_row()
-                        .map(|r| r.index().max(0) as usize)
-                        .unwrap_or(0);
-                    apply_nav(idx);
-                    glib::Propagation::Stop
-                }
-                _ => glib::Propagation::Proceed,
+        key_ctrl.connect_key_pressed(move |_, key, _, _| match key {
+            gdk::Key::Escape => {
+                mh_nav.close_menu();
+                tv_nav.grab_focus();
+                glib::Propagation::Stop
             }
+            gdk::Key::Down | gdk::Key::Up => {
+                let count = filt_nav.borrow().len() as i32;
+                if count == 0 {
+                    return glib::Propagation::Stop;
+                }
+                let cur = list_nav.selected_row().map(|r| r.index()).unwrap_or(0);
+                let delta = if key == gdk::Key::Down { 1 } else { -1 };
+                let next = (cur + delta).rem_euclid(count);
+                if let Some(row) = list_nav.row_at_index(next) {
+                    list_nav.select_row(Some(&row));
+                    row.grab_focus();
+                }
+                glib::Propagation::Stop
+            }
+            gdk::Key::Return | gdk::Key::KP_Enter => {
+                let idx = list_nav
+                    .selected_row()
+                    .map(|r| r.index().max(0) as usize)
+                    .unwrap_or(0);
+                apply_nav(idx);
+                glib::Propagation::Stop
+            }
+            _ => glib::Propagation::Proceed,
         });
         model_search.add_controller(key_ctrl);
     }
@@ -311,7 +309,13 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
         Rc::new(move || {
             search_ref.set_text("");
             pop_rows("");
-            mh_ref.toggle_menu("model", &anchor_ref, &box_ref, 280, MenuPlacement::AboveLeft);
+            mh_ref.toggle_menu(
+                "model",
+                &anchor_ref,
+                &box_ref,
+                280,
+                MenuPlacement::AboveLeft,
+            );
             if mh_ref.is_menu_open() {
                 search_ref.grab_focus();
                 let s_idle = search_ref.clone();
@@ -368,7 +372,9 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
             } else {
                 AGENT_MODES
                     .iter()
-                    .map(|(id, name, desc)| ((*id).to_string(), (*name).to_string(), (*desc).to_string()))
+                    .map(|(id, name, desc)| {
+                        ((*id).to_string(), (*name).to_string(), (*desc).to_string())
+                    })
                     .collect()
             };
 
@@ -475,7 +481,9 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
                     .css_classes(["clean-popover-item"])
                     .halign(gtk4::Align::Fill)
                     .build();
-                th_btn.set_child(Some(&gtk4::Label::builder().label(&th_name).xalign(0.0).build()));
+                th_btn.set_child(Some(
+                    &gtk4::Label::builder().label(&th_name).xalign(0.0).build(),
+                ));
 
                 let mh_close = mh_r.clone();
                 let lbl_th = lbl_th_r.clone();
@@ -529,8 +537,12 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
         for kind in HarnessKind::all() {
             let (label, desc) = match kind {
                 HarnessKind::PiJson => ("Pi (JSON)", "pi -p --mode json, local session"),
-                HarnessKind::AgyAcp => ("Antigravity (ACP)", "agy acp over stdio, tool permissions"),
-                HarnessKind::OpenCodeAcp => ("OpenCode (ACP)", "opencode acp over stdio, multi-provider"),
+                HarnessKind::AgyAcp => {
+                    ("Antigravity (ACP)", "agy acp over stdio, tool permissions")
+                }
+                HarnessKind::OpenCodeAcp => {
+                    ("OpenCode (ACP)", "opencode acp over stdio, multi-provider")
+                }
             };
 
             let item = gtk4::Button::builder()
@@ -645,7 +657,10 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
                 } else {
                     std::fs::read_to_string(&path).unwrap_or_default()
                 };
-                st_cb.borrow_mut().attached_files.push((path_str.clone(), content));
+                st_cb
+                    .borrow_mut()
+                    .attached_files
+                    .push((path_str.clone(), content));
                 super::widgets::add_context_chip(
                     &chips_cb,
                     &display_name,
@@ -730,9 +745,21 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
     );
 
     for (mode, m_label, m_desc) in [
-        (capture::CaptureMode::FullScreen, "Full screen", "Capture the whole desktop"),
-        (capture::CaptureMode::Region, "Select region", "Click & drag the area to attach"),
-        (capture::CaptureMode::ActiveWindow, "Active window", "Capture the focused application"),
+        (
+            capture::CaptureMode::FullScreen,
+            "Full screen",
+            "Capture the whole desktop",
+        ),
+        (
+            capture::CaptureMode::Region,
+            "Select region",
+            "Click & drag the area to attach",
+        ),
+        (
+            capture::CaptureMode::ActiveWindow,
+            "Active window",
+            "Capture the focused application",
+        ),
     ] {
         let cap_btn = gtk4::Button::builder()
             .css_classes(["clean-popover-item"])
@@ -775,7 +802,12 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
             .halign(gtk4::Align::Fill)
             .build();
         let inner = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
-        inner.append(&gtk4::Label::builder().label("Annotate screen").xalign(0.0).build());
+        inner.append(
+            &gtk4::Label::builder()
+                .label("Annotate screen")
+                .xalign(0.0)
+                .build(),
+        );
         inner.append(
             &gtk4::Label::builder()
                 .label("Draw boxes / arrows before asking")
@@ -1069,7 +1101,12 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
         .build();
     let clear_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
     clear_row.append(&icons::image("codicon-trash-symbolic", 13));
-    clear_row.append(&gtk4::Label::builder().label("Clear Chat History").xalign(0.0).build());
+    clear_row.append(
+        &gtk4::Label::builder()
+            .label("Clear Chat History")
+            .xalign(0.0)
+            .build(),
+    );
     btn_clear_chat.set_child(Some(&clear_row));
     more_box.append(&btn_clear_chat);
 
@@ -1244,7 +1281,13 @@ pub fn build_menus(args: MenuBuildArgs) -> MenuHandles {
         Rc::new(move || {
             let draft = super::widgets::get_text_view_content(&tv_ref);
             if !draft.is_empty() {
-                mh_ref.open_menu("new_chat", &nc_anchor, &nc_box_ref, 260, MenuPlacement::BelowRight);
+                mh_ref.open_menu(
+                    "new_chat",
+                    &nc_anchor,
+                    &nc_box_ref,
+                    260,
+                    MenuPlacement::BelowRight,
+                );
             } else {
                 do_clear();
                 tv_ref.grab_focus();
@@ -1305,9 +1348,25 @@ mod tests {
 
     #[test]
     fn test_matches_model_query_case_insensitive_on_id_and_name() {
-        assert!(matches_model_query("opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1", ""));
-        assert!(matches_model_query("opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1", "DEEP"));
-        assert!(matches_model_query("gemini-4-argon-high", "Gemini 4 Argon (High)", "argon"));
-        assert!(!matches_model_query("gemini-4-argon-high", "Gemini 4 Argon (High)", "claude"));
+        assert!(matches_model_query(
+            "opencode/deepseek-v4.1-flash-free",
+            "DeepSeek V4.1",
+            ""
+        ));
+        assert!(matches_model_query(
+            "opencode/deepseek-v4.1-flash-free",
+            "DeepSeek V4.1",
+            "DEEP"
+        ));
+        assert!(matches_model_query(
+            "gemini-4-argon-high",
+            "Gemini 4 Argon (High)",
+            "argon"
+        ));
+        assert!(!matches_model_query(
+            "gemini-4-argon-high",
+            "Gemini 4 Argon (High)",
+            "claude"
+        ));
     }
 }

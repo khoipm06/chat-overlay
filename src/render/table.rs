@@ -180,11 +180,7 @@ mod tests {
     fn sample() -> TableData {
         TableData {
             headers: vec!["Command".into(), "Align".into(), "Description".into()],
-            alignments: vec![
-                ColumnAlign::Left,
-                ColumnAlign::Center,
-                ColumnAlign::Right,
-            ],
+            alignments: vec![ColumnAlign::Left, ColumnAlign::Center, ColumnAlign::Right],
             rows: vec![
                 vec!["cargo build".into(), "Left".into(), "Builds release".into()],
                 vec!["cargo test".into(), "Center".into(), "Runs tests".into()],

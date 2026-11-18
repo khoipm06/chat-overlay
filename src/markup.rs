@@ -82,7 +82,9 @@ fn parse_color(value: &str) -> Option<(f64, f64, f64)> {
         return None;
     }
     let channel = |i: usize| {
-        u8::from_str_radix(&hex[i..i + 2], 16).ok().map(|v| v as f64 / 255.0)
+        u8::from_str_radix(&hex[i..i + 2], 16)
+            .ok()
+            .map(|v| v as f64 / 255.0)
     };
     Some((channel(0)?, channel(2)?, channel(4)?))
 }
@@ -304,7 +306,9 @@ pub fn draw_shapes(
         let (r, g, b) = shape.color();
 
         match shape {
-            MarkupShape::Rect { x, y, w, h, label, .. } => {
+            MarkupShape::Rect {
+                x, y, w, h, label, ..
+            } => {
                 let px = pct_to_px(*x, width);
                 let py = pct_to_px(*y, height);
                 let pw = pct_to_px(*w, width);
@@ -325,7 +329,14 @@ pub fn draw_shapes(
                     draw_label(cr, label, px, py, width, (r, g, b));
                 }
             }
-            MarkupShape::Arrow { x1, y1, x2, y2, label, .. } => {
+            MarkupShape::Arrow {
+                x1,
+                y1,
+                x2,
+                y2,
+                label,
+                ..
+            } => {
                 let (ax1, ay1) = (pct_to_px(*x1, width), pct_to_px(*y1, height));
                 let (ax2, ay2) = (pct_to_px(*x2, width), pct_to_px(*y2, height));
 
@@ -398,7 +409,11 @@ fn draw_label(
 ) {
     let (r, g, b) = color;
 
-    cr.select_font_face("Sans", gtk4::cairo::FontSlant::Normal, gtk4::cairo::FontWeight::Bold);
+    cr.select_font_face(
+        "Sans",
+        gtk4::cairo::FontSlant::Normal,
+        gtk4::cairo::FontWeight::Bold,
+    );
     cr.set_font_size(14.0);
 
     let extents = match cr.text_extents(text) {
@@ -435,8 +450,20 @@ fn rounded_rect(cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64, radiu
     cr.new_sub_path();
     cr.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
     cr.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
-    cr.arc(x + r, y + h - r, r, std::f64::consts::FRAC_PI_2, std::f64::consts::PI);
-    cr.arc(x + r, y + r, r, std::f64::consts::PI, 1.5 * std::f64::consts::PI);
+    cr.arc(
+        x + r,
+        y + h - r,
+        r,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+    );
+    cr.arc(
+        x + r,
+        y + r,
+        r,
+        std::f64::consts::PI,
+        1.5 * std::f64::consts::PI,
+    );
     cr.close_path();
 }
 
@@ -598,7 +625,12 @@ impl MarkupTool {
     }
 
     fn all() -> [MarkupTool; 4] {
-        [MarkupTool::Box, MarkupTool::Arrow, MarkupTool::Pen, MarkupTool::Text]
+        [
+            MarkupTool::Box,
+            MarkupTool::Arrow,
+            MarkupTool::Pen,
+            MarkupTool::Text,
+        ]
     }
 }
 
@@ -794,7 +826,14 @@ impl UserMarkupEditor {
                                 label: String::new(),
                                 color,
                             },
-                            _ => MarkupShape::Arrow { x1, y1, x2, y2, label: String::new(), color },
+                            _ => MarkupShape::Arrow {
+                                x1,
+                                y1,
+                                x2,
+                                y2,
+                                label: String::new(),
+                                color,
+                            },
                         });
                     }
                 }
@@ -957,9 +996,9 @@ pub fn export_markup_png(
     width: f64,
     height: f64,
 ) -> Result<PathBuf, String> {
-    let source = gtk4::cairo::ImageSurface::create_from_png(&mut std::fs::File::open(screenshot).map_err(
-        |e| format!("cannot open screenshot: {e}"),
-    )?)
+    let source = gtk4::cairo::ImageSurface::create_from_png(
+        &mut std::fs::File::open(screenshot).map_err(|e| format!("cannot open screenshot: {e}"))?,
+    )
     .map_err(|e| format!("cannot decode screenshot: {e}"))?;
 
     let (img_w, img_h) = (source.width() as f64, source.height() as f64);
@@ -992,13 +1031,13 @@ pub fn export_markup_png(
         .as_millis();
     let out_path = dir.join(format!("pi-markup-{stamp}.png"));
 
-    let mut file = std::fs::File::create(&out_path).map_err(|e| format!("cannot create png: {e}"))?;
+    let mut file =
+        std::fs::File::create(&out_path).map_err(|e| format!("cannot create png: {e}"))?;
     target
         .write_to_png(&mut file)
         .map_err(|e| format!("cannot write png: {e}"))?;
     Ok(out_path)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1009,7 +1048,9 @@ mod tests {
         let shapes = parse_agent_markup(r#"[[markup: box x=10 y=20 w=30 h=15 label="Retry"]]"#);
         assert_eq!(shapes.len(), 1);
         match &shapes[0] {
-            MarkupShape::Rect { x, y, w, h, label, .. } => {
+            MarkupShape::Rect {
+                x, y, w, h, label, ..
+            } => {
                 assert_eq!(*x, 10.0);
                 assert_eq!(*y, 20.0);
                 assert_eq!(*w, 30.0);
@@ -1025,7 +1066,14 @@ mod tests {
         let shapes = parse_agent_markup("[[markup: arrow x1=50 y1=50 x2=25 y2=30 label=\"here\"]]");
         assert_eq!(shapes.len(), 1);
         match &shapes[0] {
-            MarkupShape::Arrow { x1, y1, x2, y2, label, .. } => {
+            MarkupShape::Arrow {
+                x1,
+                y1,
+                x2,
+                y2,
+                label,
+                ..
+            } => {
                 assert_eq!((*x1, *y1, *x2, *y2), (50.0, 50.0, 25.0, 30.0));
                 assert_eq!(label, "here");
             }
@@ -1184,7 +1232,9 @@ mod tests {
         );
         assert_eq!(shapes.len(), 1);
         match &shapes[0] {
-            MarkupShape::Rect { x, y, w, h, label, .. } => {
+            MarkupShape::Rect {
+                x, y, w, h, label, ..
+            } => {
                 assert!((*x - 12.5).abs() < 0.01);
                 assert!((*y - 25.0).abs() < 0.01);
                 assert!((*w - 30.0).abs() < 0.01);
@@ -1197,7 +1247,8 @@ mod tests {
 
     #[test]
     fn test_parse_auto_infers_1000_when_coords_exceed_100() {
-        let shapes = parse_agent_markup(r#"[[markup: arrow x1=500 y1=500 x2=250 y2=300 label="Here"]]"#);
+        let shapes =
+            parse_agent_markup(r#"[[markup: arrow x1=500 y1=500 x2=250 y2=300 label="Here"]]"#);
         assert_eq!(shapes.len(), 1);
         match &shapes[0] {
             MarkupShape::Arrow { x1, y1, x2, y2, .. } => {

@@ -12,7 +12,14 @@ pub const MAX_INDEXED_FILES: usize = 2500;
 
 /// Directories never worth indexing even when not gitignored.
 const SKIP_DIRS: [&str; 8] = [
-    ".git", "target", "node_modules", ".venv", "dist", "build", ".cache", "__pycache__",
+    ".git",
+    "target",
+    "node_modules",
+    ".venv",
+    "dist",
+    "build",
+    ".cache",
+    "__pycache__",
 ];
 
 /// What kind of token the user is typing.
@@ -26,8 +33,7 @@ pub enum TriggerKind {
     Slash,
 }
 
-impl TriggerKind {
-}
+impl TriggerKind {}
 
 /// A live token found before the caret.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,7 +118,11 @@ pub fn extract_active_trigger(text_before_cursor: &str) -> Option<ActiveTrigger>
                         .chars()
                         .next_back()
                         .is_some_and(|p| p.is_alphanumeric() || p == '_');
-                found = if preceded_by_word { None } else { Some((idx, ch)) };
+                found = if preceded_by_word {
+                    None
+                } else {
+                    Some((idx, ch))
+                };
             }
             c if c.is_whitespace() => found = None,
             _ => {}
@@ -421,7 +431,11 @@ mod tests {
         std::fs::write(root.join("target/junk.rs"), "ignored").unwrap();
 
         let index = WorkspaceIndex::build(&root);
-        assert!(index.len() >= 2, "expected indexed files, got {}", index.len());
+        assert!(
+            index.len() >= 2,
+            "expected indexed files, got {}",
+            index.len()
+        );
 
         let results = index.search("main", 10);
         assert!(
@@ -446,7 +460,10 @@ mod tests {
 
         let index = WorkspaceIndex::build(&root);
         let results = index.search("config.rs", 5);
-        assert_eq!(results[0].detail, "config.rs", "shallow match must rank first");
+        assert_eq!(
+            results[0].detail, "config.rs",
+            "shallow match must rank first"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -487,7 +504,10 @@ mod tests {
     #[test]
     fn test_merge_commands_marks_agent_source() {
         let agent = vec![
-            ("compact".to_string(), "Shrink the context window".to_string()),
+            (
+                "compact".to_string(),
+                "Shrink the context window".to_string(),
+            ),
             ("goal".to_string(), "Set a session goal".to_string()),
         ];
         let merged = merge_commands(&agent);

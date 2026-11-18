@@ -1,6 +1,8 @@
 //! Prompt submission handler, local slash commands, live screen capture, and turn cards.
 
-use super::state::{model_display_name_with_list, ActiveStreamTarget, AppState, DeferredAction, TrackedPrompt};
+use super::state::{
+    model_display_name_with_list, ActiveStreamTarget, AppState, DeferredAction, TrackedPrompt,
+};
 use super::widgets::{get_text_view_content, set_text_view_content};
 use crate::backend::StreamEvent;
 use crate::capture;
@@ -321,7 +323,12 @@ pub fn build_submit_prompt(args: SubmitArgs) -> Rc<dyn Fn()> {
                         p_list_box_ref.remove(&row_ref);
 
                         let mut st = st_ref.borrow_mut();
-                        if st.prompts.last().map(|p| p.index == this_idx).unwrap_or(false) {
+                        if st
+                            .prompts
+                            .last()
+                            .map(|p| p.index == this_idx)
+                            .unwrap_or(false)
+                        {
                             st.harness.abort();
                             *active_stream_ref.borrow_mut() = None;
                             is_str_ref.set(false);
@@ -449,7 +456,10 @@ pub fn build_submit_prompt(args: SubmitArgs) -> Rc<dyn Fn()> {
                     let content = std::fs::read(&path)
                         .map(|b| capture::base64_encode(&b))
                         .unwrap_or_default();
-                    state_cap.borrow_mut().attached_files.push((path_str, content));
+                    state_cap
+                        .borrow_mut()
+                        .attached_files
+                        .push((path_str, content));
                 }
                 deliver_after();
             });

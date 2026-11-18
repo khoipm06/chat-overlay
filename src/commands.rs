@@ -82,10 +82,7 @@ pub fn expand_slash_command(input: &str) -> Option<String> {
         return None;
     }
     // A client-handled command must never be rewritten into prompt text.
-    let name = trimmed[1..]
-        .split_whitespace()
-        .next()
-        .unwrap_or_default();
+    let name = trimmed[1..].split_whitespace().next().unwrap_or_default();
     if parse_local_command(name).is_some() {
         return None;
     }
@@ -111,7 +108,10 @@ mod tests {
         assert_eq!(expand_slash_command("regular text"), None);
         assert_eq!(
             expand_slash_command("/explain how rust lifetimes work"),
-            Some("Please explain the following clearly and concisely:\n\nhow rust lifetimes work".to_string())
+            Some(
+                "Please explain the following clearly and concisely:\n\nhow rust lifetimes work"
+                    .to_string()
+            )
         );
         assert_eq!(
             expand_slash_command("/fix null pointer bug"),
@@ -127,7 +127,9 @@ mod tests {
 
     #[test]
     fn test_local_commands_are_not_expanded_as_prompts() {
-        for name in ["new", "clear", "screen", "markup", "region", "window", "help"] {
+        for name in [
+            "new", "clear", "screen", "markup", "region", "window", "help",
+        ] {
             let input = format!("/{name} extra");
             assert_eq!(
                 expand_slash_command(&input),
@@ -140,11 +142,26 @@ mod tests {
     #[test]
     fn test_parse_local_command_recognises_each_name() {
         assert_eq!(parse_local_command("/new"), Some(LocalCommand::NewSession));
-        assert_eq!(parse_local_command("clear"), Some(LocalCommand::ClearConversation));
-        assert_eq!(parse_local_command("/screen"), Some(LocalCommand::CaptureScreen));
-        assert_eq!(parse_local_command("/markup"), Some(LocalCommand::OpenMarkup));
-        assert_eq!(parse_local_command("/region"), Some(LocalCommand::CaptureRegion));
-        assert_eq!(parse_local_command("/window"), Some(LocalCommand::CaptureWindow));
+        assert_eq!(
+            parse_local_command("clear"),
+            Some(LocalCommand::ClearConversation)
+        );
+        assert_eq!(
+            parse_local_command("/screen"),
+            Some(LocalCommand::CaptureScreen)
+        );
+        assert_eq!(
+            parse_local_command("/markup"),
+            Some(LocalCommand::OpenMarkup)
+        );
+        assert_eq!(
+            parse_local_command("/region"),
+            Some(LocalCommand::CaptureRegion)
+        );
+        assert_eq!(
+            parse_local_command("/window"),
+            Some(LocalCommand::CaptureWindow)
+        );
         assert_eq!(parse_local_command("/help"), Some(LocalCommand::ShowHelp));
     }
 

@@ -61,9 +61,16 @@ pub fn resolve_acp_binary(configured: &str) -> PathBuf {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AcpMessage {
     /// Server→client request that must be answered.
-    Request { id: u64, method: String, params: serde_json::Value },
+    Request {
+        id: u64,
+        method: String,
+        params: serde_json::Value,
+    },
     /// `session/update` style notification.
-    Notification { method: String, params: serde_json::Value },
+    Notification {
+        method: String,
+        params: serde_json::Value,
+    },
     /// Response to one of our requests.
     Response { id: u64, result: serde_json::Value },
     /// Error response to one of our requests.
@@ -80,7 +87,10 @@ pub fn classify_message(line: &str) -> Option<AcpMessage> {
 
     let id = val.get("id").and_then(|v| v.as_u64());
     let method = val.get("method").and_then(|m| m.as_str());
-    let params = val.get("params").cloned().unwrap_or(serde_json::Value::Null);
+    let params = val
+        .get("params")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
 
     match (id, method) {
         // Server→client request: has both id and method.
@@ -106,7 +116,10 @@ pub fn classify_message(line: &str) -> Option<AcpMessage> {
             } else {
                 Some(AcpMessage::Response {
                     id,
-                    result: val.get("result").cloned().unwrap_or(serde_json::Value::Null),
+                    result: val
+                        .get("result")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
                 })
             }
         }
@@ -132,10 +145,7 @@ fn option_pairs(options: &[serde_json::Value]) -> Vec<(String, String)> {
         .iter()
         .filter_map(|o| {
             let value = o.get("value").and_then(|v| v.as_str())?;
-            let label = o
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or(value);
+            let label = o.get("name").and_then(|n| n.as_str()).unwrap_or(value);
             Some((value.to_string(), label.to_string()))
         })
         .collect()
@@ -189,7 +199,10 @@ pub fn parse_session_config(result: &serde_json::Value) -> SessionConfig {
             config.modes = available
                 .iter()
                 .filter_map(|m| {
-                    let id = m.get("id").or_else(|| m.get("value")).and_then(|v| v.as_str())?;
+                    let id = m
+                        .get("id")
+                        .or_else(|| m.get("value"))
+                        .and_then(|v| v.as_str())?;
                     let name = m.get("name").and_then(|v| v.as_str()).unwrap_or(id);
                     Some((id.to_string(), name.to_string()))
                 })
@@ -227,8 +240,10 @@ pub fn parse_session_config(result: &serde_json::Value) -> SessionConfig {
                     }
                 }
                 "thought_level" | "thinking_level" | "reasoning_effort" => {
-                    config.thinking_levels =
-                        option_pairs(&opt.options).into_iter().map(|(v, _)| v).collect();
+                    config.thinking_levels = option_pairs(&opt.options)
+                        .into_iter()
+                        .map(|(v, _)| v)
+                        .collect();
                 }
                 _ => {}
             }
@@ -520,10 +535,7 @@ pub fn extract_content_text(value: &serde_json::Value) -> String {
 }
 
 /// Turns a `session/request_permission` request into a UI-facing request.
-pub fn parse_permission_request(
-    id: u64,
-    params: &serde_json::Value,
-) -> PermissionRequest {
+pub fn parse_permission_request(id: u64, params: &serde_json::Value) -> PermissionRequest {
     let tool_call = params.get("toolCall");
     let title = tool_call
         .and_then(|t| t.get("title"))
@@ -797,8 +809,14 @@ impl AcpClient {
             .await?;
 
         if let Some(usage) = result.get("usage") {
-            let input = usage.get("inputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            let output = usage.get("outputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let input = usage
+                .get("inputTokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let output = usage
+                .get("outputTokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
             let total = usage
                 .get("totalTokens")
                 .and_then(|v| v.as_u64())
@@ -989,70 +1007,69 @@ async fn run_stdout_pump(
                     }
                 }
             }
-            AcpMessage::Request { id, method, params } => {
-                match method.as_str() {
-                    "session/request_permission" => {
-                        let request = parse_permission_request(id, &params);
-                        if auto_approve.load(Ordering::Relaxed) {
-                            let option = auto_approve_option(&request);
-                            let _ = write_json_line(
-                                &stdin,
-                                &serde_json::json!({
-                                    "jsonrpc": "2.0",
-                                    "id": id,
-                                    "result": permission_response(&option)
-                                }),
-                            )
-                            .await;
-                        } else {
-                            pending_permissions.lock().await.insert(id, request.clone());
-                            if let Ok(guard) = event_target.lock() {
-                                if let Some((gen, ref tx)) = *guard {
-                                    let _ = tx.send((gen, StreamEvent::PermissionRequest(request)));
-                                }
+            AcpMessage::Request { id, method, params } => match method.as_str() {
+                "session/request_permission" => {
+                    let request = parse_permission_request(id, &params);
+                    if auto_approve.load(Ordering::Relaxed) {
+                        let option = auto_approve_option(&request);
+                        let _ = write_json_line(
+                            &stdin,
+                            &serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": permission_response(&option)
+                            }),
+                        )
+                        .await;
+                    } else {
+                        pending_permissions.lock().await.insert(id, request.clone());
+                        if let Ok(guard) = event_target.lock() {
+                            if let Some((gen, ref tx)) = *guard {
+                                let _ = tx.send((gen, StreamEvent::PermissionRequest(request)));
                             }
                         }
                     }
-                    "fs/read_text_file" => {
-                        let reply = match handle_fs_read(&params, &workspace) {
-                            Ok(content) => serde_json::json!({
+                }
+                "fs/read_text_file" => {
+                    let reply = match handle_fs_read(&params, &workspace) {
+                        Ok(content) => serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": { "content": content }
+                        }),
+                        Err(msg) => serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32000, "message": msg }
+                        }),
+                    };
+                    let _ = write_json_line(&stdin, &reply).await;
+                }
+                "fs/write_text_file" => {
+                    let reply = if !auto_approve.load(Ordering::Relaxed) {
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32000, "message": "Write requires Auto mode" }
+                        })
+                    } else {
+                        match handle_fs_write(&params, &workspace) {
+                            Ok(()) => serde_json::json!({
                                 "jsonrpc": "2.0",
                                 "id": id,
-                                "result": { "content": content }
+                                "result": {}
                             }),
                             Err(msg) => serde_json::json!({
                                 "jsonrpc": "2.0",
                                 "id": id,
                                 "error": { "code": -32000, "message": msg }
                             }),
-                        };
-                        let _ = write_json_line(&stdin, &reply).await;
-                    }
-                    "fs/write_text_file" => {
-                        let reply = if !auto_approve.load(Ordering::Relaxed) {
-                            serde_json::json!({
-                                "jsonrpc": "2.0",
-                                "id": id,
-                                "error": { "code": -32000, "message": "Write requires Auto mode" }
-                            })
-                        } else {
-                            match handle_fs_write(&params, &workspace) {
-                                Ok(()) => serde_json::json!({
-                                    "jsonrpc": "2.0",
-                                    "id": id,
-                                    "result": {}
-                                }),
-                                Err(msg) => serde_json::json!({
-                                    "jsonrpc": "2.0",
-                                    "id": id,
-                                    "error": { "code": -32000, "message": msg }
-                                }),
-                            }
-                        };
-                        let _ = write_json_line(&stdin, &reply).await;
-                    }
-                    _ => {
-                        let _ = write_json_line(
+                        }
+                    };
+                    let _ = write_json_line(&stdin, &reply).await;
+                }
+                _ => {
+                    let _ = write_json_line(
                             &stdin,
                             &serde_json::json!({
                                 "jsonrpc": "2.0",
@@ -1061,9 +1078,8 @@ async fn run_stdout_pump(
                             }),
                         )
                         .await;
-                    }
                 }
-            }
+            },
         }
     }
 
@@ -1089,8 +1105,15 @@ fn handle_fs_read(params: &serde_json::Value, workspace: &Path) -> Result<String
     let text = std::fs::read_to_string(&full)
         .map_err(|e| format!("failed to read {}: {e}", full.display()))?;
 
-    let start_line = params.get("line").and_then(|v| v.as_u64()).unwrap_or(1).max(1) as usize;
-    let limit = params.get("limit").and_then(|v| v.as_u64()).map(|l| l as usize);
+    let start_line = params
+        .get("line")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1)
+        .max(1) as usize;
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|l| l as usize);
     if start_line == 1 && limit.is_none() {
         return Ok(text);
     }
@@ -1254,7 +1277,12 @@ mod tests {
             }
         });
         match session_update_to_event(&params) {
-            Some(StreamEvent::ToolEnd { id, result, is_error, .. }) => {
+            Some(StreamEvent::ToolEnd {
+                id,
+                result,
+                is_error,
+                ..
+            }) => {
                 assert_eq!(id, "c1");
                 assert_eq!(result, "file body");
                 assert!(!is_error);
@@ -1274,7 +1302,9 @@ mod tests {
             }
         });
         match session_update_to_event(&params) {
-            Some(StreamEvent::ToolEnd { is_error, result, .. }) => {
+            Some(StreamEvent::ToolEnd {
+                is_error, result, ..
+            }) => {
                 assert!(is_error);
                 assert_eq!(result, "boom");
             }
@@ -1450,9 +1480,11 @@ mod tests {
         assert_eq!(blocks.last().unwrap()["text"], "Explain");
         assert!(blocks
             .iter()
-            .any(|b| b["type"] == "resource_link" && b["uri"].as_str().unwrap().starts_with("file://")));
-        assert!(blocks.iter().any(|b| b["type"] == "text"
-            && b["text"].as_str().unwrap().contains("inline body")));
+            .any(|b| b["type"] == "resource_link"
+                && b["uri"].as_str().unwrap().starts_with("file://")));
+        assert!(blocks
+            .iter()
+            .any(|b| b["type"] == "text" && b["text"].as_str().unwrap().contains("inline body")));
     }
 
     #[test]

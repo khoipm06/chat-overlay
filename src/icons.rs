@@ -170,12 +170,7 @@ pub fn image(icon_name: &str, px: i32) -> gtk4::Image {
 }
 
 /// Builds a monochrome icon-only button using a bundled symbolic icon.
-pub fn icon_button(
-    icon_name: &str,
-    px: i32,
-    tooltip: &str,
-    css_classes: &[&str],
-) -> gtk4::Button {
+pub fn icon_button(icon_name: &str, px: i32, tooltip: &str, css_classes: &[&str]) -> gtk4::Button {
     let img = image(icon_name, px);
     gtk4::Button::builder()
         .child(&img)

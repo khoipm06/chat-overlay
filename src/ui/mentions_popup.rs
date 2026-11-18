@@ -203,7 +203,8 @@ impl MentionPopup {
         self.replace_range = Some((start, end));
         self.selected = 0;
         self.render_rows();
-        self.menu_host.show_suggest(&self.composer_widget, &self.container);
+        self.menu_host
+            .show_suggest(&self.composer_widget, &self.container);
     }
 
     fn render_rows(&self) {
@@ -288,7 +289,10 @@ pub fn accept_mention(popup: &Rc<RefCell<MentionPopup>>) -> bool {
     let mut iter_start = buffer.iter_at_offset(pending.start as i32);
     let mut iter_end = buffer.iter_at_offset(pending.end as i32);
     buffer.delete(&mut iter_start, &mut iter_end);
-    buffer.insert(&mut buffer.iter_at_offset(pending.start as i32), &pending.insert);
+    buffer.insert(
+        &mut buffer.iter_at_offset(pending.start as i32),
+        &pending.insert,
+    );
     pending.suppress.set(false);
     true
 }
@@ -301,7 +305,12 @@ fn insert_mark_offset_line_start(buffer: &gtk4::TextBuffer, offset: usize) -> i3
 
 /// Pure replacement helper tested independently of GTK widget trees.
 #[cfg(test)]
-pub fn apply_text_replacement(source: &str, start_char: usize, end_char: usize, insert: &str) -> String {
+pub fn apply_text_replacement(
+    source: &str,
+    start_char: usize,
+    end_char: usize,
+    insert: &str,
+) -> String {
     let before: String = source.chars().take(start_char).collect();
     let after: String = source.chars().skip(end_char).collect();
     format!("{before}{insert}{after}")

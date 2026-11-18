@@ -37,7 +37,10 @@ fn main() -> glib::ExitCode {
             home, home, home, home, home, home, current_path
         )
     } else {
-        format!("/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}", current_path)
+        format!(
+            "/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:{}",
+            current_path
+        )
     };
     std::env::set_var("PATH", augmented);
 
@@ -72,7 +75,8 @@ fn main() -> glib::ExitCode {
     #[cfg(not(feature = "audit"))]
     let audit_dir: Option<String> = None;
 
-    let is_daemon = args.contains(&"--daemon".to_string()) || args.contains(&"--hidden".to_string());
+    let is_daemon =
+        args.contains(&"--daemon".to_string()) || args.contains(&"--hidden".to_string());
 
     if audit_dir.is_none() {
         if is_daemon {

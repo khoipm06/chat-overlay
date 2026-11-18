@@ -80,11 +80,21 @@ pub fn run_audit_suite(args: AuditArgs) {
 
         // 1. Welcome
         set_text_view_content(&text_view, "");
-        let _ = audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-welcome.png"));
+        let _ =
+            audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-welcome.png"));
 
         // 2. Mention + chip
-        state.borrow_mut().attached_files.push(("src/main.rs".into(), String::new()));
-        add_context_chip(&chips_row, "main.rs", "src/main.rs", state.clone(), Some(update_send_btn_state.clone()));
+        state
+            .borrow_mut()
+            .attached_files
+            .push(("src/main.rs".into(), String::new()));
+        add_context_chip(
+            &chips_row,
+            "main.rs",
+            "src/main.rs",
+            state.clone(),
+            Some(update_send_btn_state.clone()),
+        );
         set_text_view_content(&text_view, "Look at @");
         {
             let buf = text_view.buffer();
@@ -92,7 +102,8 @@ pub fn run_audit_suite(args: AuditArgs) {
         }
         mention_popup.borrow_mut().refresh();
         audit::settle_ui(60);
-        let _ = audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-mention.png"));
+        let _ =
+            audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-mention.png"));
         mention_popup.borrow_mut().close();
 
         // 3. Slash commands
@@ -103,27 +114,46 @@ pub fn run_audit_suite(args: AuditArgs) {
         }
         mention_popup.borrow_mut().refresh();
         audit::settle_ui(60);
-        let _ = audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-slash.png"));
+        let _ =
+            audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-slash.png"));
         mention_popup.borrow_mut().close();
         set_text_view_content(&text_view, "");
 
         // 4. Screen Capture menu
-        menu_host.open_menu("capture", &btn_capture, &capture_box, 240, MenuPlacement::AboveRight);
+        menu_host.open_menu(
+            "capture",
+            &btn_capture,
+            &capture_box,
+            240,
+            MenuPlacement::AboveRight,
+        );
         audit::settle_ui(80);
-        let _ = audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-capture.png"));
+        let _ =
+            audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-capture.png"));
         menu_host.close_menu();
 
         // 5. Settings menu
         more_stack.set_visible_child_name("main");
-        menu_host.open_menu("more", &btn_more, &more_stack, 260, MenuPlacement::BelowRight);
+        menu_host.open_menu(
+            "more",
+            &btn_more,
+            &more_stack,
+            260,
+            MenuPlacement::BelowRight,
+        );
         audit::settle_ui(80);
-        let _ = audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-settings.png"));
+        let _ =
+            audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-settings.png"));
         menu_host.close_menu();
 
         // 6. Searchable Model Picker (Ctrl+.)
         open_model_picker();
         audit::settle_ui(80);
-        let _ = audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-model-picker.png"));
+        let _ = audit::snapshot_window_with_popovers(
+            &window,
+            &[],
+            &out_dir.join("after-model-picker.png"),
+        );
         menu_host.close_menu();
 
         // 7. Conversation + Streaming + Permission
@@ -193,8 +223,18 @@ pub fn run_audit_suite(args: AuditArgs) {
 
         let fb = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
         fb.add_css_class("card-feedback-bar");
-        fb.append(&icons::icon_button("codicon-copy-symbolic", 13, "Copy", &["feedback-btn"]));
-        fb.append(&icons::icon_button("codicon-refresh-symbolic", 13, "Retry", &["feedback-btn"]));
+        fb.append(&icons::icon_button(
+            "codicon-copy-symbolic",
+            13,
+            "Copy",
+            &["feedback-btn"],
+        ));
+        fb.append(&icons::icon_button(
+            "codicon-refresh-symbolic",
+            13,
+            "Retry",
+            &["feedback-btn"],
+        ));
         let fb_sp = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
         fb_sp.set_hexpand(true);
         fb.append(&fb_sp);
@@ -209,9 +249,17 @@ pub fn run_audit_suite(args: AuditArgs) {
         prompt_empty_label.set_visible(false);
         let h_row = gtk4::Box::new(gtk4::Orientation::Horizontal, 2);
         h_row.add_css_class("prompt-row-box");
-        let h_btn = gtk4::Button::builder().css_classes(["prompt-item-btn"]).hexpand(true).build();
+        let h_btn = gtk4::Button::builder()
+            .css_classes(["prompt-item-btn"])
+            .hexpand(true)
+            .build();
         let h_inner = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-        h_inner.append(&gtk4::Label::builder().label("#1").css_classes(["prompt-idx-pill"]).build());
+        h_inner.append(
+            &gtk4::Label::builder()
+                .label("#1")
+                .css_classes(["prompt-idx-pill"])
+                .build(),
+        );
         h_inner.append(
             &gtk4::Label::builder()
                 .label("Refactor the UI so it looks…")
@@ -222,7 +270,12 @@ pub fn run_audit_suite(args: AuditArgs) {
         );
         h_btn.set_child(Some(&h_inner));
         h_row.append(&h_btn);
-        h_row.append(&icons::icon_button("codicon-trash-symbolic", 12, "Delete", &["prompt-delete-btn"]));
+        h_row.append(&icons::icon_button(
+            "codicon-trash-symbolic",
+            12,
+            "Delete",
+            &["prompt-delete-btn"],
+        ));
         prompts_list_box.append(&h_row);
 
         *active_stream.borrow_mut() = Some(ActiveStreamTarget {
@@ -235,32 +288,90 @@ pub fn run_audit_suite(args: AuditArgs) {
         });
         is_streaming.set(true);
         update_send_btn_state();
-        let _ = stream_tx.send((gen, StreamEvent::ToolStart { id: "t1".into(), name: "read_file".into(), args: r#"{"path":"resources/style.css"}"#.into() }));
-        let _ = stream_tx.send((gen, StreamEvent::ToolEnd { id: "t1".into(), name: "read_file".into(), result: "".into(), is_error: false, duration_ms: 1200 }));
-        let _ = stream_tx.send((gen, StreamEvent::ToolStart { id: "t2".into(), name: "bash".into(), args: r#"{"command":"cargo test --quiet"}"#.into() }));
+        let _ = stream_tx.send((
+            gen,
+            StreamEvent::ToolStart {
+                id: "t1".into(),
+                name: "read_file".into(),
+                args: r#"{"path":"resources/style.css"}"#.into(),
+            },
+        ));
+        let _ = stream_tx.send((
+            gen,
+            StreamEvent::ToolEnd {
+                id: "t1".into(),
+                name: "read_file".into(),
+                result: "".into(),
+                is_error: false,
+                duration_ms: 1200,
+            },
+        ));
+        let _ = stream_tx.send((
+            gen,
+            StreamEvent::ToolStart {
+                id: "t2".into(),
+                name: "bash".into(),
+                args: r#"{"command":"cargo test --quiet"}"#.into(),
+            },
+        ));
         audit::settle_ui(150);
-        let _ = audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-streaming.png"));
+        let _ = audit::snapshot_window_with_popovers(
+            &window,
+            &[],
+            &out_dir.join("after-streaming.png"),
+        );
 
-        let _ = stream_tx.send((gen, StreamEvent::ToolEnd { id: "t2".into(), name: "bash".into(), result: "".into(), is_error: false, duration_ms: 800 }));
-        let _ = stream_tx.send((gen, StreamEvent::ThinkingDelta("Inspecting resources/style.css and composer hierarchy...".into())));
+        let _ = stream_tx.send((
+            gen,
+            StreamEvent::ToolEnd {
+                id: "t2".into(),
+                name: "bash".into(),
+                result: "".into(),
+                is_error: false,
+                duration_ms: 800,
+            },
+        ));
+        let _ = stream_tx.send((
+            gen,
+            StreamEvent::ThinkingDelta(
+                "Inspecting resources/style.css and composer hierarchy...".into(),
+            ),
+        ));
         let _ = stream_tx.send((gen, StreamEvent::TextDelta("Updated `.chat-input-container` with unified borders and bundled Codicon SVGs:\n\n```css\n.chat-input-container {\n  background: #262626;\n  border-radius: 8px;\n}\n```\n\n| Component | Status |\n| --- | --- |\n| Composer | Unified |\n| Icons | Codicon |\n".into())));
-        let _ = stream_tx.send((gen, StreamEvent::PermissionRequest(backend::PermissionRequest {
-            request_id: 99,
-            title: "shell command".into(),
-            detail: "cargo test --workspace".into(),
-            options: vec![("allow_once".into(), "Allow".into()), ("reject_once".into(), "Skip".into())],
-        })));
+        let _ = stream_tx.send((
+            gen,
+            StreamEvent::PermissionRequest(backend::PermissionRequest {
+                request_id: 99,
+                title: "shell command".into(),
+                detail: "cargo test --workspace".into(),
+                options: vec![
+                    ("allow_once".into(), "Allow".into()),
+                    ("reject_once".into(), "Skip".into()),
+                ],
+            }),
+        ));
         let _ = stream_tx.send((gen, StreamEvent::Done));
 
         audit::settle_ui(180);
         scroll_to_bottom();
-        let _ = audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-conversation.png"));
+        let _ = audit::snapshot_window_with_popovers(
+            &window,
+            &[],
+            &out_dir.join("after-conversation.png"),
+        );
 
         // 8. History menu
         session_stack.set_visible_child_name("list");
-        menu_host.open_menu("session", &btn_session_list, &session_stack, 260, MenuPlacement::BelowRight);
+        menu_host.open_menu(
+            "session",
+            &btn_session_list,
+            &session_stack,
+            260,
+            MenuPlacement::BelowRight,
+        );
         audit::settle_ui(80);
-        let _ = audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-history.png"));
+        let _ =
+            audit::snapshot_window_with_popovers(&window, &[], &out_dir.join("after-history.png"));
         menu_host.close_menu();
 
         window.close();
