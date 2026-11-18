@@ -1,4 +1,6 @@
 import type {
+  DesktopAction,
+  DesktopActionKind,
   HarnessKind,
   ModeOption,
   ModelOption,
@@ -331,4 +333,54 @@ export function pickMarkupAnnotationsFromText(text: string): Array<Record<string
     results.push(record);
   }
   return results;
+}
+
+const VALID_DESKTOP_KINDS: ReadonlySet<string> = new Set([
+  'click',
+  'double_click',
+  'right_click',
+  'move',
+  'scroll',
+  'type',
+  'key',
+  'os',
+]);
+
+export function pickDesktopActionsFromText(text: string): DesktopAction[] {
+  const actions: DesktopAction[] = [];
+  const regex = /\[\[desktop:\s*([^\]]+)\]\]/g;
+  let match: RegExpExecArray | null;
+  let seq = 1;
+  while ((match = regex.exec(text)) !== null) {
+    const body = match[1].trim();
+    const kind = (body.split(/\s+/)[0] || '').toLowerCase();
+    if (!VALID_DESKTOP_KINDS.has(kind)) continue;
+
+    const action: DesktopAction = {
+      id: `dact_${Date.now()}_${seq++}`,
+      kind: kind as DesktopActionKind,
+    };
+    const tokens = body.match(/(\w+=(?:"[^"]*"|'[^']*'|\S+))/g) ?? [];
+    for (const tok of tokens) {
+      const eq = tok.indexOf('=');
+      if (eq === -1) continue;
+      const k = tok.slice(0, eq).toLowerCase();
+      let v = tok.slice(eq + 1);
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+        v = v.slice(1, -1);
+      }
+      const num = Number(v);
+      if (k === 'x' && !Number.isNaN(num)) action.x = Math.min(100, Math.max(0, num));
+      else if (k === 'y' && !Number.isNaN(num)) action.y = Math.min(100, Math.max(0, num));
+      else if (k === 'delta' && !Number.isNaN(num)) action.delta = num;
+      else if (k === 'value' && !Number.isNaN(num)) action.value = num;
+      else if (k === 'text') action.text = v;
+      else if (k === 'combo') action.combo = v;
+      else if (k === 'action') action.action = v.toLowerCase();
+      else if (k === 'target') action.target = v;
+      else if (k === 'label') action.label = v;
+    }
+    actions.push(action);
+  }
+  return actions;
 }
