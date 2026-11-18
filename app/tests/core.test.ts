@@ -20,7 +20,10 @@ import {
 import { kwinPixelsToBgra } from '../src/main/capture';
 import {
   captureWorkspaceCheckpoint,
+  getGitDiffReport,
   getGitGlance,
+  parseUnifiedDiffOutput,
+  restoreGitFile,
   restoreWorkspaceCheckpoint,
 } from '../src/main/checkpoint';
 import { expandSlashTemplate, parseLocalCommand } from '../src/main/commands';
@@ -454,5 +457,81 @@ describe('v3.1 layout defaults, autostart, and fast KWin pixel conversion', () =
       30, 20, 10, 255, 60, 50, 40, 255,
       90, 80, 70, 255, 3, 2, 1, 255,
     ]);
+  });
+});
+
+describe('v3.2 unified diff parser, file restore, and guided highlight markup', () => {
+  it('parses unified diff chunks with additions, deletions, and statuses', () => {
+    const sample = [
+      'diff --git a/src/a.ts b/src/a.ts',
+      'index 111..222 100644',
+      '--- a/src/a.ts',
+      '+++ b/src/a.ts',
+      '@@ -1,3 +1,3 @@',
+      ' const x = 1;',
+      '-const old = true;',
+      '+const updated = true;',
+      'diff --git a/src/new.ts b/src/new.ts',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/src/new.ts',
+      '@@ -0,0 +1,2 @@',
+      '+export const a = 1;',
+      '+export const b = 2;',
+    ].join('\n');
+
+    const files = parseUnifiedDiffOutput(sample);
+    expect(files).toHaveLength(2);
+    expect(files[0]).toMatchObject({
+      filePath: 'src/a.ts',
+      status: 'modified',
+      additions: 1,
+      deletions: 1,
+    });
+    expect(files[0].hunks[0].lines.map((l) => l.kind)).toEqual(['ctx', 'del', 'add']);
+    expect(files[1]).toMatchObject({
+      filePath: 'src/new.ts',
+      status: 'added',
+      additions: 2,
+      deletions: 0,
+    });
+  });
+
+  it('generates GitDiffReport including untracked files and restores individual files', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-overlay-diff-'));
+    try {
+      execFileSync('git', ['init'], { cwd: dir });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+      execFileSync('git', ['config', 'user.name', 'Tester'], { cwd: dir });
+      fs.writeFileSync(path.join(dir, 'tracked.ts'), 'export const v = 1;\n');
+      execFileSync('git', ['add', '.'], { cwd: dir });
+      execFileSync('git', ['commit', '-m', 'init'], { cwd: dir });
+
+      fs.writeFileSync(path.join(dir, 'tracked.ts'), 'export const v = 2;\n');
+      fs.writeFileSync(path.join(dir, 'scratch.txt'), 'hello\nworld\n');
+
+      const report = await getGitDiffReport(dir);
+      expect(report.isRepo).toBe(true);
+      expect(report.files.map((f) => f.filePath).sort()).toEqual(['scratch.txt', 'tracked.ts']);
+
+      const r1 = await restoreGitFile(dir, 'tracked.ts');
+      expect(r1.restored).toBe(true);
+      expect(fs.readFileSync(path.join(dir, 'tracked.ts'), 'utf8')).toBe('export const v = 1;\n');
+
+      const r2 = await restoreGitFile(dir, 'scratch.txt');
+      expect(r2.restored).toBe(true);
+      expect(fs.existsSync(path.join(dir, 'scratch.txt'))).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parses step and pulse attributes in guided highlight markup annotations', () => {
+    const text =
+      'Click here [[markup: box x=10 y=20 w=30 h=12 step=1 pulse=true label="Open Settings"]] and then [[markup: arrow x1=50 y1=50 x2=80 y2=20 step=2 pulse=false label="Save"]]';
+    const items = pickMarkupAnnotationsFromText(text);
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ kind: 'box', step: 1, pulse: true, label: 'Open Settings' });
+    expect(items[1]).toMatchObject({ kind: 'arrow', step: 2, pulse: false, label: 'Save' });
   });
 });
