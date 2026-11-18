@@ -2,6 +2,7 @@ import { HARNESS_LIST } from '../shared/types';
 import type {
   AppSettings,
   ChatAttachment,
+  DesktopAction,
   GitGlance,
   HarnessKind,
   SavedSession,
@@ -10,7 +11,13 @@ import type {
   StreamEvent,
   TurnMetrics,
 } from '../shared/types';
-import { expandSlashTemplate, LOCAL_COMMANDS, parseLocalCommand, PROMPT_TEMPLATES } from '../main/commands';
+import {
+  expandSlashTemplate,
+  LOCAL_COMMANDS,
+  parseLocalCommand,
+  parseOsQuickCommand,
+  PROMPT_TEMPLATES,
+} from '../main/commands';
 import { extractActiveTrigger } from '../shared/triggers';
 import { renderGitDiffDrawer } from './diff-drawer';
 import { hydrateRenderedMarkdown, renderMarkdownHtml } from './markdown';
@@ -1033,6 +1040,15 @@ async function submitPrompt(overridePrompt?: QueuedPrompt): Promise<void> {
       await executeLocalCommand(localCmd);
       return;
     }
+    const osCmd = parseOsQuickCommand(raw);
+    if (osCmd) {
+      composerInput.value = '';
+      autoResizeComposer();
+      updateSendButton();
+      const res = await window.agentOverlay.executeDesktopAction(osCmd, true);
+      showNotice(res.message, !res.ok);
+      return;
+    }
   }
 
   isStreaming = true;
@@ -1153,6 +1169,122 @@ async function startNewConversation(): Promise<void> {
   renderAttachments();
   updateUndoRedoButtons();
   await window.agentOverlay.resetSession();
+}
+
+let desktopPanicToken = 0;
+
+function describeDesktopAction(a: DesktopAction): string {
+  if (a.kind === 'os') {
+    const detail = a.target ? ` ${a.target}` : a.value !== undefined ? ` ${a.value}%` : '';
+    return `OS: ${a.action || 'action'}${detail}`;
+  }
+  if (a.kind === 'type') return `Type "${(a.text || '').slice(0, 32)}"`;
+  if (a.kind === 'key') return `Key ${a.combo || ''}`;
+  if (a.kind === 'scroll') return `Scroll (${a.delta ?? -3})`;
+  const coords = `(${Math.round(a.x ?? 50)}%, ${Math.round(a.y ?? 50)}%)`;
+  return `${a.kind} ${coords}${a.label ? ` · ${a.label}` : ''}`;
+}
+
+function appendDesktopActionsCard(
+  container: HTMLElement,
+  actions: DesktopAction[],
+  autoPreview: boolean,
+): void {
+  const epoch = desktopPanicToken;
+  const card = document.createElement('div');
+  card.className = 'desktop-actions-card';
+
+  const head = document.createElement('div');
+  head.className = 'desktop-actions-head';
+  const title = document.createElement('div');
+  title.className = 'desktop-actions-title';
+  title.innerHTML = `<i class="codicon codicon-vm"></i><span>Desktop Actions (${actions.length})</span>`;
+
+  const ctrls = document.createElement('div');
+  ctrls.className = 'desktop-actions-controls';
+  const previewBtn = document.createElement('button');
+  previewBtn.type = 'button';
+  previewBtn.className = 'mini-action-btn';
+  previewBtn.textContent = 'Preview';
+  previewBtn.addEventListener('click', () => {
+    void window.agentOverlay.previewDesktopActions(actions);
+  });
+
+  const runAllBtn = document.createElement('button');
+  runAllBtn.type = 'button';
+  runAllBtn.className = 'mini-action-btn primary';
+  runAllBtn.textContent = 'Run All';
+
+  const panicBtn = document.createElement('button');
+  panicBtn.type = 'button';
+  panicBtn.className = 'mini-action-btn danger';
+  panicBtn.textContent = 'Panic Stop';
+  panicBtn.addEventListener('click', () => {
+    desktopPanicToken++;
+    void window.agentOverlay.panicStopDesktop();
+    title.textContent = 'Desktop Actions · Stopped';
+  });
+
+  ctrls.append(previewBtn, runAllBtn, panicBtn);
+  head.append(title, ctrls);
+  card.appendChild(head);
+
+  const rowRunners: Array<() => Promise<void>> = [];
+
+  for (const act of actions) {
+    const row = document.createElement('div');
+    row.className = 'desktop-action-row';
+    const desc = document.createElement('span');
+    desc.className = 'desktop-action-desc';
+    desc.textContent = describeDesktopAction(act);
+    desc.title = desc.textContent;
+
+    const btns = document.createElement('div');
+    btns.className = 'desktop-action-btns';
+    const runBtn = document.createElement('button');
+    runBtn.type = 'button';
+    runBtn.className = 'mini-action-btn';
+    runBtn.textContent = 'Run';
+
+    const executeOne = async () => {
+      if (desktopPanicToken !== epoch || runBtn.disabled) return;
+      runBtn.disabled = true;
+      runBtn.textContent = '...';
+      const res = await window.agentOverlay.executeDesktopAction(act, false);
+      runBtn.textContent = res.ok ? 'Done ✓' : 'Failed';
+      if (!res.ok) showNotice(res.message, true);
+    };
+
+    runBtn.addEventListener('click', () => void executeOne());
+    rowRunners.push(executeOne);
+
+    btns.appendChild(runBtn);
+    row.append(desc, btns);
+    card.appendChild(row);
+  }
+
+  const runAllSequence = async () => {
+    runAllBtn.disabled = true;
+    for (const fn of rowRunners) {
+      if (desktopPanicToken !== epoch) break;
+      await fn();
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    runAllBtn.textContent = desktopPanicToken === epoch ? 'Finished' : 'Stopped';
+  };
+
+  runAllBtn.addEventListener('click', () => void runAllSequence());
+  container.appendChild(card);
+
+  if (autoPreview && !window.location.search.includes('audit=1')) {
+    void window.agentOverlay.previewDesktopActions(actions);
+    title.textContent = 'Auto-running in 1.2s (Ctrl+Alt+X stops)...';
+    window.setTimeout(() => {
+      if (desktopPanicToken === epoch) {
+        void runAllSequence();
+      }
+    }, 1200);
+  }
 }
 
 function handleStreamEvent(ev: StreamEvent): void {
@@ -1309,6 +1441,16 @@ function handleStreamEvent(ev: StreamEvent): void {
       activeTurn.metricsEl.textContent = formatted.text;
       activeTurn.metricsEl.title = formatted.tooltip;
       updateContextBudget(activeTurn.turn.metrics);
+      break;
+    }
+    case 'desktop_actions': {
+      if (!activeTurn || ev.actions.length === 0) break;
+      appendDesktopActionsCard(
+        activeTurn.toolsContainer,
+        ev.actions,
+        settings.desktopControlMode === 'preview_auto',
+      );
+      scrollToBottomIfPinned();
       break;
     }
     case 'error': {
@@ -2344,6 +2486,10 @@ async function bootstrap(): Promise<void> {
   });
   window.agentOverlay.onClipboardCompanion((att) => {
     void triggerClipboardCompanionFlow(att);
+  });
+  window.agentOverlay.onDesktopPanic(() => {
+    desktopPanicToken++;
+    showNotice('Desktop automation stopped (Panic Stop).', true);
   });
   composerInput.focus();
 

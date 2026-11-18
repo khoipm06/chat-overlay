@@ -1,6 +1,8 @@
 import { HARNESS_LIST } from '../shared/types';
 import type {
   AppSettings,
+  DesktopCapabilities,
+  DesktopControlMode,
   FollowUpBehavior,
   HarnessDiagnostic,
   HarnessKind,
@@ -24,6 +26,7 @@ export function renderTabbedSettingsDrawer(opts: {
   let current = opts.settings;
   let diagnostics: HarnessDiagnostic[] = [];
   let diagnosticsLoading = true;
+  let desktopCaps: DesktopCapabilities | null = null;
 
   const render = () => {
     opts.container.innerHTML = '';
@@ -116,6 +119,25 @@ export function renderTabbedSettingsDrawer(opts: {
             <option value="ask" ${current.permissionPolicy === 'ask' ? 'selected' : ''}>Ask before every tool</option>
             <option value="yolo" ${current.permissionPolicy === 'yolo' ? 'selected' : ''}>Auto-approve all tools</option>
           </select>
+        </div>
+        <div class="field-group">
+          <label>Desktop Actions &amp; Computer Use Policy</label>
+          <select id="set-desktop-mode" class="field-select">
+            <option value="confirm" ${current.desktopControlMode === 'confirm' ? 'selected' : ''}>Confirm every UI / OS action (Recommended)</option>
+            <option value="preview_auto" ${current.desktopControlMode === 'preview_auto' ? 'selected' : ''}>Visual Preview + Auto-Run (1.2s Panic Stop)</option>
+            <option value="off" ${current.desktopControlMode === 'off' ? 'selected' : ''}>Disabled for AI prompts</option>
+          </select>
+        </div>
+        <div class="diag-card" style="margin-top:4px;">
+          <div class="diag-card-top">
+            <strong>Desktop Drivers</strong>
+            <span class="badge">${desktopCaps ? escapeHtmlText(desktopCaps.platform) : 'checking...'}</span>
+          </div>
+          <div class="diag-card-sub">${
+            desktopCaps
+              ? `Input: ${escapeHtmlText(desktopCaps.inputDriver || 'unavailable')} · Theme: ${desktopCaps.themeControl ? 'ready' : 'n/a'} · Audio: ${desktopCaps.audioControl ? 'ready' : 'n/a'}${desktopCaps.notes ? `<br>${escapeHtmlText(desktopCaps.notes)}` : ''}`
+              : 'Detecting OS quick action & input drivers...'
+          }</div>
         </div>
         <div class="field-group">
           <label>Revert Mode</label>
@@ -263,6 +285,7 @@ export function renderTabbedSettingsDrawer(opts: {
         patch.showGitGlance = (body.querySelector('#set-git-glance') as HTMLInputElement).checked;
       } else if (activeTab === 'safety') {
         patch.permissionPolicy = (body.querySelector('#set-perm-policy') as HTMLSelectElement).value as PermissionPolicy;
+        patch.desktopControlMode = (body.querySelector('#set-desktop-mode') as HTMLSelectElement).value as DesktopControlMode;
         patch.autoApprovePermissions = patch.permissionPolicy === 'yolo';
         patch.revertMode = (body.querySelector('#set-revert-mode') as HTMLSelectElement).value as RevertMode;
       } else if (activeTab === 'vision') {
@@ -298,4 +321,13 @@ export function renderTabbedSettingsDrawer(opts: {
     .catch(() => {
       diagnosticsLoading = false;
     });
+  void window.agentOverlay
+    .getDesktopCapabilities()
+    .then((caps) => {
+      desktopCaps = caps;
+      if (activeTab === 'safety' && opts.container.isConnected) {
+        render();
+      }
+    })
+    .catch(() => {});
 }
