@@ -1960,3 +1960,246 @@ body {
 .history-item:hover {
   background: var(--hover);
 }
+
+/* Clipboard Companion Quick Action Bar */
+.clipboard-actions-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 10px 6px 10px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(0, 120, 212, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.clipboard-actions-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #7dd3fc;
+  margin-right: 2px;
+}
+
+.clipboard-actions-bar #btn-clip-close {
+  margin-left: auto;
+}
+
+/* Drag & Drop Overlay */
+.drop-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 45;
+  border-radius: 12px;
+  background: rgba(12, 16, 24, 0.86);
+  border: 2px dashed var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drop-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #e4e4e7;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  padding: 16px;
+}
+
+.drop-overlay-card .codicon {
+  font-size: 28px;
+  color: #38bdf8;
+}
+
+/* Unified Diff Review Drawer */
+.diff-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.diff-branch-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-strong);
+  flex-wrap: wrap;
+}
+
+.diff-top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diff-stat-add {
+  color: #4ade80;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.diff-stat-del {
+  color: #f87171;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.diff-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px 10px;
+}
+
+.diff-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diff-file-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.diff-file-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.diff-file-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px;
+  text-align: left;
+  font-size: 11.5px;
+}
+
+.diff-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.diff-badge-mod {
+  background: rgba(234, 179, 8, 0.2);
+  color: #facc15;
+}
+
+.diff-badge-add {
+  background: rgba(74, 222, 128, 0.2);
+  color: #4ade80;
+}
+
+.diff-badge-del {
+  background: rgba(248, 113, 113, 0.2);
+  color: #f87171;
+}
+
+.diff-badge-untracked {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+
+.diff-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  color: var(--text-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.diff-file-counts {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.diff-file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.diff-file-body {
+  border-top: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.diff-hunk-header {
+  padding: 3px 8px;
+  background: rgba(56, 189, 248, 0.08);
+  color: #7dd3fc;
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+.diff-lines-box {
+  overflow-x: auto;
+}
+
+.diff-line {
+  padding: 0 8px;
+  white-space: pre;
+  min-width: fit-content;
+}
+
+.diff-line-add {
+  background: rgba(34, 197, 94, 0.14);
+  color: #bbf7d0;
+}
+
+.diff-line-del {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fecaca;
+}
+
+.diff-line-ctx {
+  color: var(--text-muted);
+}
+
+.diff-truncated-note {
+  padding: 4px 8px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-style: italic;
+}

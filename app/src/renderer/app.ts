@@ -12,6 +12,7 @@ import type {
 } from '../shared/types';
 import { expandSlashTemplate, LOCAL_COMMANDS, parseLocalCommand, PROMPT_TEMPLATES } from '../main/commands';
 import { extractActiveTrigger } from '../shared/triggers';
+import { renderGitDiffDrawer } from './diff-drawer';
 import { hydrateRenderedMarkdown, renderMarkdownHtml } from './markdown';
 import { PopoverController, type PopoverEntry } from './popovers';
 import { renderTabbedSettingsDrawer } from './settings-drawer';
@@ -19,6 +20,12 @@ import { playAttentionChime, playDoneChime } from './sound';
 import { presentToolCall, renderToolDetailHtml } from './tool-presenter';
 
 // DOM refs
+const appShell = document.getElementById('app-shell')!;
+const dropOverlay = document.getElementById('drop-overlay')!;
+const clipboardActionsBar = document.getElementById('clipboard-actions-bar')!;
+const btnClipClose = document.getElementById('btn-clip-close')!;
+const btnClipboardCompanion = document.getElementById('btn-clipboard-companion')!;
+
 const liveStatusPill = document.getElementById('live-status-pill')!;
 const liveStatusIcon = document.getElementById('live-status-icon')!;
 const liveStatusText = document.getElementById('live-status-text')!;
@@ -987,6 +994,7 @@ async function resolveInlineMentionsToAttachments(text: string): Promise<void> {
 }
 
 async function submitPrompt(overridePrompt?: QueuedPrompt): Promise<void> {
+  clipboardActionsBar.classList.add('hidden');
   const raw = overridePrompt ? overridePrompt.text.trim() : composerInput.value.trim();
   const hasDraft = Boolean(raw || (overridePrompt?.attachments.length ?? pendingAttachments.length) > 0);
 
@@ -1279,6 +1287,10 @@ function handleStreamEvent(ev: StreamEvent): void {
       activeTurn.toolsContainer.appendChild(card);
       if (settings.soundCues) playAttentionChime();
       void window.agentOverlay.flashAttention();
+      void window.agentOverlay.notifyBackground(
+        'Approval Needed',
+        req.toolTitle || 'Agent requires tool permission',
+      );
       scrollToBottomIfPinned();
       break;
     }
@@ -1364,6 +1376,12 @@ function handleStreamEvent(ev: StreamEvent): void {
       }
       if (settings.soundCues && !window.location.search.includes('audit=1')) {
         playDoneChime();
+      }
+      if (!window.location.search.includes('audit=1')) {
+        void window.agentOverlay.notifyBackground(
+          currentSessionTitle || 'Response Ready',
+          turns[turns.length - 1]?.assistantMarkdown?.slice(0, 120) || 'Turn completed.',
+        );
       }
       void refreshGitGlance();
       if (queuedFollowUp) {
@@ -1601,6 +1619,27 @@ function closeModal(): void {
   modalBody.innerHTML = '';
 }
 
+function openDiffModal(initialFile?: string): void {
+  modalTitle.textContent = 'Workspace Diff Review';
+  modalBackdrop.classList.remove('hidden');
+  void renderGitDiffDrawer({
+    container: modalBody,
+    workspaceDir: currentSessionWorkspaceDir || settings.workspaceDir,
+    initialFile,
+    onReviewFiles: (files) => {
+      closeModal();
+      composerInput.value = `Review these uncommitted workspace changes:\n${files.map((f) => `- @${f}`).join('\n')}\n\n`;
+      autoResizeComposer();
+      composerInput.focus();
+      updateSendButton();
+    },
+    onRestored: async () => {
+      await refreshGitGlance();
+    },
+    onNotice: (msg) => showNotice(msg, false),
+  });
+}
+
 function openSettingsModal(): void {
   modalTitle.textContent = 'Settings';
   void renderTabbedSettingsDrawer({
@@ -1756,9 +1795,16 @@ gitBranchChip.addEventListener('click', () => {
           ]
         : [
             {
+              id: 'open-diff-drawer',
+              title: 'Inspect Unified Diffs',
+              detail: `+${gitGlance.insertions} / -${gitGlance.deletions} across ${gitGlance.changedFiles.length} file(s)`,
+              icon: 'codicon-diff',
+              onSelect: () => openDiffModal(),
+            },
+            {
               id: 'review-diff',
-              title: `Review ${gitGlance.changedFiles.length} Modified Files`,
-              detail: `+${gitGlance.insertions} / -${gitGlance.deletions}`,
+              title: `Ask Agent to Review ${gitGlance.changedFiles.length} Files`,
+              detail: 'Pre-fill composer with @file mentions',
               icon: 'codicon-git-compare',
               onSelect: () => {
                 composerInput.value = `Review these uncommitted workspace changes:\n${gitGlance.changedFiles.map((f) => `- @${f}`).join('\n')}\n\n`;
@@ -1770,16 +1816,9 @@ gitBranchChip.addEventListener('click', () => {
             ...gitGlance.changedFiles.slice(0, 12).map((f) => ({
               id: `f_${f}`,
               title: basename(f),
-              detail: f,
+              detail: `${f} · click to view diff`,
               icon: 'codicon-file-code',
-              onSelect: () => {
-                addAttachment({
-                  id: `att_git_${f}`,
-                  kind: 'file',
-                  name: basename(f),
-                  path: f,
-                });
-              },
+              onSelect: () => openDiffModal(f),
             })),
           ],
   });
@@ -1906,6 +1945,111 @@ composerInput.addEventListener('keydown', (e) => {
   }
 });
 
+async function triggerClipboardCompanionFlow(preFetched?: ChatAttachment | null): Promise<void> {
+  const att = preFetched !== undefined ? preFetched : await window.agentOverlay.readClipboardContext(true);
+  if (!att) {
+    showNotice('Clipboard & selection are empty.', true);
+    return;
+  }
+  addAttachment(att);
+  clipboardActionsBar.classList.remove('hidden');
+  composerInput.focus();
+}
+
+btnClipboardCompanion.addEventListener('click', () => {
+  void triggerClipboardCompanionFlow();
+});
+
+btnClipClose.addEventListener('click', () => {
+  clipboardActionsBar.classList.add('hidden');
+});
+
+clipboardActionsBar.querySelectorAll<HTMLButtonElement>('[data-clip-action]').forEach((btn) => {
+  btn.addEventListener('click', (e) => {
+    const action = btn.dataset.clipAction || 'Explain';
+    const promptMap: Record<string, string> = {
+      Explain: 'Explain the attached clipboard/screen content clearly and break down key details.',
+      Summarize: 'Summarize the key points from the attached clipboard content concisely.',
+      Translate: 'Translate the attached content cleanly into natural Vietnamese (or English if already Vietnamese).',
+      Fix: 'Identify any errors, bugs, or issues in the attached content and provide a concrete fix.',
+    };
+    clipboardActionsBar.classList.add('hidden');
+    const prompt = promptMap[action] || `${action} the attached content.`;
+    if ((e as MouseEvent).shiftKey) {
+      composerInput.value = prompt;
+      autoResizeComposer();
+      composerInput.focus();
+      updateSendButton();
+    } else {
+      void submitPrompt({ text: prompt, attachments: [...pendingAttachments], steer: false });
+    }
+  });
+});
+
+// Drag & Drop (files, screenshots, URLs, or text snippets)
+let dragCounter = 0;
+appShell.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dragCounter++;
+  dropOverlay.classList.remove('hidden');
+});
+appShell.addEventListener('dragover', (e) => {
+  e.preventDefault();
+});
+appShell.addEventListener('dragleave', () => {
+  dragCounter = Math.max(0, dragCounter - 1);
+  if (dragCounter === 0) dropOverlay.classList.add('hidden');
+});
+appShell.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.add('hidden');
+  const dt = e.dataTransfer;
+  if (!dt) return;
+
+  if (dt.files && dt.files.length > 0) {
+    Array.from(dt.files).forEach((file) => {
+      const filePath = window.agentOverlay.getFilePath(file);
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            addAttachment({
+              id: `att_drop_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              kind: 'image',
+              name: file.name || 'dropped-image.png',
+              mimeType: file.type,
+              dataUrl: reader.result,
+            });
+          }
+        };
+        reader.readAsDataURL(file);
+      } else if (filePath) {
+        addAttachment({
+          id: `att_drop_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          kind: 'file',
+          name: file.name || basename(filePath),
+          path: filePath,
+        });
+      }
+    });
+    return;
+  }
+
+  const droppedUri = dt.getData('text/uri-list')?.trim();
+  const droppedText = dt.getData('text/plain')?.trim();
+  const textPayload = droppedUri || droppedText;
+  if (textPayload) {
+    addAttachment({
+      id: `att_drop_txt_${Date.now()}`,
+      kind: 'text',
+      name: /^https?:\/\//i.test(textPayload) ? 'dropped-url.txt' : 'dropped-text.txt',
+      content: textPayload,
+    });
+    composerInput.focus();
+  }
+});
+
 // Global overlay keyboard shortcuts
 window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z') {
@@ -1931,6 +2075,11 @@ window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'g') {
     e.preventDefault();
     void window.agentOverlay.toggleGhostMode();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'q') {
+    e.preventDefault();
+    void triggerClipboardCompanionFlow();
     return;
   }
   if (
@@ -2192,6 +2341,9 @@ async function bootstrap(): Promise<void> {
   window.agentOverlay.onFocusComposer(() => composerInput.focus());
   window.agentOverlay.onGhostModeChanged((enabled) => {
     ghostModeBadge.classList.toggle('hidden', !enabled);
+  });
+  window.agentOverlay.onClipboardCompanion((att) => {
+    void triggerClipboardCompanionFlow(att);
   });
   composerInput.focus();
 

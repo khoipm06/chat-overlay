@@ -27,6 +27,30 @@ let strokes: DrawnStroke[] = [];
 let activeStroke: DrawnStroke | null = null;
 let regionDrag: { x1: number; y1: number; x2: number; y2: number } | null = null;
 let agentAnnotations: MarkupAnnotation[] = [];
+let pulseRafId = 0;
+let lastPulseFrame = 0;
+
+function stopPulseAnimation(): void {
+  if (pulseRafId) {
+    cancelAnimationFrame(pulseRafId);
+    pulseRafId = 0;
+  }
+}
+
+function startPulseAnimationIfNeeded(): void {
+  stopPulseAnimation();
+  if (mode !== 'agent' || agentAnnotations.length === 0) return;
+  const shouldPulse = agentAnnotations.some((a) => a.pulse !== false);
+  if (!shouldPulse) return;
+  const tick = (ts: number) => {
+    if (ts - lastPulseFrame >= 33) {
+      lastPulseFrame = ts;
+      redraw();
+    }
+    pulseRafId = requestAnimationFrame(tick);
+  };
+  pulseRafId = requestAnimationFrame(tick);
+}
 
 function resizeCanvas(): void {
   const dpr = window.devicePixelRatio || 1;
@@ -58,18 +82,35 @@ function drawArrow(targetCtx: CanvasRenderingContext2D, x1: number, y1: number, 
   targetCtx.fill();
 }
 
-function drawLabelPill(x: number, y: number, text: string): void {
+function drawLabelPill(x: number, y: number, text: string, color = '#0284c7'): void {
   ctx.font = '600 12px system-ui, sans-serif';
   const metrics = ctx.measureText(text);
-  const w = metrics.width + 12;
-  const h = 22;
-  const py = Math.max(4, y - h - 4);
-  ctx.fillStyle = '#e11d48';
+  const w = metrics.width + 14;
+  const h = 23;
+  const py = Math.max(4, y - h - 6);
+  ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.roundRect(x, py, w, h, 5);
+  ctx.roundRect(x, py, w, h, 6);
   ctx.fill();
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(text, x + 6, py + 15);
+  ctx.fillText(text, x + 7, py + 15);
+}
+
+function drawStepBadge(x: number, y: number, stepNum: number, color = '#0284c7'): void {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(stepNum), x, y + 0.5);
+  ctx.restore();
 }
 
 function redraw(): void {
@@ -135,26 +176,58 @@ function redraw(): void {
   if (activeStroke) drawOne(activeStroke);
 
   if (mode === 'agent') {
-    for (const ann of agentAnnotations) {
+    const phase = (Math.sin(performance.now() / 280) + 1) / 2;
+    const accent = '#38bdf8';
+    const badgeColor = '#0284c7';
+    agentAnnotations.forEach((ann, idx) => {
+      const stepNum = ann.step ?? (agentAnnotations.length > 1 ? idx + 1 : undefined);
+      const pulsePad = ann.pulse === false ? 0 : 2 + phase * 6;
       if (ann.kind === 'box') {
         const bx = ((ann.x ?? 0) / 100) * w;
         const by = ((ann.y ?? 0) / 100) * h;
         const bw = ((ann.w ?? 10) / 100) * w;
         const bh = ((ann.h ?? 8) / 100) * h;
-        ctx.fillStyle = 'rgba(255, 59, 48, 0.1)';
-        ctx.fillRect(bx, by, bw, bh);
-        ctx.strokeRect(bx, by, bw, bh);
-        if (ann.label) drawLabelPill(bx, by, ann.label);
+        if (pulsePad > 0) {
+          ctx.save();
+          ctx.strokeStyle = `rgba(56, 189, 248, ${(0.55 - phase * 0.4).toFixed(2)})`;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.roundRect(bx - pulsePad, by - pulsePad, bw + pulsePad * 2, bh + pulsePad * 2, 8);
+          ctx.stroke();
+          ctx.restore();
+        }
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, bw, bh, 6);
+        ctx.fill();
+        ctx.stroke();
+        const labelX = stepNum !== undefined ? bx + 16 : bx;
+        if (ann.label) drawLabelPill(labelX, by, ann.label, badgeColor);
+        if (stepNum !== undefined) drawStepBadge(bx, by, stepNum, badgeColor);
       } else if (ann.kind === 'arrow') {
         const x1 = ((ann.x1 ?? 50) / 100) * w;
         const y1 = ((ann.y1 ?? 50) / 100) * h;
         const x2 = ((ann.x2 ?? 25) / 100) * w;
         const y2 = ((ann.y2 ?? 25) / 100) * h;
-        ctx.fillStyle = '#ff3b30';
+        ctx.fillStyle = accent;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 3;
         drawArrow(ctx, x1, y1, x2, y2);
-        if (ann.label) drawLabelPill(x2, y2, ann.label);
+        if (ann.pulse !== false) {
+          ctx.save();
+          ctx.strokeStyle = `rgba(56, 189, 248, ${(0.6 - phase * 0.45).toFixed(2)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(x2, y2, 8 + phase * 10, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+        if (ann.label) drawLabelPill(x2 + 14, y2, ann.label, badgeColor);
+        if (stepNum !== undefined) drawStepBadge(x2, y2, stepNum, badgeColor);
       }
-    }
+    });
   }
 }
 
@@ -267,7 +340,10 @@ window.markupBridge.onInit((payload) => {
     agentToolbar.addEventListener('mouseleave', () => window.markupBridge.setClickThrough(true));
   }
   resizeCanvas();
+  startPulseAnimationIfNeeded();
 });
+
+window.addEventListener('beforeunload', stopPulseAnimation);
 
 canvas.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;

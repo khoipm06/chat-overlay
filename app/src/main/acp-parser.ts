@@ -322,7 +322,11 @@ export function pickMarkupAnnotationsFromText(text: string): Array<Record<string
         v = v.slice(1, -1);
       }
       const num = Number(v);
-      record[k] = k === 'label' || Number.isNaN(num) ? v : num;
+      if (k === 'pulse') {
+        record[k] = v.toLowerCase() !== 'false' && v !== '0';
+      } else {
+        record[k] = k === 'label' || Number.isNaN(num) ? v : num;
+      }
     }
     results.push(record);
   }

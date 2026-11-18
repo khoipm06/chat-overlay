@@ -153,6 +153,18 @@
         </div>
       </div>
 
+      <!-- Clipboard Companion Quick Actions -->
+      <div id="clipboard-actions-bar" class="clipboard-actions-bar hidden">
+        <span class="clipboard-actions-label"><i class="codicon codicon-clippy"></i> Clipboard</span>
+        <button type="button" class="mini-action-btn" data-clip-action="Explain">Explain</button>
+        <button type="button" class="mini-action-btn" data-clip-action="Summarize">Summarize</button>
+        <button type="button" class="mini-action-btn" data-clip-action="Translate">Translate</button>
+        <button type="button" class="mini-action-btn" data-clip-action="Fix">Fix</button>
+        <button id="btn-clip-close" type="button" class="icon-btn" title="Dismiss">
+          <i class="codicon codicon-close"></i>
+        </button>
+      </div>
+
       <!-- Unified Composer Card -->
       <footer class="composer-wrap">
         <div id="composer-card" class="composer-card">
@@ -192,6 +204,9 @@
             </div>
 
             <div class="composer-actions">
+              <button id="btn-clipboard-companion" class="icon-btn" title="Grab Clipboard / Selection (Ctrl+Alt+Q)">
+                <i class="codicon codicon-clippy"></i>
+              </button>
               <button id="btn-capture-menu" class="icon-btn" title="Capture screen or markup">
                 <i class="codicon codicon-device-camera"></i>
               </button>
@@ -209,7 +224,15 @@
         </div>
       </footer>
 
-      <!-- Full-Overlay Slide-in Drawer (Settings / History) -->
+      <!-- Drag & Drop Overlay -->
+      <div id="drop-overlay" class="drop-overlay hidden">
+        <div class="drop-overlay-card">
+          <i class="codicon codicon-cloud-upload"></i>
+          <div>Drop files, images, or links to attach</div>
+        </div>
+      </div>
+
+      <!-- Full-Overlay Slide-in Drawer (Settings / History / Diffs) -->
       <div id="modal-backdrop" class="modal-backdrop hidden">
         <div id="modal-panel" class="modal-panel">
           <div class="modal-header">

@@ -103,7 +103,7 @@ export function renderTabbedSettingsDrawer(opts: {
           <input id="set-git-glance" type="checkbox" ${current.showGitGlance ? 'checked' : ''} />
         </label>
         <div class="settings-hint">
-          Toggle Ghost Click-Through: <code>Ctrl+Alt+G</code> · Model Picker: <code>Ctrl+.</code> · Undo Revert: <code>Ctrl+Shift+Z</code>
+          Toggle Ghost: <code>Ctrl+Alt+G</code> · Clipboard Companion: <code>Ctrl+Alt+Q</code> · Model Picker: <code>Ctrl+.</code>
         </div>
       `;
     } else if (activeTab === 'safety') {
@@ -165,6 +165,10 @@ export function renderTabbedSettingsDrawer(opts: {
         <label class="toggle-row">
           <span>Flash taskbar icon when approval needed</span>
           <input id="set-flash-attn" type="checkbox" ${current.flashOnAttention ? 'checked' : ''} />
+        </label>
+        <label class="toggle-row">
+          <span>Desktop notification when done in background</span>
+          <input id="set-bg-notify" type="checkbox" ${current.backgroundNotifications ? 'checked' : ''} />
         </label>
         <label class="toggle-row">
           <span>Always attach live @screen with prompts</span>
@@ -268,6 +272,7 @@ export function renderTabbedSettingsDrawer(opts: {
         patch.idleSleepMinutes = Math.max(0, Number((body.querySelector('#set-idle-sleep') as HTMLInputElement).value) || 0);
         patch.soundCues = (body.querySelector('#set-sound-cues') as HTMLInputElement).checked;
         patch.flashOnAttention = (body.querySelector('#set-flash-attn') as HTMLInputElement).checked;
+        patch.backgroundNotifications = (body.querySelector('#set-bg-notify') as HTMLInputElement).checked;
         patch.pinLiveScreen = (body.querySelector('#set-pin-screen') as HTMLInputElement).checked;
       } else {
         patch.harness = (body.querySelector('#set-harness') as HTMLSelectElement).value as HarnessKind;

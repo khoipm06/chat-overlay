@@ -7,6 +7,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  Notification,
   screen,
   shell,
   Tray,
@@ -27,7 +28,13 @@ import type {
 } from '../shared/types';
 import { AcpAgentController, testHarnessConnection } from './acp-client';
 import { captureScreenDataUrl, encodeNativeImage, type CaptureKind } from './capture';
-import { captureWorkspaceCheckpoint, getGitGlance, restoreWorkspaceCheckpoint } from './checkpoint';
+import {
+  captureWorkspaceCheckpoint,
+  getGitDiffReport,
+  getGitGlance,
+  restoreGitFile,
+  restoreWorkspaceCheckpoint,
+} from './checkpoint';
 import { indexWorkspaceFiles, matchMentionItems } from './mentions';
 import {
   deleteSessionRecord,
@@ -175,9 +182,12 @@ function wakeAcpIfSleeping(): void {
 function applyLaunchAtLoginSetting(enabled: boolean): void {
   if (AUDIT_DIR) return;
   if (process.platform === 'linux') {
-    const execLine = app.isPackaged
-      ? `"${process.execPath}" --daemon`
-      : `"${process.execPath}" "${app.getAppPath()}" --daemon`;
+    const localLauncher = path.join(os.homedir(), '.local', 'bin', 'chat-overlay');
+    const execLine = fs.existsSync(localLauncher)
+      ? `${localLauncher} --daemon`
+      : app.isPackaged
+        ? `"${process.execPath}" --daemon`
+        : `"${process.execPath}" "${app.getAppPath()}" --daemon`;
     syncLinuxAutostartDesktopFile(enabled, execLine);
     return;
   }
@@ -185,6 +195,64 @@ function applyLaunchAtLoginSetting(enabled: boolean): void {
     openAtLogin: enabled,
     args: ['--daemon'],
   });
+}
+
+function readClipboardAttachment(preferSelection = false): ChatAttachment | null {
+  if (preferSelection && process.platform === 'linux') {
+    const sel = clipboard.readText('selection').trim();
+    if (sel) {
+      return {
+        id: `att_${Date.now()}`,
+        kind: 'text',
+        name: 'selection.txt',
+        content: sel,
+      };
+    }
+  }
+  const img = clipboard.readImage();
+  if (!img.isEmpty()) {
+    const encoded = encodeNativeImage(img, settings.screenshotQuality);
+    return {
+      id: `att_${Date.now()}`,
+      kind: 'image',
+      name: `clipboard-${Date.now()}.${encoded.mimeType === 'image/png' ? 'png' : 'jpg'}`,
+      mimeType: encoded.mimeType,
+      dataUrl: encoded.dataUrl,
+    };
+  }
+  const text = clipboard.readText().trim();
+  if (text) {
+    return {
+      id: `att_${Date.now()}`,
+      kind: 'text',
+      name: 'clipboard.txt',
+      content: text,
+    };
+  }
+  if (!preferSelection && process.platform === 'linux') {
+    const sel = clipboard.readText('selection').trim();
+    if (sel) {
+      return {
+        id: `att_${Date.now()}`,
+        kind: 'text',
+        name: 'selection.txt',
+        content: sel,
+      };
+    }
+  }
+  return null;
+}
+
+function triggerClipboardCompanion(): void {
+  const att = readClipboardAttachment(true);
+  showAndFocusOverlay();
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const send = () => mainWindow?.webContents.send('context:clipboard-companion', att);
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
 }
 
 function setGhostMode(enabled: boolean): void {
@@ -320,6 +388,13 @@ function registerShortcuts(): void {
       // Optional on compositor
     }
   }
+  if (settings.quickClipboardShortcut) {
+    try {
+      globalShortcut.register(settings.quickClipboardShortcut, () => triggerClipboardCompanion());
+    } catch {
+      // Optional on compositor
+    }
+  }
 }
 
 function setupUnixToggleSocket(): void {
@@ -338,6 +413,8 @@ function setupUnixToggleSocket(): void {
         showAndFocusOverlay();
       } else if (cmd === 'hide') {
         mainWindow?.hide();
+      } else if (cmd === 'clipboard') {
+        triggerClipboardCompanion();
       } else {
         toggleOverlay();
       }
@@ -525,7 +602,8 @@ function registerIpcHandlers(): void {
     if (
       patch.shortcut !== undefined ||
       patch.backupShortcut !== undefined ||
-      patch.ghostShortcut !== undefined
+      patch.ghostShortcut !== undefined ||
+      patch.quickClipboardShortcut !== undefined
     ) {
       registerShortcuts();
     }
@@ -624,26 +702,8 @@ function registerIpcHandlers(): void {
     return matchMentionItems(query, workspaceFileCache);
   });
 
-  ipcMain.handle('context:clipboard', (): ChatAttachment | null => {
-    const img = clipboard.readImage();
-    if (!img.isEmpty()) {
-      const encoded = encodeNativeImage(img, settings.screenshotQuality);
-      return {
-        id: `att_${Date.now()}`,
-        kind: 'image',
-        name: `clipboard-${Date.now()}.${encoded.mimeType === 'image/png' ? 'png' : 'jpg'}`,
-        mimeType: encoded.mimeType,
-        dataUrl: encoded.dataUrl,
-      };
-    }
-    const text = clipboard.readText().trim();
-    if (!text) return null;
-    return {
-      id: `att_${Date.now()}`,
-      kind: 'text',
-      name: 'clipboard.txt',
-      content: text,
-    };
+  ipcMain.handle('context:clipboard', (_ev, preferSelection?: boolean): ChatAttachment | null => {
+    return readClipboardAttachment(Boolean(preferSelection));
   });
 
   ipcMain.handle('capture:screen', async (_ev, kind: CaptureKind): Promise<ChatAttachment> => {
@@ -680,6 +740,12 @@ function registerIpcHandlers(): void {
   ipcMain.handle('git:glance', (_ev, workspaceDir?: string) =>
     getGitGlance(workspaceDir || settings.workspaceDir),
   );
+  ipcMain.handle('git:diff-report', (_ev, workspaceDir?: string, targetFile?: string) =>
+    getGitDiffReport(workspaceDir || settings.workspaceDir, targetFile),
+  );
+  ipcMain.handle('git:restore-file', (_ev, filePath: string, workspaceDir?: string) =>
+    restoreGitFile(workspaceDir || settings.workspaceDir, filePath),
+  );
   ipcMain.handle('checkpoint:capture', (_ev, workspaceDir?: string) =>
     captureWorkspaceCheckpoint(workspaceDir || settings.workspaceDir),
   );
@@ -705,6 +771,21 @@ function registerIpcHandlers(): void {
   ipcMain.handle('window:flash-attention', () => {
     if (settings.flashOnAttention && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) {
       mainWindow.flashFrame(true);
+    }
+  });
+  ipcMain.handle('window:notify', (_ev, title: string, body: string) => {
+    if (!settings.backgroundNotifications || AUDIT_DIR) return;
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused() && mainWindow.isVisible()) {
+      return;
+    }
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: title || 'Chat Overlay',
+        body: body.slice(0, 160),
+        silent: true,
+      });
+      n.on('click', () => showAndFocusOverlay());
+      n.show();
     }
   });
 
