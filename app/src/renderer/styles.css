@@ -1702,6 +1702,12 @@ body {
 .popover-search-wrap {
   padding: 8px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.popover-above .popover-search-wrap {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
 }
 
 .popover-search {

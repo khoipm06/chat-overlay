@@ -1,4 +1,4 @@
-export type HarnessKind = 'agy_acp' | 'opencode_acp' | 'pi_acp';
+export type HarnessKind = 'agy_acp' | 'opencode_acp' | 'codex_acp' | 'claude_acp' | 'pi_acp';
 
 export interface HarnessInfo {
   id: HarnessKind;
@@ -6,6 +6,7 @@ export interface HarnessInfo {
   shortLabel: string;
   defaultCommand: string;
   defaultArgs: string[];
+  npmPackage?: string;
 }
 
 export const HARNESS_LIST: readonly HarnessInfo[] = [
@@ -22,6 +23,22 @@ export const HARNESS_LIST: readonly HarnessInfo[] = [
     shortLabel: 'opencode acp',
     defaultCommand: 'opencode',
     defaultArgs: ['acp'],
+  },
+  {
+    id: 'codex_acp',
+    label: 'Codex (ACP)',
+    shortLabel: 'codex-acp',
+    defaultCommand: 'codex-acp',
+    defaultArgs: [],
+    npmPackage: '@agentclientprotocol/codex-acp',
+  },
+  {
+    id: 'claude_acp',
+    label: 'Claude Code (ACP)',
+    shortLabel: 'claude-acp',
+    defaultCommand: 'claude-agent-acp',
+    defaultArgs: [],
+    npmPackage: '@agentclientprotocol/claude-agent-acp',
   },
   {
     id: 'pi_acp',
@@ -173,6 +190,8 @@ export interface HarnessDiagnostic {
   installed: boolean;
   resolvedPath: string;
   version: string | null;
+  viaRunner?: boolean;
+  npmPackage?: string;
 }
 
 export interface GitGlance {

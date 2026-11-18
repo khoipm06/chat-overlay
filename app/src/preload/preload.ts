@@ -23,6 +23,7 @@ export interface AgentOverlayApi {
   getSettings: () => Promise<AppSettings>;
   updateSettings: (patch: Partial<AppSettings>) => Promise<AppSettings>;
   inspectHarnesses: () => Promise<HarnessDiagnostic[]>;
+  installHarness: (harness: HarnessKind) => Promise<{ ok: boolean; message: string }>;
   testHarness: (
     harness: HarnessKind,
   ) => Promise<{ ok: boolean; latencyMs: number; modelCount: number; message: string }>;
@@ -90,6 +91,7 @@ const api: AgentOverlayApi = {
   getSettings: () => ipcRenderer.invoke('app:get-settings'),
   updateSettings: (patch) => ipcRenderer.invoke('app:update-settings', patch),
   inspectHarnesses: () => ipcRenderer.invoke('settings:inspect-harnesses'),
+  installHarness: (harness) => ipcRenderer.invoke('settings:install-harness', harness),
   testHarness: (harness) => ipcRenderer.invoke('acp:test-harness', harness),
   clearSessionAllowedTools: () => ipcRenderer.invoke('acp:clear-session-allowed'),
   pickWorkspaceFolder: () => ipcRenderer.invoke('app:pick-workspace'),

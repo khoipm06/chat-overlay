@@ -2255,6 +2255,13 @@ async function runAuditFlow(): Promise<void> {
   openModelPicker();
   await new Promise((r) => setTimeout(r, 200));
   await window.agentOverlay.auditCapture('02-model-picker.png');
+  const modelSearch = popoverLayer.querySelector<HTMLInputElement>('.popover-search');
+  if (modelSearch) {
+    modelSearch.value = 'sol';
+    modelSearch.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    await window.agentOverlay.auditCapture('02b-model-picker-filtered.png');
+  }
   popovers.close();
 
   composerInput.value = 'Inspect @scr';

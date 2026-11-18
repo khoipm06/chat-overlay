@@ -59,30 +59,40 @@ export class PopoverController {
     pop.className = 'popover';
     if (opts.minWidth) pop.style.minWidth = `${opts.minWidth}px`;
 
+    const resolvedPlacement = this.resolvePlacement(opts.anchor, opts.placement);
+    pop.classList.toggle('popover-above', resolvedPlacement === 'above');
+
+    let searchWrap: HTMLElement | null = null;
     let searchInput: HTMLInputElement | null = null;
 
     if (opts.headerText) {
       const hdr = document.createElement('div');
       hdr.style.cssText =
-        'padding:6px 10px 4px;font-size:11px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border);';
+        'padding:6px 10px 4px;font-size:11px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border);flex-shrink:0;';
       hdr.textContent = opts.headerText;
       pop.appendChild(hdr);
     }
 
     if (opts.searchable) {
-      const wrap = document.createElement('div');
-      wrap.className = 'popover-search-wrap';
+      searchWrap = document.createElement('div');
+      searchWrap.className = 'popover-search-wrap';
       searchInput = document.createElement('input');
       searchInput.type = 'text';
       searchInput.className = 'popover-search';
       searchInput.placeholder = opts.searchPlaceholder || 'Search...';
-      wrap.appendChild(searchInput);
-      pop.appendChild(wrap);
+      searchWrap.appendChild(searchInput);
     }
 
     const listEl = document.createElement('div');
     listEl.className = 'popover-list';
-    pop.appendChild(listEl);
+
+    if (resolvedPlacement === 'above') {
+      pop.appendChild(listEl);
+      if (searchWrap) pop.appendChild(searchWrap);
+    } else {
+      if (searchWrap) pop.appendChild(searchWrap);
+      pop.appendChild(listEl);
+    }
 
     const renderFiltered = (query: string) => {
       const q = query.trim().toLowerCase();
@@ -307,11 +317,22 @@ export class PopoverController {
     });
   }
 
+  private resolvePlacement(anchor: HTMLElement, preferred: 'above' | 'below'): 'above' | 'below' {
+    const shellRect = this.layer.getBoundingClientRect();
+    const rect = anchor.getBoundingClientRect();
+    const spaceAbove = rect.top - shellRect.top;
+    const spaceBelow = shellRect.bottom - rect.bottom;
+    if (preferred === 'above') {
+      return spaceAbove < 140 && spaceBelow > spaceAbove ? 'below' : 'above';
+    }
+    return spaceBelow < 140 && spaceAbove > spaceBelow ? 'above' : 'below';
+  }
+
   private positionPopover(pop: HTMLElement, anchor: HTMLElement, placement: 'above' | 'below'): void {
     const shellRect = this.layer.getBoundingClientRect();
     const rect = anchor.getBoundingClientRect();
+    const resolved = this.resolvePlacement(anchor, placement);
     const pw = pop.offsetWidth || 240;
-    const ph = pop.offsetHeight || 200;
 
     let left = rect.left - shellRect.left;
     if (left + pw > shellRect.width - 8) {
@@ -319,18 +340,17 @@ export class PopoverController {
     }
     if (left < 8) left = 8;
 
-    let top: number;
-    if (placement === 'above') {
-      top = rect.top - shellRect.top - ph - 6;
-      if (top < 8) top = rect.bottom - shellRect.top + 6;
-    } else {
-      top = rect.bottom - shellRect.top + 6;
-      if (top + ph > shellRect.height - 8) {
-        top = Math.max(8, rect.top - shellRect.top - ph - 6);
-      }
-    }
-
     pop.style.left = `${Math.round(left)}px`;
-    pop.style.top = `${Math.round(top)}px`;
+    if (resolved === 'above') {
+      const availH = Math.max(120, Math.round(rect.top - shellRect.top - 14));
+      pop.style.maxHeight = `${Math.min(340, availH)}px`;
+      pop.style.top = 'auto';
+      pop.style.bottom = `${Math.round(shellRect.bottom - rect.top + 6)}px`;
+    } else {
+      const availH = Math.max(120, Math.round(shellRect.bottom - rect.bottom - 14));
+      pop.style.maxHeight = `${Math.min(340, availH)}px`;
+      pop.style.bottom = 'auto';
+      pop.style.top = `${Math.round(rect.bottom - shellRect.top + 6)}px`;
+    }
   }
 }

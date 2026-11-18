@@ -31,14 +31,24 @@ import {
 import { expandSlashTemplate, parseLocalCommand, parseOsQuickCommand } from '../src/main/commands';
 import { percentToPixelCoords } from '../src/main/desktop-actions';
 import { extractActiveTrigger, matchMentionItems } from '../src/main/mentions';
-import { defaultSettings, syncLinuxAutostartDesktopFile } from '../src/main/settings';
+import { defaultSettings, resolveHarnessLaunch, syncLinuxAutostartDesktopFile } from '../src/main/settings';
 import { presentToolCall } from '../src/renderer/tool-presenter';
 import { HARNESS_LIST } from '../src/shared/types';
 
 describe('HARNESS_LIST', () => {
-  it('contains only pure ACP harnesses without pi_json', () => {
+  it('contains pure ACP harnesses including Codex ACP and Claude Code ACP', () => {
     const ids = HARNESS_LIST.map((h) => h.id);
-    expect(ids).toEqual(['agy_acp', 'opencode_acp', 'pi_acp']);
+    expect(ids).toEqual(['agy_acp', 'opencode_acp', 'codex_acp', 'claude_acp', 'pi_acp']);
+  });
+
+  it('resolves npm runner fallback or direct binary for Codex and Claude ACP', () => {
+    const settings = defaultSettings();
+    const codex = resolveHarnessLaunch(settings, 'codex_acp');
+    const claude = resolveHarnessLaunch(settings, 'claude_acp');
+    expect(codex.meta.npmPackage).toBe('@agentclientprotocol/codex-acp');
+    expect(claude.meta.npmPackage).toBe('@agentclientprotocol/claude-agent-acp');
+    expect(codex.binary.length).toBeGreaterThan(0);
+    expect(claude.binary.length).toBeGreaterThan(0);
   });
 });
 

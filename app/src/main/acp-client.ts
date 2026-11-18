@@ -21,7 +21,7 @@ import {
   pickDesktopActionsFromText,
   pickMarkupAnnotationsFromText,
 } from './acp-parser';
-import { resolveExecutable } from './settings';
+import { resolveHarnessLaunch } from './settings';
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -113,10 +113,7 @@ export class AcpAgentController {
       return this.catalog;
     }
 
-    const meta = HARNESS_LIST.find((h) => h.id === settings.harness) ?? HARNESS_LIST[0];
-    const cmdCfg = settings.commands[settings.harness];
-    const binary = resolveExecutable(cmdCfg.command || meta.defaultCommand);
-    const args = cmdCfg.args.length > 0 ? cmdCfg.args : meta.defaultArgs;
+    const { binary, args, meta } = resolveHarnessLaunch(settings, settings.harness);
     const extraEnv = settings.harnessEnv?.[settings.harness] ?? {};
 
     this.catalog = this.emptyCatalog(
@@ -1073,10 +1070,7 @@ export async function testHarnessConnection(
   harness: HarnessKind,
 ): Promise<{ ok: boolean; latencyMs: number; modelCount: number; message: string }> {
   const startedAt = Date.now();
-  const meta = HARNESS_LIST.find((h) => h.id === harness) ?? HARNESS_LIST[0];
-  const cmdCfg = settings.commands[harness];
-  const binary = resolveExecutable(cmdCfg.command || meta.defaultCommand);
-  const args = cmdCfg.args.length > 0 ? cmdCfg.args : meta.defaultArgs;
+  const { binary, args, viaRunner } = resolveHarnessLaunch(settings, harness);
   const extraEnv = settings.harnessEnv?.[harness] ?? {};
 
   return new Promise((resolve) => {
@@ -1100,7 +1094,7 @@ export async function testHarnessConnection(
 
     const timer = setTimeout(() => {
       finish({ ok: false, modelCount: 0, message: 'Timed out waiting for ACP session/new' });
-    }, 8000);
+    }, viaRunner ? 15_000 : 8_000);
 
     child.on('error', (err) => {
       finish({ ok: false, modelCount: 0, message: err.message });
