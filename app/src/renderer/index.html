@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat Overlay</title>
+    <link rel="stylesheet" href="./codicon.css" />
+    <link rel="stylesheet" href="./katex.min.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app-shell">
+      <!-- Top Title Bar -->
+      <header class="title-bar">
+        <div class="title-bar-left">
+          <span class="title-label">CHAT</span>
+          <div id="live-status-pill" class="live-status-pill hidden">
+            <i id="live-status-icon" class="codicon codicon-loading codicon-modifier-spin"></i>
+            <span id="live-status-text">Ready</span>
+            <span id="live-status-timer" class="live-status-timer"></span>
+          </div>
+        </div>
+        <div class="title-bar-actions">
+          <button id="btn-undo-chat" class="icon-btn" title="Undo Revert (Ctrl+Shift+Z)" disabled>
+            <i class="codicon codicon-arrow-left"></i>
+          </button>
+          <button id="btn-redo-chat" class="icon-btn" title="Redo Revert (Ctrl+Shift+Y)" disabled>
+            <i class="codicon codicon-arrow-right"></i>
+          </button>
+          <button id="btn-new-chat" class="icon-btn" title="New Conversation (Ctrl+N)">
+            <i class="codicon codicon-add"></i>
+          </button>
+          <button id="btn-history" class="icon-btn" title="Conversation History">
+            <i class="codicon codicon-history"></i>
+          </button>
+          <button id="btn-settings" class="icon-btn" title="Settings">
+            <i class="codicon codicon-settings-gear"></i>
+          </button>
+          <button id="btn-close" class="icon-btn" title="Hide Overlay (Esc / Hotkey)">
+            <i class="codicon codicon-close"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- Workspace & Harness Subheader -->
+      <div class="sub-header">
+        <div class="sub-header-left">
+          <button id="btn-workspace" class="chip-btn" title="Workspace & Git Changes">
+            <i class="codicon codicon-folder"></i>
+            <span id="workspace-name">workspace</span>
+          </button>
+        </div>
+        <button id="btn-harness" class="chip-btn" title="Switch ACP Harness">
+          <span id="harness-dot" class="harness-dot"></span>
+          <span id="harness-label">Antigravity</span>
+          <i class="codicon codicon-chevron-down"></i>
+        </button>
+      </div>
+
+      <!-- Compact Operational Strip: Revert Mode, Git Branch Glance, Ghost Mode, Context Budget -->
+      <div class="glance-strip">
+        <div class="glance-left">
+          <button id="btn-revert-mode" class="revert-mode-pill" title="Revert Mode">
+            <i class="codicon codicon-discard"></i>
+            <span id="revert-mode-label">Files+Chat</span>
+          </button>
+          <button id="git-branch-chip" class="git-branch-chip hidden" title="Git branch & uncommitted changes">
+            <i class="codicon codicon-git-branch"></i>
+            <span id="git-branch-text"></span>
+          </button>
+          <span id="ghost-mode-badge" class="ghost-mode-badge hidden" title="Click-through enabled (Ctrl+Alt+G)">
+            Ghost
+          </span>
+          <span id="session-title-chip" class="session-title-chip" title="Conversation title">New chat</span>
+        </div>
+        <div id="context-budget" class="context-budget hidden" title="Context window usage">
+          <span id="context-budget-text">0k</span>
+          <div class="context-budget-track">
+            <div id="context-budget-fill" class="context-budget-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Animated Progress Ribbon -->
+      <div id="progress-ribbon" class="progress-ribbon hidden">
+        <div class="progress-ribbon-bar"></div>
+      </div>
+
+      <!-- Transient Revert / Action Toast -->
+      <div id="notice-toast" class="notice-toast hidden"></div>
+
+      <!-- Error / Status Notice Banner -->
+      <div id="harness-banner" class="harness-banner hidden">
+        <i class="codicon codicon-warning"></i>
+        <div class="harness-banner-body">
+          <div id="harness-banner-title" class="harness-banner-title"></div>
+          <div id="harness-banner-detail" class="harness-banner-detail"></div>
+        </div>
+        <button id="btn-retry-warmup" class="mini-action-btn">Retry</button>
+      </div>
+
+      <!-- Main Chat Viewport -->
+      <main id="chat-viewport" class="chat-viewport">
+        <!-- Welcome State -->
+        <section id="welcome-view" class="welcome-view">
+          <div class="welcome-hero">
+            <div class="welcome-emblem">
+              <i class="codicon codicon-terminal"></i>
+            </div>
+            <h1 class="welcome-title">Build with agent</h1>
+            <p class="welcome-subtitle">
+              Screen-aware ACP coding sidebar. Mention <code>@file</code>, <code>@screen</code>,
+              or press <code>Ctrl+.</code> to pick a model.
+            </p>
+            <div class="starter-prompts">
+              <button class="starter-card" data-prompt="@screen What am I looking at? Suggest next steps.">
+                <i class="codicon codicon-device-camera"></i>
+                <span>Inspect live screen with <code>@screen</code></span>
+              </button>
+              <button class="starter-card" data-prompt="Summarize this workspace architecture and entry points.">
+                <i class="codicon codicon-folder-library"></i>
+                <span>Explore current workspace files</span>
+              </button>
+              <button class="starter-card" data-prompt="/review ">
+                <i class="codicon codicon-code"></i>
+                <span>Review code or recent changes</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Messages List -->
+        <section id="messages-view" class="messages-view hidden"></section>
+
+        <button id="btn-scroll-bottom" class="scroll-bottom-btn hidden" title="Scroll to bottom">
+          <i class="codicon codicon-arrow-down"></i>
+        </button>
+      </main>
+
+      <!-- Floating Autocomplete / Popovers Container -->
+      <div id="popover-layer"></div>
+
+      <!-- Queued Follow-Up Card (T3 Code Style) -->
+      <div id="queued-banner" class="queued-banner hidden">
+        <div class="queued-top">
+          <span class="queued-badge"><i class="codicon codicon-clock"></i> Queued</span>
+          <span id="queued-preview" class="queued-preview"></span>
+        </div>
+        <div class="queued-actions">
+          <button id="btn-queued-steer" type="button" class="mini-action-btn">Steer Now</button>
+          <button id="btn-queued-edit" type="button" class="mini-action-btn">Edit</button>
+          <button id="btn-queued-cancel" type="button" class="mini-action-btn">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Unified Composer Card -->
+      <footer class="composer-wrap">
+        <div id="composer-card" class="composer-card">
+          <div class="composer-top-row">
+            <button id="btn-add-context" class="add-context-btn" title="Attach file, clipboard, or screen">
+              <i class="codicon codicon-add"></i>
+              <span>Context</span>
+            </button>
+            <div id="attachments-row" class="attachments-row"></div>
+          </div>
+
+          <textarea
+            id="composer-input"
+            class="composer-input"
+            rows="1"
+            placeholder="Ask anything, @ to mention, / for commands"
+          ></textarea>
+
+          <div class="composer-bottom-row">
+            <div class="composer-pickers">
+              <button id="btn-mode-picker" class="picker-btn" title="Agent mode">
+                <span id="mode-label">Default</span>
+                <i class="codicon codicon-chevron-down"></i>
+              </button>
+
+              <button id="btn-model-picker" class="picker-btn" title="Select Model (Ctrl+.)">
+                <i id="model-loading-spinner" class="codicon codicon-loading codicon-modifier-spin hidden"></i>
+                <span id="model-label">Loading...</span>
+                <i class="codicon codicon-chevron-down"></i>
+              </button>
+
+              <button id="btn-effort-picker" class="picker-btn hidden" title="Thinking / Reasoning Effort">
+                <i class="codicon codicon-sparkle"></i>
+                <span id="effort-label">Medium</span>
+                <i class="codicon codicon-chevron-down"></i>
+              </button>
+            </div>
+
+            <div class="composer-actions">
+              <button id="btn-capture-menu" class="icon-btn" title="Capture screen or markup">
+                <i class="codicon codicon-device-camera"></i>
+              </button>
+              <button id="btn-pin-screen" class="icon-btn" title="Pin live @screen on every prompt">
+                <i class="codicon codicon-eye"></i>
+              </button>
+              <button id="btn-clear-markup" class="icon-btn hidden" title="Clear screen annotations">
+                <i class="codicon codicon-clear-all"></i>
+              </button>
+              <button id="btn-send" class="send-btn" title="Send (Enter)">
+                <i id="send-icon" class="codicon codicon-arrow-up"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      <!-- Full-Overlay Slide-in Drawer (Settings / History) -->
+      <div id="modal-backdrop" class="modal-backdrop hidden">
+        <div id="modal-panel" class="modal-panel">
+          <div class="modal-header">
+            <h2 id="modal-title">Settings</h2>
+            <button id="btn-modal-close" class="icon-btn" title="Close (Esc)">
+              <i class="codicon codicon-close"></i>
+            </button>
+          </div>
+          <div id="modal-body" class="modal-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

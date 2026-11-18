@@ -1,0 +1,82 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#markup-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.toolbar {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(24, 24, 27, 0.92);
+  border: 1px solid #3c3c3c;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  z-index: 20;
+}
+
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #e4e4e7;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tool-btn:hover {
+  background: #2a2d2e;
+}
+
+.tool-btn.active {
+  background: rgba(0, 120, 212, 0.25);
+  border-color: #0078d4;
+  color: #fff;
+}
+
+.tool-btn.primary {
+  background: #0078d4;
+  color: #fff;
+}
+
+.tool-btn.primary:hover {
+  background: #1f8ad2;
+}
+
+.sep {
+  width: 1px;
+  height: 18px;
+  background: #3c3c3c;
+}
+
+.badge {
+  color: #a1a1aa;
+  font-size: 12px;
+  padding: 0 6px;
+}
