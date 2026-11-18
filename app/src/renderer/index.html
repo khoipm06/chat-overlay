@@ -207,9 +207,6 @@
               <button id="btn-clipboard-companion" class="icon-btn" title="Grab Clipboard / Selection (Ctrl+Alt+Q)">
                 <i class="codicon codicon-clippy"></i>
               </button>
-              <button id="btn-capture-menu" class="icon-btn" title="Capture screen or markup">
-                <i class="codicon codicon-device-camera"></i>
-              </button>
               <button id="btn-pin-screen" class="icon-btn" title="Pin live @screen on every prompt">
                 <i class="codicon codicon-eye"></i>
               </button>
@@ -244,6 +241,33 @@
           <div id="modal-body" class="modal-body"></div>
         </div>
       </div>
+
+      <!-- Native Context Preview & Lightbox Modal (Modern Web Guidance: <dialog>, closedby="any", 2D panning) -->
+      <dialog id="context-preview-dialog" class="context-preview-dialog" closedby="any" aria-labelledby="preview-dialog-title">
+        <div class="preview-dialog-shell">
+          <div class="preview-dialog-header">
+            <div class="preview-dialog-title-wrap">
+              <i id="preview-dialog-icon" class="codicon codicon-file"></i>
+              <span id="preview-dialog-title" class="preview-dialog-title">Context Preview</span>
+              <span id="preview-dialog-badge" class="preview-dialog-badge"></span>
+            </div>
+            <div class="preview-dialog-actions">
+              <button id="btn-preview-zoom" type="button" class="mini-action-btn hidden" title="Toggle 2.5x Zoom &amp; Pan (Click image or Z)">
+                <i class="codicon codicon-zoom-in"></i>
+                <span id="preview-zoom-label">Zoom 2.5x</span>
+              </button>
+              <button id="btn-preview-copy" type="button" class="mini-action-btn" title="Copy content to clipboard">
+                <i class="codicon codicon-copy"></i>
+                <span id="preview-copy-label">Copy</span>
+              </button>
+              <button id="btn-preview-close" type="button" class="icon-btn" title="Close (Esc)">
+                <i class="codicon codicon-close"></i>
+              </button>
+            </div>
+          </div>
+          <div id="preview-dialog-body" class="preview-dialog-body"></div>
+        </div>
+      </dialog>
     </div>
 
     <script type="module" src="./app.js"></script>

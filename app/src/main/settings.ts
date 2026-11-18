@@ -73,7 +73,7 @@ export function defaultSettings(): AppSettings {
       opencode_acp: { command: 'opencode', args: ['acp'] },
       codex_acp: { command: 'codex-acp', args: [] },
       claude_acp: { command: 'claude-agent-acp', args: [] },
-      pi_acp: { command: 'pi', args: ['acp'] },
+      pi_acp: { command: 'pi-acp', args: [] },
     },
     harnessEnv: {},
     harnessModels: {},
@@ -261,6 +261,19 @@ export function loadSettings(): AppSettings {
       parsed.permissionPolicy ??
       (parsed.autoApprovePermissions ? 'yolo' : defaults.permissionPolicy);
 
+    const mergedCommands = {
+      ...defaults.commands,
+      ...(parsed.commands ?? {}),
+    };
+    // Migrate legacy default `pi acp` (unsupported in modern `pi` CLI) to the `pi-acp` adapter
+    if (
+      mergedCommands.pi_acp?.command === 'pi' &&
+      mergedCommands.pi_acp.args?.length === 1 &&
+      mergedCommands.pi_acp.args[0] === 'acp'
+    ) {
+      mergedCommands.pi_acp = { command: 'pi-acp', args: [] };
+    }
+
     return {
       ...defaults,
       ...parsed,
@@ -270,10 +283,7 @@ export function loadSettings(): AppSettings {
       windowBounds: migratedBounds,
       permissionPolicy,
       harness: validHarness,
-      commands: {
-        ...defaults.commands,
-        ...(parsed.commands ?? {}),
-      },
+      commands: mergedCommands,
       harnessEnv: { ...(parsed.harnessEnv ?? {}) },
       harnessModels: { ...(parsed.harnessModels ?? {}) },
       harnessEfforts: { ...(parsed.harnessEfforts ?? {}) },
@@ -341,6 +351,7 @@ export function syncLinuxAutostartDesktopFile(
     `Exec=${execLine}`,
     'Terminal=false',
     'X-GNOME-Autostart-enabled=true',
+    'X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2',
     'StartupNotify=false',
     '',
   ].join('\n');

@@ -1,6 +1,6 @@
 {
   "name": "chat-overlay",
-  "version": "0.3.0",
+  "version": "3.2.3",
   "description": "Universal cross-platform ACP chat & live screen overlay",
   "main": "dist/main/main.js",
   "scripts": {

@@ -1,14 +1,16 @@
 import type { MarkupAnnotation, ScreenshotQuality } from '../shared/types';
 
-type Tool = 'box' | 'arrow' | 'pen';
+type Tool = 'box' | 'arrow' | 'pen' | 'highlighter' | 'badge';
 
 interface DrawnStroke {
   tool: Tool;
+  color: string;
   x1: number;
   y1: number;
   x2: number;
   y2: number;
   points?: Array<{ x: number; y: number }>;
+  step?: number;
 }
 
 const canvas = document.getElementById('markup-canvas') as HTMLCanvasElement;
@@ -23,6 +25,7 @@ let mode: 'annotate' | 'region' | 'agent' = 'annotate';
 let quality: ScreenshotQuality = 'compressed';
 let bgImage: HTMLImageElement | null = null;
 let currentTool: Tool = 'box';
+let currentColor = '#ef4444';
 let strokes: DrawnStroke[] = [];
 let activeStroke: DrawnStroke | null = null;
 let regionDrag: { x1: number; y1: number; x2: number; y2: number } | null = null;
@@ -150,25 +153,52 @@ function redraw(): void {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  const drawOne = (s: DrawnStroke) => {
+  const drawOne = (s: DrawnStroke, targetCtx: CanvasRenderingContext2D = ctx) => {
+    const strokeColor = s.color || '#ef4444';
     if (s.tool === 'box') {
       const rx = Math.min(s.x1, s.x2);
       const ry = Math.min(s.y1, s.y2);
       const rw = Math.abs(s.x2 - s.x1);
       const rh = Math.abs(s.y2 - s.y1);
-      ctx.fillStyle = 'rgba(255, 59, 48, 0.08)';
-      ctx.fillRect(rx, ry, rw, rh);
-      ctx.strokeRect(rx, ry, rw, rh);
-      ctx.fillStyle = '#ff3b30';
+      targetCtx.save();
+      targetCtx.strokeStyle = strokeColor;
+      targetCtx.lineWidth = 3;
+      targetCtx.fillStyle = `${strokeColor}18`;
+      targetCtx.fillRect(rx, ry, rw, rh);
+      targetCtx.strokeRect(rx, ry, rw, rh);
+      targetCtx.restore();
     } else if (s.tool === 'arrow') {
-      drawArrow(ctx, s.x1, s.y1, s.x2, s.y2);
+      targetCtx.save();
+      targetCtx.strokeStyle = strokeColor;
+      targetCtx.fillStyle = strokeColor;
+      targetCtx.lineWidth = 3;
+      drawArrow(targetCtx, s.x1, s.y1, s.x2, s.y2);
+      targetCtx.restore();
     } else if (s.tool === 'pen' && s.points && s.points.length > 1) {
-      ctx.beginPath();
-      ctx.moveTo(s.points[0].x, s.points[0].y);
+      targetCtx.save();
+      targetCtx.strokeStyle = strokeColor;
+      targetCtx.lineWidth = 3;
+      targetCtx.beginPath();
+      targetCtx.moveTo(s.points[0].x, s.points[0].y);
       for (let i = 1; i < s.points.length; i++) {
-        ctx.lineTo(s.points[i].x, s.points[i].y);
+        targetCtx.lineTo(s.points[i].x, s.points[i].y);
       }
-      ctx.stroke();
+      targetCtx.stroke();
+      targetCtx.restore();
+    } else if (s.tool === 'highlighter' && s.points && s.points.length > 0) {
+      targetCtx.save();
+      targetCtx.strokeStyle = strokeColor;
+      targetCtx.globalAlpha = 0.35;
+      targetCtx.lineWidth = 18;
+      targetCtx.beginPath();
+      targetCtx.moveTo(s.points[0].x, s.points[0].y);
+      for (let i = 1; i < s.points.length; i++) {
+        targetCtx.lineTo(s.points[i].x, s.points[i].y);
+      }
+      targetCtx.stroke();
+      targetCtx.restore();
+    } else if (s.tool === 'badge') {
+      drawStepBadge(s.x1, s.y1, s.step || 1, strokeColor);
     }
   };
 
@@ -281,27 +311,61 @@ function submitAnnotated(): void {
   const scaleX = out.width / window.innerWidth;
   const scaleY = out.height / window.innerHeight;
   octx.scale(scaleX, scaleY);
-  octx.strokeStyle = '#ff3b30';
-  octx.fillStyle = '#ff3b30';
-  octx.lineWidth = 3;
-  octx.lineCap = 'round';
-  octx.lineJoin = 'round';
-
   for (const s of strokes) {
+    const strokeColor = s.color || '#ef4444';
     if (s.tool === 'box') {
-      octx.strokeRect(
-        Math.min(s.x1, s.x2),
-        Math.min(s.y1, s.y2),
-        Math.abs(s.x2 - s.x1),
-        Math.abs(s.y2 - s.y1),
-      );
+      const rx = Math.min(s.x1, s.x2);
+      const ry = Math.min(s.y1, s.y2);
+      const rw = Math.abs(s.x2 - s.x1);
+      const rh = Math.abs(s.y2 - s.y1);
+      octx.save();
+      octx.strokeStyle = strokeColor;
+      octx.lineWidth = 3;
+      octx.fillStyle = `${strokeColor}18`;
+      octx.fillRect(rx, ry, rw, rh);
+      octx.strokeRect(rx, ry, rw, rh);
+      octx.restore();
     } else if (s.tool === 'arrow') {
+      octx.save();
+      octx.strokeStyle = strokeColor;
+      octx.fillStyle = strokeColor;
+      octx.lineWidth = 3;
       drawArrow(octx, s.x1, s.y1, s.x2, s.y2);
+      octx.restore();
     } else if (s.tool === 'pen' && s.points && s.points.length > 1) {
+      octx.save();
+      octx.strokeStyle = strokeColor;
+      octx.lineWidth = 3;
       octx.beginPath();
       octx.moveTo(s.points[0].x, s.points[0].y);
       for (let i = 1; i < s.points.length; i++) octx.lineTo(s.points[i].x, s.points[i].y);
       octx.stroke();
+      octx.restore();
+    } else if (s.tool === 'highlighter' && s.points && s.points.length > 0) {
+      octx.save();
+      octx.strokeStyle = strokeColor;
+      octx.globalAlpha = 0.35;
+      octx.lineWidth = 18;
+      octx.beginPath();
+      octx.moveTo(s.points[0].x, s.points[0].y);
+      for (let i = 1; i < s.points.length; i++) octx.lineTo(s.points[i].x, s.points[i].y);
+      octx.stroke();
+      octx.restore();
+    } else if (s.tool === 'badge') {
+      octx.save();
+      octx.fillStyle = strokeColor;
+      octx.beginPath();
+      octx.arc(s.x1, s.y1, 11, 0, Math.PI * 2);
+      octx.fill();
+      octx.lineWidth = 2;
+      octx.strokeStyle = '#ffffff';
+      octx.stroke();
+      octx.fillStyle = '#ffffff';
+      octx.font = '700 11px system-ui, sans-serif';
+      octx.textAlign = 'center';
+      octx.textBaseline = 'middle';
+      octx.fillText(String(s.step || 1), s.x1, s.y1 + 0.5);
+      octx.restore();
     }
   }
 
@@ -353,13 +417,30 @@ canvas.addEventListener('mousedown', (e) => {
     return;
   }
   if (mode !== 'annotate') return;
+  if (currentTool === 'badge') {
+    const badgeStep = strokes.filter((s) => s.tool === 'badge').length + 1;
+    strokes.push({
+      tool: 'badge',
+      color: currentColor,
+      x1: e.clientX,
+      y1: e.clientY,
+      x2: e.clientX,
+      y2: e.clientY,
+      step: badgeStep,
+    });
+    redraw();
+    return;
+  }
   activeStroke = {
     tool: currentTool,
+    color: currentColor,
     x1: e.clientX,
     y1: e.clientY,
     x2: e.clientX,
     y2: e.clientY,
-    points: currentTool === 'pen' ? [{ x: e.clientX, y: e.clientY }] : undefined,
+    points: (currentTool === 'pen' || currentTool === 'highlighter')
+      ? [{ x: e.clientX, y: e.clientY }]
+      : undefined,
   };
   redraw();
 });
@@ -374,7 +455,7 @@ canvas.addEventListener('mousemove', (e) => {
   if (!activeStroke) return;
   activeStroke.x2 = e.clientX;
   activeStroke.y2 = e.clientY;
-  if (activeStroke.tool === 'pen') {
+  if (activeStroke.tool === 'pen' || activeStroke.tool === 'highlighter') {
     activeStroke.points?.push({ x: e.clientX, y: e.clientY });
   }
   redraw();
@@ -441,11 +522,24 @@ window.addEventListener('keydown', (e) => {
     if (e.key === '1') selectTool('box');
     else if (e.key === '2') selectTool('arrow');
     else if (e.key === '3') selectTool('pen');
+    else if (e.key === '4') selectTool('highlighter');
+    else if (e.key === '5') selectTool('badge');
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && mode === 'annotate') {
     strokes.pop();
     redraw();
   }
 });
+
+// Color palette
+document.querySelectorAll<HTMLButtonElement>('.color-swatch').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    currentColor = btn.dataset.color || '#ef4444';
+    document.querySelectorAll('.color-swatch').forEach((s) => s.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+// Activate first swatch by default
+(document.querySelector('.color-swatch') as HTMLButtonElement | null)?.classList.add('active');
 
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
