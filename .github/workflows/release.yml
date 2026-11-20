@@ -6,52 +6,6 @@ on:
       - 'v*'
 
 jobs:
-  build-rust:
-    name: Build Rust Legacy (linux-x86_64)
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-4-dev \
-            libglib2.0-dev \
-            libcairo2-dev \
-            libpango1.0-dev \
-            libgraphene-1.0-dev \
-            meson \
-            ninja-build \
-            wayland-protocols \
-            libwayland-dev
-
-      - name: Build and install gtk4-layer-shell
-        run: |
-          git clone --depth 1 https://github.com/wmww/gtk4-layer-shell.git /tmp/gtk4-layer-shell
-          meson setup /tmp/gtk4-layer-shell/build /tmp/gtk4-layer-shell --prefix=/usr -Dintrospection=false -Dvapi=false
-          sudo ninja -C /tmp/gtk4-layer-shell/build install
-          sudo ldconfig
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build release binary
-        run: cargo build --release --locked
-
-      - name: Package tarball
-        run: tar -czvf pi-overlay-linux-x86_64.tar.gz -C target/release pi-overlay
-
-      - name: Upload Rust artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-rust
-          path: pi-overlay-linux-x86_64.tar.gz
-
   build-electron:
     name: Package Electron (Linux / Windows / macOS)
     runs-on: ubuntu-24.04
@@ -83,6 +37,7 @@ jobs:
           rm -rf /tmp/co-stage /tmp/co-out /tmp/co-archives
           mkdir -p /tmp/co-stage /tmp/co-out /tmp/co-archives
           cp -r dist /tmp/co-stage/dist
+          cp -r resources /tmp/co-stage/resources
           node -e "const p=require('./package.json'); require('fs').writeFileSync('/tmp/co-stage/package.json', JSON.stringify({name:p.name,version:p.version,description:p.description,main:p.main,license:p.license},null,2))"
           ELECTRON_VER="$(node -p "require('./node_modules/electron/package.json').version")"
           bunx @electron/packager /tmp/co-stage chat-overlay --platform=linux --arch=x64 --out=/tmp/co-out --overwrite --electron-version="$ELECTRON_VER"
@@ -101,7 +56,7 @@ jobs:
 
   publish:
     name: Create GitHub Release
-    needs: [build-rust, build-electron]
+    needs: [build-electron]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

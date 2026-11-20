@@ -1,9 +1,0 @@
-prefix=/usr
-libdir=/usr/lib64
-includedir=/usr/include
-
-Name: cairo
-Description: Multi-platform 2D graphics library
-Version: 1.18.2
-Libs: -L/var/home/khoipm/.local/lib64 -L${libdir} -lcairo
-Cflags: -I${includedir}/cairo

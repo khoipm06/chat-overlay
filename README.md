@@ -1,38 +1,43 @@
 # chat-overlay
 
-Cross-platform ACP coding and screen-aware desktop overlay (`Electron` + `TypeScript`), with a legacy `Rust/GTK4` fallback client.
+Cross-platform ACP coding and screen-aware desktop overlay built with Electron + TypeScript.
 
 ## Supported ACP Harnesses
-- **Antigravity (`agy acp`)**
-- **OpenCode (`opencode acp`)**
-- **Codex (`@agentclientprotocol/codex-acp`)**
-- **Claude Code (`@agentclientprotocol/claude-agent-acp`)**
-- **Pi (`pi acp`)**
+- **Antigravity** (`agy acp`)
+- **OpenCode** (`opencode acp`)
+- **Codex** (`@agentclientprotocol/codex-acp`)
+- **Claude Code** (`@agentclientprotocol/claude-agent-acp`)
+- **Pi** (`pi-acp`)
 
-## Quick Start (Universal Electron App)
+## Install (Linux)
+
+```bash
+git clone https://github.com/khoipm06/chat-overlay.git
+cd chat-overlay
+./install.sh            # build + install launcher + desktop entry
+./install.sh --autostart  # also enable autostart on login
+```
+
+See [docs/installation.md](docs/installation.md) for full details.
+
+## Dev Mode
+
 ```bash
 cd app
-npm install   # or bun install
+npm install   # or: bun install
 npm run start
 ```
 
-### Production Build & Daemon Autostart
-```bash
-cd app
-npm run build:prod
-```
-- Toggle overlay: `Ctrl+Alt+L` (or `Meta+Shift+L`)
-- Searchable Model Picker: `Ctrl+.`
-- Clipboard & Selection Companion: `Ctrl+Alt+Q`
-- Ghost Click-Through Mode: `Ctrl+Alt+G`
-- Desktop Automation Panic Stop: `Ctrl+Alt+X`
+## Keyboard Shortcuts
 
-## Legacy Rust/GTK4 Binary
-For Linux Wayland layer-shell native builds:
-```bash
-cargo build --release
-./target/release/pi-overlay
-```
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Alt+L` / `Meta+Shift+L` | Toggle overlay |
+| `Ctrl+.` | Model picker |
+| `Ctrl+Alt+Q` | Clipboard companion |
+| `Ctrl+Alt+G` | Ghost click-through mode |
+| `Ctrl+Alt+X` | Panic stop desktop automation |
 
 ## License
+
 MIT
