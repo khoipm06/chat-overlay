@@ -1,45 +1,52 @@
-# Installation Guide
+# Installation
 
 ## Requirements
-- Rust toolchain (stable)
-- GTK4 development headers (`gtk4`)
-- GTK4 Layer Shell library (`gtk4-layer-shell`)
-- Pi coding agent CLI (`pi`) available in system PATH
 
-### Fedora / RHEL
-```bash
-sudo dnf install gtk4-devel gtk4-layer-shell-devel
-```
+- **Node.js** 20+ (or [Bun](https://bun.sh))
+- **npm** (bundled with Node.js)
+- Linux with Wayland or X11 (macOS / Windows: dev mode only)
 
-### Arch Linux
-```bash
-sudo pacman -S gtk4 gtk4-layer-shell
-```
+## One-step install (Linux)
 
-### Debian / Ubuntu
 ```bash
-sudo apt install libgtk-4-dev libgtk4-layer-shell-dev
-```
-
-## Quick Installation
-Run the one-step install script:
-```bash
+git clone https://github.com/khoipm06/chat-overlay.git
+cd chat-overlay
 ./install.sh
 ```
 
-To automatically start `pi-overlay` on desktop login:
+This will:
+1. Build the app (`npm run build:prod`)
+2. Install a launcher script to `~/.local/bin/chat-overlay`
+3. Register a desktop entry with the KDE/GNOME app launcher
+4. Start the background daemon
+
+**To enable autostart on login:**
 ```bash
 ./install.sh --autostart
 ```
 
-## Uninstallation
-To remove `pi-overlay`, its icon, desktop entry, and autostart config:
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Alt+L` / `Meta+Shift+L` | Toggle overlay |
+| `Ctrl+.` | Open model picker |
+| `Ctrl+Alt+Q` | Clipboard companion |
+| `Ctrl+Alt+G` | Ghost click-through mode |
+| `Ctrl+Alt+X` | Desktop automation panic stop |
+
+## Dev mode (any platform)
+
+```bash
+cd app
+npm install   # or: bun install
+npm run start
+```
+
+## Uninstall
+
 ```bash
 ./uninstall.sh
 ```
 
-## Manual Installation
-```bash
-cargo build --release
-install -Dm755 target/release/pi-overlay ~/.local/bin/pi-overlay
-```
+Removes the launcher, desktop entry, autostart entry, and icon.

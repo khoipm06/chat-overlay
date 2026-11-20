@@ -1,7 +1,16 @@
-/target
+# Build outputs
+app/dist/
+app/node_modules/
+
+# Rust build artifacts (legacy)
+target/
 Cargo.lock
-*.log
-*.sock
-.omo/
+
+# Runtime / agent data
 .pi/
 .pi-intercom/
+.omo/
+
+# Logs and sockets
+*.log
+*.sock

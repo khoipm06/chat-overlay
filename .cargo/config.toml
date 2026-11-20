@@ -1,8 +1,0 @@
-[build]
-rustflags = [
-    "-C", "link-arg=-L/var/home/khoipm/.local/lib64",
-    "-C", "link-arg=-Wl,-rpath,/var/home/khoipm/.local/lib64"
-]
-
-[env]
-PKG_CONFIG_PATH = { value = ".cargo/pkgconfig", relative = true, force = true }
