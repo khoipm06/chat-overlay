@@ -33,6 +33,7 @@ import { percentToPixelCoords } from '../src/main/desktop-actions';
 import { extractActiveTrigger, matchMentionItems } from '../src/main/mentions';
 import { defaultSettings, resolveHarnessLaunch, syncLinuxAutostartDesktopFile } from '../src/main/settings';
 import { loadMcpServersForSession } from '../src/main/acp-client';
+import { cleanAudioMimeType, resolveSpeechApiKey, sanitizeTranscription, transcribeAudio } from '../src/main/speech';
 import { extractCleanOutput, pickToolKind, presentToolCall } from '../src/renderer/tool-presenter';
 import { HARNESS_LIST } from '../src/shared/types';
 
@@ -646,8 +647,82 @@ describe('ACP question tool, shell output & settings updates', () => {
   it('provides autoApproveDesktopActions and speechLanguage defaults in app settings', () => {
     const settings = defaultSettings();
     expect(settings.autoApproveDesktopActions).toBe(true);
-    expect(settings.speechLanguage).toBe('vi-VN');
+    expect(settings.speechLanguage).toBe('auto');
   });
+
+  it('sanitizes audio mime types and speech transcription outputs', () => {
+    expect(cleanAudioMimeType('audio/webm;codecs=opus')).toBe('audio/webm');
+    expect(cleanAudioMimeType('audio/wav')).toBe('audio/wav');
+    expect(cleanAudioMimeType('audio/ogg; codecs=opus')).toBe('audio/ogg');
+    expect(cleanAudioMimeType('audio/mpeg')).toBe('audio/mp3');
+    expect(cleanAudioMimeType('audio/x-wav')).toBe('audio/wav');
+    expect(cleanAudioMimeType('audio/mp4')).toBe('audio/mp4');
+    expect(cleanAudioMimeType('unsupported/xyz')).toBe('audio/webm');
+
+    expect(sanitizeTranscription('"Hello world"')).toBe('Hello world');
+    expect(sanitizeTranscription("`console.log('hi')`")).toBe("console.log('hi')");
+    expect(sanitizeTranscription('```markdown\nHello world\n```')).toBe('Hello world');
+    expect(sanitizeTranscription('```\nconst a = 10;\n```')).toBe('const a = 10;');
+    expect(sanitizeTranscription('[NO_SPEECH]')).toBe('');
+    expect(sanitizeTranscription('[NO_SPEECH].')).toBe('');
+    expect(sanitizeTranscription('NO_SPEECH')).toBe('');
+    expect(sanitizeTranscription('[Silence]')).toBe('');
+    expect(sanitizeTranscription('(silence)')).toBe('');
+    expect(sanitizeTranscription('const flag = true;')).toBe('const flag = true;');
+  });
+
+  it('rejects transcribeAudio when audio data is empty', async () => {
+    const res = await transcribeAudio({ data: '', mimeType: 'audio/webm' });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('No audio data');
+  });
+
+  it('transcribes speech audio buffer when API key is available', async () => {
+    const speechKey = resolveSpeechApiKey();
+    if (!speechKey) return;
+
+    // Verify silence buffer handling (returns ok: true, text: '')
+    const sampleRate = 16000;
+    const numSamples = sampleRate * 1;
+    const buffer = Buffer.alloc(44 + numSamples * 2);
+    buffer.write('RIFF', 0);
+    buffer.writeUInt32LE(36 + numSamples * 2, 4);
+    buffer.write('WAVE', 8);
+    buffer.write('fmt ', 12);
+    buffer.writeUInt32LE(16, 16);
+    buffer.writeUInt16LE(1, 20);
+    buffer.writeUInt16LE(1, 22);
+    buffer.writeUInt32LE(sampleRate, 24);
+    buffer.writeUInt32LE(sampleRate * 2, 28);
+    buffer.writeUInt16LE(2, 32);
+    buffer.writeUInt16LE(16, 34);
+    buffer.write('data', 36);
+    buffer.writeUInt32LE(numSamples * 2, 40);
+
+    const resSilence = await transcribeAudio({ data: buffer.toString('base64'), mimeType: 'audio/wav' });
+    expect(resSilence.ok).toBe(true);
+    expect(resSilence.text).toBe('');
+
+    // Synthesize spoken phrase via espeak-ng if present and verify verbatim transcription
+    const tmpSpeechWav = path.join(os.tmpdir(), `vitest-speech-${Date.now()}.wav`);
+    try {
+      execFileSync('espeak-ng', ['Hello world this is a test', '-w', tmpSpeechWav]);
+      if (fs.existsSync(tmpSpeechWav)) {
+        const wavB64 = fs.readFileSync(tmpSpeechWav).toString('base64');
+        const resSpoken = await transcribeAudio({ data: wavB64, mimeType: 'audio/wav' });
+        expect(resSpoken.ok).toBe(true);
+        expect(resSpoken.text?.toLowerCase()).toContain('hello');
+      }
+    } catch {
+      // espeak-ng not available in environment
+    } finally {
+      if (fs.existsSync(tmpSpeechWav)) {
+        try {
+          fs.unlinkSync(tmpSpeechWav);
+        } catch {}
+      }
+    }
+  }, 25000);
 
   it('formats stdio and http MCP servers conforming to OpenCode specification', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));

@@ -266,7 +266,7 @@ export class AcpAgentController {
         },
         clientInfo: {
           name: 'chat-overlay',
-          version: '3.2.4',
+          version: '3.2.5',
         },
       }, 20_000);
       if (gen !== this.warmupSeq) return this.catalog;

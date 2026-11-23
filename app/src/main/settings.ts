@@ -84,7 +84,7 @@ export function defaultSettings(): AppSettings {
     desktopControlMode: 'confirm',
     autoApprovePermissions: false,
     autoApproveDesktopActions: true,
-    speechLanguage: 'vi-VN',
+    speechLanguage: 'auto',
     followUpBehavior: 'queue',
     soundCues: true,
     flashOnAttention: true,

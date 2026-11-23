@@ -105,7 +105,10 @@ fi
 
 # ── Start daemon ─────────────────────────────────────────────────────────────
 if [[ -n "${WAYLAND_DISPLAY:-}" || -n "${DISPLAY:-}" ]]; then
-  echo "Starting daemon..."
+  echo "Restarting daemon..."
+  pkill -f "dist/main/main.js" 2>/dev/null || true
+  pkill -f "chat-overlay --daemon" 2>/dev/null || true
+  sleep 0.8
   rm -f "${SOCK}" 2>/dev/null || true
   if command -v systemd-run > /dev/null 2>&1; then
     systemd-run --user --quiet --collect --description="Chat Overlay Daemon" \

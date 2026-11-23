@@ -9,6 +9,7 @@ import {
   nativeImage,
   Notification,
   screen,
+  session,
   shell,
   Tray,
 } from 'electron';
@@ -49,6 +50,7 @@ import {
   saveSettings,
   syncLinuxAutostartDesktopFile,
 } from './settings';
+import { transcribeAudio } from './speech';
 
 let mainWindow: BrowserWindow | null = null;
 let markupWindow: BrowserWindow | null = null;
@@ -947,6 +949,10 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle('sessions:save', (_ev, session: SavedSession) => saveSessionRecord(session));
   ipcMain.handle('sessions:delete', (_ev, id: string) => deleteSessionRecord(id));
+  ipcMain.handle(
+    'speech:transcribe',
+    (_ev, audioData: { data: string; mimeType: string; language?: string }) => transcribeAudio(audioData),
+  );
 
   ipcMain.handle('git:glance', (_ev, workspaceDir?: string) =>
     getGitGlance(workspaceDir || settings.workspaceDir),
@@ -1075,6 +1081,17 @@ if (!gotLock) {
   }
 
   app.whenReady().then(() => {
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      if (permission === 'media') {
+        callback(true);
+        return;
+      }
+      callback(true);
+    });
+    session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+      return true;
+    });
+
     acpController = new AcpAgentController(settings, sendStreamEvent, (annotations) => {
       openAgentMarkupOverlay(annotations);
     });
