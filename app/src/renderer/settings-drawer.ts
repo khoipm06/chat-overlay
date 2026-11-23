@@ -188,6 +188,15 @@ export function renderTabbedSettingsDrawer(opts: {
           </select>
         </div>
         <div class="field-group">
+          <label>Speech Recognition Engine</label>
+          <select id="set-speech-mode" class="field-select">
+            <option value="auto" ${current.speechMode === 'auto' ? 'selected' : ''}>Auto (Cloud API first, fallback to Local STT)</option>
+            <option value="local" ${current.speechMode === 'local' ? 'selected' : ''}>Local STT Only (Offline / Whisper / whisper.cpp / Sherpa / Vosk)</option>
+            <option value="cloud" ${current.speechMode === 'cloud' ? 'selected' : ''}>Cloud API Only (Gemini / Whisper API)</option>
+          </select>
+          <div id="speech-backend-detected" class="field-hint" style="margin-top: 4px; font-size: 11px; opacity: 0.85;">Detecting local speech engines...</div>
+        </div>
+        <div class="field-group">
           <label>Voice Input Language (Microphone STT)</label>
           <select id="set-speech-lang" class="field-select">
             <option value="auto" ${current.speechLanguage === 'auto' ? 'selected' : ''}>Auto-detect (System default)</option>
@@ -202,6 +211,14 @@ export function renderTabbedSettingsDrawer(opts: {
             <option value="zh-CN" ${current.speechLanguage === 'zh-CN' ? 'selected' : ''}>Chinese (zh-CN)</option>
             <option value="vi-VN" ${current.speechLanguage === 'vi-VN' ? 'selected' : ''}>Tiếng Việt (vi-VN)</option>
           </select>
+        </div>
+        <div class="field-group">
+          <label>Local STT Server Endpoint (Optional)</label>
+          <input id="set-local-speech-url" type="text" class="field-input" placeholder="http://127.0.0.1:8080/inference or http://127.0.0.1:8000/v1/audio/transcriptions" value="${current.localSpeechUrl || ''}" />
+        </div>
+        <div class="field-group">
+          <label>Local STT CLI Command (Optional)</label>
+          <input id="set-local-speech-cmd" type="text" class="field-input" placeholder="whisper-cli, whisper, sherpa-onnx, or custom script" value="${current.localSpeechCommand || ''}" />
         </div>
         <div class="field-group">
           <label>Auto-clear Agent Screen Annotations (seconds, 0 = manual)</label>
@@ -384,7 +401,10 @@ export function renderTabbedSettingsDrawer(opts: {
       } else if (activeTab === 'vision') {
         patch.followUpBehavior = (body.querySelector('#set-followup') as HTMLSelectElement).value as FollowUpBehavior;
         patch.screenshotQuality = (body.querySelector('#set-shot-quality') as HTMLSelectElement).value as ScreenshotQuality;
+        patch.speechMode = ((body.querySelector('#set-speech-mode') as HTMLSelectElement)?.value as any) || 'auto';
         patch.speechLanguage = (body.querySelector('#set-speech-lang') as HTMLSelectElement)?.value || 'auto';
+        patch.localSpeechUrl = (body.querySelector('#set-local-speech-url') as HTMLInputElement)?.value?.trim() || '';
+        patch.localSpeechCommand = (body.querySelector('#set-local-speech-cmd') as HTMLInputElement)?.value?.trim() || '';
         patch.markupAutoClearSeconds = Math.max(0, Number((body.querySelector('#set-markup-clear') as HTMLInputElement).value) || 0);
         patch.idleSleepMinutes = Math.max(0, Number((body.querySelector('#set-idle-sleep') as HTMLInputElement).value) || 0);
         patch.soundCues = (body.querySelector('#set-sound-cues') as HTMLInputElement).checked;
@@ -400,6 +420,24 @@ export function renderTabbedSettingsDrawer(opts: {
 
     footer.append(snapBtn, saveBtn);
     opts.container.append(tabsBar, body, footer);
+
+    if (activeTab === 'vision' && window.agentOverlay?.detectSpeechBackends) {
+      window.agentOverlay
+        .detectSpeechBackends()
+        .then((backend) => {
+          const el = body.querySelector('#speech-backend-detected');
+          if (el) {
+            if (backend.available) {
+              el.textContent = `Local engine detected: ${backend.engine}${backend.target ? ` (${backend.target})` : ''}`;
+              (el as HTMLElement).style.color = 'var(--vscode-testing-iconPassed, #4ec9b0)';
+            } else {
+              el.textContent = 'No local engine detected (install whisper / whisper.cpp or run local STT server).';
+              (el as HTMLElement).style.color = 'var(--vscode-descriptionForeground, #888)';
+            }
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   render();

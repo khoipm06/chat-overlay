@@ -50,7 +50,7 @@ import {
   saveSettings,
   syncLinuxAutostartDesktopFile,
 } from './settings';
-import { transcribeAudio } from './speech';
+import { detectLocalSpeechBackend, transcribeAudio } from './speech';
 
 let mainWindow: BrowserWindow | null = null;
 let markupWindow: BrowserWindow | null = null;
@@ -949,10 +949,13 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle('sessions:save', (_ev, session: SavedSession) => saveSessionRecord(session));
   ipcMain.handle('sessions:delete', (_ev, id: string) => deleteSessionRecord(id));
-  ipcMain.handle(
-    'speech:transcribe',
-    (_ev, audioData: { data: string; mimeType: string; language?: string }) => transcribeAudio(audioData),
+  ipcMain.handle('speech:transcribe', (_ev, audioData: any) =>
+    transcribeAudio(audioData, settings),
   );
+  ipcMain.handle('speech:transcribe-audio', (_ev, audioData: any) =>
+    transcribeAudio(audioData, settings),
+  );
+  ipcMain.handle('speech:detect-backends', () => detectLocalSpeechBackend(settings));
 
   ipcMain.handle('git:glance', (_ev, workspaceDir?: string) =>
     getGitGlance(workspaceDir || settings.workspaceDir),

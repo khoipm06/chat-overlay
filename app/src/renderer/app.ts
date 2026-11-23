@@ -3298,6 +3298,8 @@ let audioChunks: Blob[] = [];
 let isRecordingSpeech = false;
 let isTranscribingSpeech = false;
 let speechAutoStopTimer: ReturnType<typeof setTimeout> | null = null;
+let browserSpeechRecognition: any = null;
+let browserRecognizedTranscript = '';
 
 function cleanupMediaStream(): void {
   if (mediaStream) {
@@ -3318,6 +3320,13 @@ function cancelSpeechRecording(): void {
     clearTimeout(speechAutoStopTimer);
     speechAutoStopTimer = null;
   }
+  if (browserSpeechRecognition) {
+    try {
+      browserSpeechRecognition.abort();
+    } catch {}
+    browserSpeechRecognition = null;
+  }
+  browserRecognizedTranscript = '';
   isRecordingSpeech = false;
   btnMic?.classList.remove('recording');
   btnMic?.setAttribute('title', 'Voice Input (Speech-to-Text)');
@@ -3436,6 +3445,37 @@ async function startSpeechRecording(): Promise<void> {
     btnMic?.setAttribute('title', 'Listening... Click to stop and transcribe (Esc to cancel)');
     showNotice('Listening... Speak now (click mic again to transcribe)');
 
+    // Optional in-process / browser-based speech recognition fallback
+    try {
+      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRec) {
+        browserRecognizedTranscript = '';
+        browserSpeechRecognition = new SpeechRec();
+        browserSpeechRecognition.continuous = true;
+        browserSpeechRecognition.interimResults = false;
+        const currentLang = settings?.speechLanguage || 'auto';
+        if (currentLang && currentLang !== 'auto') {
+          browserSpeechRecognition.lang = currentLang;
+        }
+        browserSpeechRecognition.onresult = (ev: any) => {
+          for (let i = ev.resultIndex; i < ev.results.length; ++i) {
+            if (ev.results[i].isFinal) {
+              const phrase = ev.results[i][0]?.transcript || '';
+              if (phrase) {
+                browserRecognizedTranscript += (browserRecognizedTranscript ? ' ' : '') + phrase;
+              }
+            }
+          }
+        };
+        browserSpeechRecognition.onerror = () => {
+          // ignore browser speech recognition errors silently
+        };
+        browserSpeechRecognition.start();
+      }
+    } catch {
+      browserSpeechRecognition = null;
+    }
+
     if (speechAutoStopTimer) clearTimeout(speechAutoStopTimer);
     speechAutoStopTimer = setTimeout(() => {
       if (isRecordingSpeech) {
@@ -3455,6 +3495,12 @@ async function stopAndTranscribeSpeech(): Promise<void> {
   if (speechAutoStopTimer) {
     clearTimeout(speechAutoStopTimer);
     speechAutoStopTimer = null;
+  }
+
+  if (browserSpeechRecognition) {
+    try {
+      browserSpeechRecognition.stop();
+    } catch {}
   }
 
   if (!mediaRecorder || mediaRecorder.state === 'inactive') {
@@ -3504,11 +3550,17 @@ async function stopAndTranscribeSpeech(): Promise<void> {
 
     const base64 = await blobToBase64(blob);
     const lang = settings?.speechLanguage || 'auto';
+    const mode = settings?.speechMode || 'auto';
+    const localUrl = settings?.localSpeechUrl || '';
+    const localCommand = settings?.localSpeechCommand || '';
 
     const result = await window.agentOverlay.transcribeAudio({
       data: base64,
       mimeType: recordedMime,
       language: lang,
+      mode,
+      localUrl,
+      localCommand,
     });
 
     if (!isTranscribingSpeech) {
@@ -3518,11 +3570,24 @@ async function stopAndTranscribeSpeech(): Promise<void> {
     if (result.ok && result.text) {
       insertTranscribedText(result.text);
       const noticeLabel = lang === 'auto' ? '' : ` (${lang})`;
-      showNotice(`Transcribed${noticeLabel}: "${result.text.slice(0, 40)}${result.text.length > 40 ? '...' : ''}"`);
+      const engineBadge = result.engine === 'local' ? ' [local]' : '';
+      showNotice(`Transcribed${noticeLabel}${engineBadge}: "${result.text.slice(0, 40)}${result.text.length > 40 ? '...' : ''}"`);
     } else if (result.ok && !result.text) {
-      showNotice('No speech detected.');
+      if (browserRecognizedTranscript?.trim()) {
+        const cleaned = browserRecognizedTranscript.trim();
+        insertTranscribedText(cleaned);
+        showNotice(`Transcribed (browser): "${cleaned.slice(0, 40)}${cleaned.length > 40 ? '...' : ''}"`);
+      } else {
+        showNotice('No speech detected.');
+      }
     } else {
-      showNotice(`Voice transcription failed: ${result.error || 'Unknown error'}`, true);
+      if (browserRecognizedTranscript?.trim()) {
+        const cleaned = browserRecognizedTranscript.trim();
+        insertTranscribedText(cleaned);
+        showNotice(`Transcribed (browser): "${cleaned.slice(0, 40)}${cleaned.length > 40 ? '...' : ''}"`);
+      } else {
+        showNotice(`Voice transcription failed: ${result.error || 'Unknown error'}`, true);
+      }
     }
   } catch (err: any) {
     console.error('Speech transcription error:', err);
@@ -3531,6 +3596,8 @@ async function stopAndTranscribeSpeech(): Promise<void> {
     }
   } finally {
     isTranscribingSpeech = false;
+    browserSpeechRecognition = null;
+    browserRecognizedTranscript = '';
     btnMic?.classList.remove('transcribing');
     btnMic?.setAttribute('title', 'Voice Input (Speech-to-Text)');
   }
