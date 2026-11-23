@@ -188,6 +188,7 @@ export interface MentionItem {
 export type RevertMode = 'workspace_and_chat' | 'chat_only';
 export type PermissionPolicy = 'ask' | 'auto_read' | 'auto_workspace' | 'yolo';
 export type DesktopControlMode = 'off' | 'confirm' | 'preview_auto' | 'auto';
+export type SpeechMode = 'auto' | 'local' | 'cloud';
 export type FollowUpBehavior = 'queue' | 'steer';
 
 export type DesktopActionKind =
@@ -301,7 +302,10 @@ export interface AppSettings {
   desktopControlMode: DesktopControlMode;
   autoApprovePermissions: boolean;
   autoApproveDesktopActions: boolean;
+  speechMode: SpeechMode;
   speechLanguage: string;
+  localSpeechUrl: string;
+  localSpeechCommand: string;
   followUpBehavior: FollowUpBehavior;
   soundCues: boolean;
   flashOnAttention: boolean;

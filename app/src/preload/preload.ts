@@ -93,7 +93,11 @@ export interface AgentOverlayApi {
     data: string;
     mimeType: string;
     language?: string;
-  }) => Promise<{ ok: boolean; text?: string; error?: string }>;
+    mode?: 'auto' | 'local' | 'cloud';
+    localUrl?: string;
+    localCommand?: string;
+  }) => Promise<{ ok: boolean; text?: string; error?: string; engine?: 'cloud' | 'local' | 'browser' }>;
+  detectSpeechBackends?: () => Promise<{ available: boolean; engine: string; target?: string }>;
   openExternal: (url: string) => Promise<void>;
   auditCapture: (filename: string) => Promise<void>;
   auditDone: () => Promise<void>;
@@ -165,7 +169,8 @@ const api: AgentOverlayApi = {
   executeDesktopAction: (action, isUserSlashCommand) =>
     ipcRenderer.invoke('desktop:execute-action', action, isUserSlashCommand),
   panicStopDesktop: () => ipcRenderer.invoke('desktop:panic-stop'),
-  transcribeAudio: (audioData) => ipcRenderer.invoke('speech:transcribe', audioData),
+  transcribeAudio: (audioData) => ipcRenderer.invoke('speech:transcribe-audio', audioData),
+  detectSpeechBackends: () => ipcRenderer.invoke('speech:detect-backends'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   auditCapture: (filename) => ipcRenderer.invoke('audit:capture', filename),
   auditDone: () => ipcRenderer.invoke('audit:done'),

@@ -1,18 +1,26 @@
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { AppSettings, SpeechMode } from '../shared/types';
+
+export { SpeechMode };
 
 export interface TranscribeOptions {
   data: string;
   mimeType: string;
   language?: string;
   model?: string;
+  mode?: SpeechMode;
+  localUrl?: string;
+  localCommand?: string;
 }
 
 export interface TranscribeResult {
   ok: boolean;
   text?: string;
   error?: string;
+  engine?: 'cloud' | 'local' | 'browser';
 }
 
 export function resolveSpeechApiKey(): string | null {
@@ -123,18 +131,508 @@ export function sanitizeTranscription(text: string): string {
   return trimmed;
 }
 
-export async function transcribeAudio(options: TranscribeOptions): Promise<TranscribeResult> {
+export function findExecutableInPath(names: string[]): string | null {
+  const pathEnv = process.env.PATH || '';
+  const delimiter = path.delimiter;
+  const standardDirs = [
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+    path.join(os.homedir(), '.local', 'bin'),
+    path.join(os.homedir(), '.cargo', 'bin'),
+    path.join(os.homedir(), '.opencode', 'bin'),
+    path.join(os.homedir(), '.bun', 'bin'),
+    path.join(os.homedir(), 'miniconda3', 'bin'),
+    path.join(os.homedir(), 'anaconda3', 'bin'),
+    '/home/linuxbrew/.linuxbrew/bin',
+  ];
+  const searchDirs = Array.from(new Set([...pathEnv.split(delimiter).filter(Boolean), ...standardDirs]));
+
+  for (const name of names) {
+    const nameCandidates =
+      process.platform === 'win32' && !name.endsWith('.exe') ? [name, `${name}.exe`] : [name];
+
+    for (const candidate of nameCandidates) {
+      if (path.isAbsolute(candidate)) {
+        if (fs.existsSync(candidate)) {
+          try {
+            fs.accessSync(candidate, fs.constants.X_OK);
+            return candidate;
+          } catch {}
+        }
+        continue;
+      }
+      for (const dir of searchDirs) {
+        const fullPath = path.join(dir, candidate);
+        if (fs.existsSync(fullPath)) {
+          try {
+            fs.accessSync(fullPath, fs.constants.X_OK);
+            return fullPath;
+          } catch {}
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function findWhisperCppModel(): string | null {
+  if (process.env.WHISPER_CPP_MODEL && fs.existsSync(process.env.WHISPER_CPP_MODEL)) {
+    return process.env.WHISPER_CPP_MODEL;
+  }
+
+  const candidateDirs = [
+    path.join(os.homedir(), '.cache', 'whisper'),
+    path.join(os.homedir(), '.local', 'share', 'whisper'),
+    path.join(os.homedir(), '.local', 'share', 'whisper.cpp'),
+    path.join(os.homedir(), 'whisper.cpp', 'models'),
+    path.join(os.homedir(), '.whisper'),
+    '/usr/share/whisper',
+    '/usr/local/share/whisper',
+    '/usr/share/whisper-cpp',
+    '/usr/local/share/whisper-cpp',
+  ];
+
+  for (const dir of candidateDirs) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      const files = fs.readdirSync(dir);
+      const match = files.find((f) => f.endsWith('.bin') || f.includes('ggml'));
+      if (match) {
+        return path.join(dir, match);
+      }
+    } catch {}
+  }
+  return null;
+}
+
+export function runProcessWithTimeout(
+  cmd: string,
+  args: string[],
+  timeoutMs: number,
+  cwd?: string,
+): Promise<{ ok: boolean; stdout: string; stderr: string; exitCode: number | null }> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let finished = false;
+
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn(cmd, args, {
+        cwd,
+        env: { ...process.env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (err: any) {
+      resolve({ ok: false, stdout: '', stderr: err?.message || String(err), exitCode: -1 });
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        try {
+          proc.kill('SIGKILL');
+        } catch {}
+        resolve({ ok: false, stdout, stderr: stderr + '\nProcess timed out', exitCode: null });
+      }
+    }, timeoutMs);
+
+    proc.stdout?.on('data', (d) => {
+      stdout += d.toString();
+    });
+
+    proc.stderr?.on('data', (d) => {
+      stderr += d.toString();
+    });
+
+    proc.on('error', (err) => {
+      if (!finished) {
+        finished = true;
+        clearTimeout(timer);
+        resolve({ ok: false, stdout, stderr: err.message, exitCode: null });
+      }
+    });
+
+    proc.on('close', (code) => {
+      if (!finished) {
+        finished = true;
+        clearTimeout(timer);
+        resolve({ ok: code === 0, stdout, stderr, exitCode: code });
+      }
+    });
+  });
+}
+
+export async function convertAudioToWav(inputPath: string, outputPath: string): Promise<boolean> {
+  const ffmpeg = findExecutableInPath(['ffmpeg']);
+  if (!ffmpeg) return false;
+  const res = await runProcessWithTimeout(
+    ffmpeg,
+    ['-y', '-i', inputPath, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', outputPath],
+    15_000,
+  );
+  return res.ok && fs.existsSync(outputPath);
+}
+
+export async function transcribeViaHttpServer(
+  audioBuffer: Buffer,
+  mimeType: string,
+  options: TranscribeOptions,
+): Promise<TranscribeResult> {
+  const customUrl =
+    options.localUrl?.trim() ||
+    process.env.LOCAL_STT_URL?.trim() ||
+    process.env.WHISPER_SERVER_URL?.trim();
+
+  const candidateUrls = customUrl
+    ? [customUrl]
+    : [
+        'http://127.0.0.1:8080/inference',
+        'http://127.0.0.1:8000/v1/audio/transcriptions',
+        'http://127.0.0.1:10300/v1/audio/transcriptions',
+        'http://127.0.0.1:5000/transcribe',
+      ];
+
+  const cleanMime = cleanAudioMimeType(mimeType);
+  const ext = cleanMime.includes('wav') ? 'wav' : cleanMime.includes('ogg') ? 'ogg' : 'webm';
+
+  for (const url of candidateUrls) {
+    try {
+      const formData = new FormData();
+      formData.append(
+        'file',
+        new Blob([new Uint8Array(audioBuffer)], { type: cleanMime }),
+        `audio.${ext}`,
+      );
+
+      if (url.includes('/inference')) {
+        formData.append('response_format', 'json');
+        formData.append('temperature', '0.0');
+        if (options.language && options.language !== 'auto') {
+          formData.append('language', options.language.split('-')[0]);
+        }
+      } else {
+        formData.append('model', 'whisper-1');
+        if (options.language && options.language !== 'auto') {
+          formData.append('language', options.language.split('-')[0]);
+        }
+      }
+
+      const timeoutMs = customUrl ? 25_000 : 1_500;
+      const res = await fetch(url, {
+        method: 'POST',
+        body: formData,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        const rawText =
+          data.text ??
+          data.transcription ??
+          data.result ??
+          (Array.isArray(data.results) ? data.results.map((r: any) => r.text).join(' ') : '');
+        const text = sanitizeTranscription(String(rawText || ''));
+        return { ok: true, text, engine: 'local' };
+      }
+      if (customUrl) {
+        const errText = await res.text().catch(() => '');
+        return {
+          ok: false,
+          error: `Local STT server returned HTTP ${res.status}: ${errText.slice(0, 150)}`,
+        };
+      }
+    } catch (err: any) {
+      if (customUrl) {
+        return {
+          ok: false,
+          error: `Failed to connect to local STT server at ${customUrl}: ${err.message}`,
+        };
+      }
+    }
+  }
+
+  return { ok: false, error: 'No local HTTP speech server found' };
+}
+
+export async function transcribeViaCli(
+  wavPath: string,
+  options: TranscribeOptions,
+): Promise<TranscribeResult> {
+  // 1. Custom CLI command if provided
+  const customCmd = options.localCommand?.trim() || process.env.LOCAL_STT_COMMAND?.trim();
+  if (customCmd) {
+    try {
+      const expanded = customCmd.includes('{file}')
+        ? customCmd.replace(/\{file\}/g, `"${wavPath}"`)
+        : `${customCmd} "${wavPath}"`;
+      const cmd = '/bin/sh';
+      const args = ['-c', expanded];
+      const res = await runProcessWithTimeout(cmd, args, 30_000);
+      if (res.ok) {
+        const text = sanitizeTranscription(res.stdout);
+        return { ok: true, text, engine: 'local' };
+      }
+      return {
+        ok: false,
+        error: `Custom local STT command exited with code ${res.exitCode}: ${(res.stderr || res.stdout).slice(0, 180)}`,
+      };
+    } catch (err: any) {
+      return { ok: false, error: `Custom local STT command failed: ${err.message}` };
+    }
+  }
+
+  // 2. whisper-cli / whisper-cpp / whisper.cpp
+  const whisperCpp = findExecutableInPath(['whisper-cli', 'whisper-cpp', 'whisper.cpp']);
+  if (whisperCpp) {
+    const model = findWhisperCppModel();
+    const args: string[] = [];
+    if (model) {
+      args.push('-m', model);
+    }
+    if (options.language && options.language !== 'auto') {
+      args.push('-l', options.language.split('-')[0]);
+    }
+    args.push('-f', wavPath, '-nt');
+    const res = await runProcessWithTimeout(whisperCpp, args, 30_000);
+    if (res.ok) {
+      return { ok: true, text: sanitizeTranscription(res.stdout), engine: 'local' };
+    }
+  }
+
+  // 3. OpenAI Python whisper CLI
+  const whisperPy = findExecutableInPath(['whisper', 'whisper-fast', 'faster-whisper']);
+  if (whisperPy) {
+    const tmpOut = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-whpy-'));
+    try {
+      const args = [
+        wavPath,
+        '--model',
+        'base',
+        '--output_format',
+        'txt',
+        '--output_dir',
+        tmpOut,
+        '--fp16',
+        'False',
+      ];
+      if (options.language && options.language !== 'auto') {
+        args.push('--language', options.language.split('-')[0]);
+      }
+      const res = await runProcessWithTimeout(whisperPy, args, 45_000);
+      const base = path.basename(wavPath, path.extname(wavPath));
+      const txtFile = path.join(tmpOut, `${base}.txt`);
+      if (fs.existsSync(txtFile)) {
+        const content = fs.readFileSync(txtFile, 'utf8');
+        return { ok: true, text: sanitizeTranscription(content), engine: 'local' };
+      }
+      if (res.ok && res.stdout.trim()) {
+        return { ok: true, text: sanitizeTranscription(res.stdout), engine: 'local' };
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpOut, { recursive: true, force: true });
+      } catch {}
+    }
+  }
+
+  // 4. sherpa-onnx-offline / sherpa-onnx
+  const sherpa = findExecutableInPath(['sherpa-onnx-offline', 'sherpa-onnx']);
+  if (sherpa) {
+    const res = await runProcessWithTimeout(sherpa, [wavPath], 30_000);
+    if (res.ok) {
+      return { ok: true, text: sanitizeTranscription(res.stdout), engine: 'local' };
+    }
+  }
+
+  // 5. vosk-transcriber
+  const vosk = findExecutableInPath(['vosk-transcriber']);
+  if (vosk) {
+    const tmpTxt = path.join(os.tmpdir(), `vosk-out-${Date.now()}.txt`);
+    try {
+      const args = ['-i', wavPath, '-o', tmpTxt];
+      if (options.language && options.language !== 'auto') {
+        args.push('-l', options.language.split('-')[0]);
+      }
+      const res = await runProcessWithTimeout(vosk, args, 30_000);
+      if (fs.existsSync(tmpTxt)) {
+        const content = fs.readFileSync(tmpTxt, 'utf8');
+        return { ok: true, text: sanitizeTranscription(content), engine: 'local' };
+      }
+      if (res.ok && res.stdout.trim()) {
+        return { ok: true, text: sanitizeTranscription(res.stdout), engine: 'local' };
+      }
+    } finally {
+      try {
+        fs.unlinkSync(tmpTxt);
+      } catch {}
+    }
+  }
+
+  return { ok: false, error: 'No supported local speech CLI tool found' };
+}
+
+export async function transcribeLocalSpeech(
+  options: TranscribeOptions,
+  settings?: { localSpeechUrl?: string; localSpeechCommand?: string },
+): Promise<TranscribeResult> {
+  const mergedOptions: TranscribeOptions = {
+    ...options,
+    localUrl: options.localUrl || settings?.localSpeechUrl,
+    localCommand: options.localCommand || settings?.localSpeechCommand,
+  };
+
+  const audioBuffer = Buffer.from(options.data, 'base64');
+  if (audioBuffer.length === 0) {
+    return { ok: false, error: 'Empty audio data' };
+  }
+
+  // Prepare temporary audio file for conversion & CLI tools
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-speech-'));
+  const cleanMime = cleanAudioMimeType(options.mimeType);
+  const ext = cleanMime.includes('wav') ? 'wav' : cleanMime.includes('ogg') ? 'ogg' : 'webm';
+  const inputPath = path.join(tmpDir, `input.${ext}`);
+  const wavPath = path.join(tmpDir, 'input-16k.wav');
+
+  fs.writeFileSync(inputPath, audioBuffer);
+
+  let targetWav = inputPath;
+  let targetBuffer = audioBuffer;
+  let targetMime = options.mimeType;
+
+  try {
+    const converted = await convertAudioToWav(inputPath, wavPath);
+    if (converted && fs.existsSync(wavPath)) {
+      targetWav = wavPath;
+      targetBuffer = fs.readFileSync(wavPath);
+      targetMime = 'audio/wav';
+    }
+
+    // 1. Try Local HTTP server if configured or accessible
+    let httpError: string | null = null;
+    try {
+      const httpRes = await transcribeViaHttpServer(targetBuffer, targetMime, mergedOptions);
+      if (httpRes.ok) {
+        return httpRes;
+      }
+      if (httpRes.error) {
+        httpError = httpRes.error;
+      }
+    } catch (err: any) {
+      httpError = err?.message || String(err);
+    }
+
+    // 2. Try CLI tools
+    const cliRes = await transcribeViaCli(targetWav, mergedOptions);
+    if (cliRes.ok) {
+      return cliRes;
+    }
+
+    // If a custom command was explicitly configured and failed, prioritize its specific error
+    if (mergedOptions.localCommand && cliRes.error) {
+      return cliRes;
+    }
+
+    // If a custom local STT server URL was explicitly configured, return its specific error
+    if (mergedOptions.localUrl && httpError) {
+      return { ok: false, error: httpError };
+    }
+
+    if (cliRes.error && !cliRes.error.includes('No supported local speech CLI tool found')) {
+      return cliRes;
+    }
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  }
+
+  return {
+    ok: false,
+    error:
+      'No local speech-to-text engine responded. Start a local STT server (e.g. whisper.cpp at http://127.0.0.1:8080) or install a local CLI (whisper, whisper-cli, sherpa-onnx, or vosk).',
+  };
+}
+
+export async function detectLocalSpeechBackend(
+  settings?: { localSpeechUrl?: string; localSpeechCommand?: string },
+): Promise<{ available: boolean; engine: string; target?: string }> {
+  const customUrl =
+    settings?.localSpeechUrl?.trim() ||
+    process.env.LOCAL_STT_URL?.trim() ||
+    process.env.WHISPER_SERVER_URL?.trim();
+  if (customUrl) {
+    return { available: true, engine: 'http-custom', target: customUrl };
+  }
+
+  // Check default HTTP ports (must exist and not return 404 Not Found)
+  for (const url of ['http://127.0.0.1:8080/inference', 'http://127.0.0.1:8000/v1/audio/transcriptions']) {
+    try {
+      const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(400) }).catch(() => null);
+      if (res && res.status !== 404 && res.status < 500) {
+        return { available: true, engine: 'http-server', target: url };
+      }
+    } catch {}
+  }
+
+  const customCmd = settings?.localSpeechCommand?.trim() || process.env.LOCAL_STT_COMMAND?.trim();
+  if (customCmd) {
+    return { available: true, engine: 'cli-custom', target: customCmd };
+  }
+
+  const whisperCpp = findExecutableInPath(['whisper-cli', 'whisper-cpp', 'whisper.cpp']);
+  if (whisperCpp) {
+    return { available: true, engine: 'whisper-cli', target: whisperCpp };
+  }
+
+  const whisperPy = findExecutableInPath(['whisper', 'whisper-fast', 'faster-whisper']);
+  if (whisperPy) {
+    return { available: true, engine: 'whisper', target: whisperPy };
+  }
+
+  const sherpa = findExecutableInPath(['sherpa-onnx-offline', 'sherpa-onnx']);
+  if (sherpa) {
+    return { available: true, engine: 'sherpa-onnx', target: sherpa };
+  }
+
+  const vosk = findExecutableInPath(['vosk-transcriber']);
+  if (vosk) {
+    return { available: true, engine: 'vosk', target: vosk };
+  }
+
+  return { available: false, engine: 'none' };
+}
+
+export async function transcribeAudio(
+  options: TranscribeOptions,
+  settings?: Partial<AppSettings>,
+): Promise<TranscribeResult> {
   if (!options?.data || typeof options.data !== 'string') {
     return { ok: false, error: 'No audio data provided' };
   }
 
-  let lastError: string | null = null;
+  const mode: SpeechMode = options.mode || settings?.speechMode || 'auto';
+  const effectiveOptions: TranscribeOptions = {
+    ...options,
+    localUrl: options.localUrl || settings?.localSpeechUrl,
+    localCommand: options.localCommand || settings?.localSpeechCommand,
+  };
+
+  // If explicitly set to 'local', run local STT directly
+  if (mode === 'local') {
+    return transcribeLocalSpeech(effectiveOptions, settings);
+  }
+
+  // Cloud transcription (Gemini -> OpenAI Whisper)
+  let cloudError: string | null = null;
   const geminiKey = resolveSpeechApiKey();
 
   if (geminiKey) {
     try {
-      const mimeType = cleanAudioMimeType(options.mimeType);
-      const model = options.model || 'gemini-2.5-flash';
+      const mimeType = cleanAudioMimeType(effectiveOptions.mimeType);
+      const model = effectiveOptions.model || 'gemini-2.5-flash';
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
 
       let systemPrompt =
@@ -143,8 +641,8 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
         'Output ONLY the raw transcribed text. Do NOT include markdown code blocks, commentary, quotes, or conversational explanations. ' +
         'If the audio is silent or contains only non-speech noise without spoken words, output exactly: [NO_SPEECH].';
 
-      if (options.language && options.language !== 'auto') {
-        systemPrompt += `\nSpoken language hint: ${options.language}.`;
+      if (effectiveOptions.language && effectiveOptions.language !== 'auto') {
+        systemPrompt += `\nSpoken language hint: ${effectiveOptions.language}.`;
       }
 
       const payload = {
@@ -154,7 +652,7 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
               {
                 inlineData: {
                   mimeType,
-                  data: options.data,
+                  data: effectiveOptions.data,
                 },
               },
               {
@@ -185,13 +683,13 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
         const data = (await res.json()) as any;
         const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
         const cleaned = sanitizeTranscription(candidateText);
-        return { ok: true, text: cleaned };
+        return { ok: true, text: cleaned, engine: 'cloud' };
       }
 
       const errorText = await res.text();
-      lastError = `Gemini API error (${res.status}): ${errorText.slice(0, 180)}`;
+      cloudError = `Gemini API error (${res.status}): ${errorText.slice(0, 180)}`;
     } catch (err: any) {
-      lastError = err?.message || 'Failed to call Gemini speech transcription service';
+      cloudError = err?.message || 'Failed to call Gemini speech transcription service';
     }
   }
 
@@ -199,15 +697,19 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
   const openAiKey = resolveOpenAiKey();
   if (openAiKey) {
     try {
-      const mimeType = cleanAudioMimeType(options.mimeType);
+      const mimeType = cleanAudioMimeType(effectiveOptions.mimeType);
       const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('ogg') ? 'ogg' : 'webm';
-      const audioBuffer = Buffer.from(options.data, 'base64');
+      const audioBuffer = Buffer.from(effectiveOptions.data, 'base64');
 
       const formData = new FormData();
-      formData.append('file', new Blob([audioBuffer], { type: mimeType }), `audio.${ext}`);
+      formData.append(
+        'file',
+        new Blob([new Uint8Array(audioBuffer)], { type: mimeType }),
+        `audio.${ext}`,
+      );
       formData.append('model', 'whisper-1');
-      if (options.language && options.language !== 'auto') {
-        formData.append('language', options.language.split('-')[0]);
+      if (effectiveOptions.language && effectiveOptions.language !== 'auto') {
+        formData.append('language', effectiveOptions.language.split('-')[0]);
       }
 
       const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -222,20 +724,43 @@ export async function transcribeAudio(options: TranscribeOptions): Promise<Trans
       if (res.ok) {
         const data = (await res.json()) as any;
         const text = sanitizeTranscription(data.text || '');
-        return { ok: true, text };
+        return { ok: true, text, engine: 'cloud' };
       }
 
       const errorText = await res.text();
-      lastError = `OpenAI Whisper API error (${res.status}): ${errorText.slice(0, 180)}`;
+      cloudError = `OpenAI Whisper API error (${res.status}): ${errorText.slice(0, 180)}`;
     } catch (err: any) {
-      lastError = err?.message || 'Failed to call Whisper transcription service';
+      cloudError = err?.message || 'Failed to call Whisper transcription service';
     }
+  }
+
+  // If cloud mode was explicitly requested, do not fall back to local
+  if (mode === 'cloud') {
+    return {
+      ok: false,
+      error:
+        cloudError ||
+        'No speech recognition API key configured. Set GEMINI_API_KEY in environment or configure ~/.pi/agent/voice.json.',
+    };
+  }
+
+  // Auto mode fallback to Local STT!
+  // If API was attempted but failed, or if no API key is available, run local speech recognition
+  const localRes = await transcribeLocalSpeech(effectiveOptions, settings);
+  if (localRes.ok) {
+    return localRes;
+  }
+
+  // If both failed or no API key and local failed:
+  if (cloudError) {
+    return {
+      ok: false,
+      error: `Cloud API failed (${cloudError}). Local STT fallback failed: ${localRes.error}`,
+    };
   }
 
   return {
     ok: false,
-    error:
-      lastError ||
-      'No speech recognition API key configured. Set GEMINI_API_KEY in environment or configure ~/.pi/agent/voice.json.',
+    error: `No speech recognition API key configured, and local STT fallback failed: ${localRes.error}`,
   };
 }

@@ -84,7 +84,10 @@ export function defaultSettings(): AppSettings {
     desktopControlMode: 'confirm',
     autoApprovePermissions: false,
     autoApproveDesktopActions: true,
+    speechMode: 'auto',
     speechLanguage: 'auto',
+    localSpeechUrl: '',
+    localSpeechCommand: '',
     followUpBehavior: 'queue',
     soundCues: true,
     flashOnAttention: true,
@@ -285,7 +288,18 @@ export function loadSettings(): AppSettings {
       windowBounds: migratedBounds,
       permissionPolicy,
       autoApproveDesktopActions: parsed.autoApproveDesktopActions ?? defaults.autoApproveDesktopActions,
+      speechMode: (parsed.speechMode && ['auto', 'local', 'cloud'].includes(parsed.speechMode)
+        ? (parsed.speechMode as AppSettings['speechMode'])
+        : defaults.speechMode),
       speechLanguage: parsed.speechLanguage ?? defaults.speechLanguage,
+      localSpeechUrl:
+        typeof parsed.localSpeechUrl === 'string'
+          ? parsed.localSpeechUrl
+          : defaults.localSpeechUrl,
+      localSpeechCommand:
+        typeof parsed.localSpeechCommand === 'string'
+          ? parsed.localSpeechCommand
+          : defaults.localSpeechCommand,
       harness: validHarness,
       commands: mergedCommands,
       harnessEnv: { ...(parsed.harnessEnv ?? {}) },
