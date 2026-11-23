@@ -32,8 +32,19 @@ import {
 import { expandSlashTemplate, parseLocalCommand, parseOsQuickCommand } from '../src/main/commands';
 import { percentToPixelCoords } from '../src/main/desktop-actions';
 import { extractActiveTrigger, matchMentionItems } from '../src/main/mentions';
-import { defaultSettings, defaultWorkspaceDir, resolveHarnessLaunch, syncLinuxAutostartDesktopFile } from '../src/main/settings';
-import { isSessionNotFoundError, loadMcpServersForSession } from '../src/main/acp-client';
+import {
+  defaultSettings,
+  defaultWorkspaceDir,
+  deleteSessionRecord,
+  loadDeletedSessionIds,
+  loadSessions,
+  recordDeletedSessionId,
+  resolveHarnessLaunch,
+  saveSessionRecord,
+  syncLinuxAutostartDesktopFile,
+  unmarkDeletedSessionId,
+} from '../src/main/settings';
+import { AcpAgentController, isSessionNotFoundError, loadMcpServersForSession } from '../src/main/acp-client';
 import {
   cleanAudioMimeType,
   detectLocalSpeechBackend,
@@ -42,7 +53,12 @@ import {
   transcribeAudio,
   transcribeLocalSpeech,
 } from '../src/main/speech';
-import { extractCleanOutput, pickToolKind, presentToolCall } from '../src/renderer/tool-presenter';
+import {
+  extractCleanOutput,
+  pickToolKind,
+  presentToolCall,
+  renderToolDetailHtml,
+} from '../src/renderer/tool-presenter';
 import { HARNESS_LIST } from '../src/shared/types';
 
 describe('HARNESS_LIST', () => {
@@ -1059,5 +1075,98 @@ describe('ACP question tool, shell output & settings updates', () => {
     expect(typeof dir).toBe('string');
     expect(dir.length).toBeGreaterThan(0);
     expect(fs.existsSync(dir)).toBe(true);
+  });
+
+  it('renders search tool results with structured headers and copy buttons', () => {
+    const presented = presentToolCall({
+      name: 'search',
+      title: 'Search physics.cpp',
+      args: JSON.stringify({ file: 'src/physics.cpp', query: 'OrbitState' }),
+      output: 'Found 3 matches\nLine 11: OrbitState add\nLine 17: OrbitState sub\nLine 20: OrbitState mult',
+      status: 'completed',
+    });
+
+    expect(presented.verb).toBe('Search');
+    expect(presented.badge).toContain('4 matches');
+    const filesSec = presented.sections.find((s) => s.kind === 'files');
+    expect(filesSec).toBeDefined();
+    if (filesSec && filesSec.kind === 'files') {
+      expect(filesSec.items.length).toBe(4);
+      expect(filesSec.items[0]).toBe('Found 3 matches');
+    }
+
+    const html = renderToolDetailHtml(presented);
+    expect(html).toContain('tool-vis-section');
+    expect(html).toContain('tool-vis-sec-header');
+    expect(html).toContain('tool-vis-copy-btn');
+    expect(html).toContain('tool-vis-file-list');
+    expect(html).toContain('tool-vis-file');
+    expect(html).toContain('Line 11: OrbitState add');
+  });
+
+  it('tracks deleted session IDs to prevent empty or remote sessions from resurrecting', () => {
+    const testSessionId = `test_del_${Date.now()}`;
+    // Initially not deleted
+    const initialDeleted = loadDeletedSessionIds();
+    expect(initialDeleted.has(testSessionId)).toBe(false);
+
+    // Record deletion of empty or remote session
+    recordDeletedSessionId(testSessionId);
+    const afterDelete = loadDeletedSessionIds();
+    expect(afterDelete.has(testSessionId)).toBe(true);
+
+    // Deleting via deleteSessionRecord also records the ID
+    const anotherId = `test_del2_${Date.now()}`;
+    deleteSessionRecord(anotherId);
+    expect(loadDeletedSessionIds().has(anotherId)).toBe(true);
+
+    // Unmarking deleted ID (e.g. when session is explicitly created/saved)
+    unmarkDeletedSessionId(testSessionId);
+    expect(loadDeletedSessionIds().has(testSessionId)).toBe(false);
+  });
+
+  it('manages ACP session state safely during remote load errors and session deletion', async () => {
+    const controller = new AcpAgentController(
+      defaultSettings(),
+      () => {},
+      () => {},
+    );
+    // Artificially establish an active session ID
+    (controller as any).catalog.sessionId = 'ses_active_123';
+    expect(controller.getCatalog().sessionId).toBe('ses_active_123');
+
+    // Attempting loadRemoteSession with no running process fails gracefully
+    // and preserves catalog.sessionId instead of corrupting it to null
+    const res = await controller.loadRemoteSession('ses_non_existent');
+    expect(res.ok).toBe(false);
+    expect(controller.getCatalog().sessionId).toBe('ses_active_123');
+
+    // Deleting a non-active session preserves the active session
+    await controller.deleteRemoteSession('ses_other_456');
+    expect(controller.getCatalog().sessionId).toBe('ses_active_123');
+
+    // Deleting the currently active session resets catalog.sessionId to null
+    await controller.deleteRemoteSession('ses_active_123');
+    expect(controller.getCatalog().sessionId).toBeNull();
+  });
+
+  it('contains proper CSS rules in styles.css to prevent text overlap in search results', () => {
+    const cssPath = path.resolve(__dirname, '../src/renderer/styles.css');
+    const cssContent = fs.readFileSync(cssPath, 'utf8');
+
+    // Confirm .tool-vis-file has non-squishable line styling
+    expect(cssContent).toContain('.tool-vis-file {');
+    expect(cssContent).toMatch(/\.tool-vis-file\s*\{[^}]*line-height:\s*1\.5;/);
+    expect(cssContent).toMatch(/\.tool-vis-file\s*\{[^}]*flex-shrink:\s*0;/);
+    expect(cssContent).toMatch(/\.tool-vis-file\s*\{[^}]*min-height:\s*18px;/);
+    expect(cssContent).toMatch(/\.tool-vis-file\s*\{[^}]*white-space:\s*pre-wrap;/);
+
+    // Confirm .tool-vis-file-list has proper scroll container rules
+    expect(cssContent).toContain('.tool-vis-file-list {');
+    expect(cssContent).toMatch(/\.tool-vis-file-list\s*\{[^}]*overflow-y:\s*auto;/);
+
+    // Confirm .tool-vis-code div styling
+    expect(cssContent).toContain('.tool-vis-code div {');
+    expect(cssContent).toMatch(/\.tool-vis-code div\s*\{[^}]*line-height:\s*1\.5;/);
   });
 });

@@ -349,11 +349,51 @@ export function loadSessions(): SavedSession[] {
 }
 
 export function saveSessionRecord(session: SavedSession): SavedSession[] {
+  unmarkDeletedSessionId(session.id);
   const existing = loadSessions().filter((s) => s.id !== session.id);
   const next = [session, ...existing].slice(0, 40);
   fs.mkdirSync(configDir(), { recursive: true });
   fs.writeFileSync(sessionsFilePath(), JSON.stringify(next, null, 2), 'utf8');
   return next;
+}
+
+export function deletedSessionsFilePath(): string {
+  return path.join(configDir(), 'deleted_sessions.json');
+}
+
+export function loadDeletedSessionIds(): Set<string> {
+  try {
+    const raw = readWithMigration('deleted_sessions.json');
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? new Set(parsed.map(String)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+export function recordDeletedSessionId(sessionId: string): void {
+  try {
+    const set = loadDeletedSessionIds();
+    set.add(sessionId);
+    fs.mkdirSync(configDir(), { recursive: true });
+    const arr = Array.from(set).slice(-300);
+    fs.writeFileSync(deletedSessionsFilePath(), JSON.stringify(arr, null, 2), 'utf8');
+  } catch {
+    // ignore
+  }
+}
+
+export function unmarkDeletedSessionId(sessionId: string): void {
+  try {
+    const set = loadDeletedSessionIds();
+    if (set.delete(sessionId)) {
+      fs.mkdirSync(configDir(), { recursive: true });
+      fs.writeFileSync(deletedSessionsFilePath(), JSON.stringify(Array.from(set), null, 2), 'utf8');
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export function linuxAutostartFilePath(autostartDir?: string): string {
@@ -393,6 +433,7 @@ export function syncLinuxAutostartDesktopFile(
 }
 
 export function deleteSessionRecord(sessionId: string): SavedSession[] {
+  recordDeletedSessionId(sessionId);
   const next = loadSessions().filter((s) => s.id !== sessionId);
   fs.mkdirSync(configDir(), { recursive: true });
   fs.writeFileSync(sessionsFilePath(), JSON.stringify(next, null, 2), 'utf8');

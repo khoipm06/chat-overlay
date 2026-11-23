@@ -400,6 +400,7 @@ export interface SavedSession {
   workspaceDir: string;
   updatedAt: number;
   turns: StoredTurn[];
+  isRemote?: boolean;
 }
 
 export type StreamPhase =

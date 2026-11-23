@@ -412,7 +412,10 @@ export function renderToolDetailHtml(presented: PresentedTool): string {
             ? `<div class="tool-vis-more">+${sec.items.length - cap} more items</div>`
             : '';
         return `<div class="tool-vis-section">
-          <div class="tool-vis-sec-label">${escapeHtmlText(sec.label)} (${sec.items.length})</div>
+          <div class="tool-vis-sec-header">
+            <span class="tool-vis-sec-label">${escapeHtmlText(sec.label)} (${sec.items.length})</span>
+            <button type="button" class="tool-vis-copy-btn" onclick="navigator.clipboard.writeText(Array.from(this.closest('.tool-vis-section').querySelectorAll('.tool-vis-file')).map(e=>e.innerText).join('\\n')).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy';},1500);})" title="Copy to clipboard">Copy</button>
+          </div>
           <div class="tool-vis-file-list">${list}${more}</div>
         </div>`;
       }
