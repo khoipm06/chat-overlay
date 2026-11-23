@@ -32,7 +32,8 @@ import { expandSlashTemplate, parseLocalCommand, parseOsQuickCommand } from '../
 import { percentToPixelCoords } from '../src/main/desktop-actions';
 import { extractActiveTrigger, matchMentionItems } from '../src/main/mentions';
 import { defaultSettings, resolveHarnessLaunch, syncLinuxAutostartDesktopFile } from '../src/main/settings';
-import { presentToolCall } from '../src/renderer/tool-presenter';
+import { loadMcpServersForSession } from '../src/main/acp-client';
+import { extractCleanOutput, pickToolKind, presentToolCall } from '../src/renderer/tool-presenter';
 import { HARNESS_LIST } from '../src/shared/types';
 
 describe('HARNESS_LIST', () => {
@@ -587,5 +588,119 @@ describe('v3.2.1 desktop actions, OS slash commands, and coordinate mapping', ()
     const bounds = { x: 100, y: 50, width: 1920, height: 1080 };
     expect(percentToPixelCoords(50, 50, bounds)).toEqual({ px: 1060, py: 590 });
     expect(percentToPixelCoords(-10, 140, bounds)).toEqual({ px: 100, py: 1130 });
+  });
+});
+
+describe('ACP question tool, shell output & settings updates', () => {
+  it('correctly categorizes question and shell tool kinds', () => {
+    expect(pickToolKind('question').category).toBe('question');
+    expect(pickToolKind('ask_question').category).toBe('question');
+    expect(pickToolKind('bash').category).toBe('shell');
+    expect(pickToolKind('run_command').category).toBe('shell');
+    expect(pickToolKind('terminal').category).toBe('shell');
+  });
+
+  it('extracts clean stdout from nested output objects without losing command results', () => {
+    const outputWithStdout = { stdout: 'Line 1\nLine 2\n', exit: 0 };
+    expect(extractCleanOutput(outputWithStdout, '')).toBe('Line 1\nLine 2');
+
+    const outputWithNestedContent = {
+      content: [{ type: 'text', text: 'khoipm\n' }],
+    };
+    expect(extractCleanOutput(outputWithNestedContent, '')).toBe('khoipm');
+
+    const outputWithCombinedOut = { output: 'cargo build successful' };
+    expect(extractCleanOutput(outputWithCombinedOut, '')).toBe('cargo build successful');
+  });
+
+  it('formats shell tool calls with both command and output sections', () => {
+    const presented = presentToolCall({
+      name: 'bash',
+      args: JSON.stringify({ command: 'echo "hello ACP"' }),
+      output: JSON.stringify({ stdout: 'hello ACP\n', exit: 0 }),
+      status: 'completed',
+    });
+
+    expect(presented.verb).toBe('Shell');
+    expect(presented.sections.some((s) => s.kind === 'command' && s.command.includes('hello ACP'))).toBe(true);
+    expect(presented.sections.some((s) => s.kind === 'code' && s.text.includes('hello ACP'))).toBe(true);
+  });
+
+  it('formats question tool calls with questions and choices', () => {
+    const presented = presentToolCall({
+      name: 'question',
+      args: JSON.stringify({
+        question: 'Which framework do you prefer?',
+        options: ['React', 'Vue', 'Svelte'],
+      }),
+      output: '',
+      status: 'completed',
+    });
+
+    expect(presented.verb).toBe('Question');
+    expect(presented.icon).toBe('codicon-question');
+    expect(presented.sections.some((s) => s.kind === 'text' && s.text.includes('Which framework do you prefer?'))).toBe(true);
+    expect(presented.sections.some((s) => s.kind === 'files' && s.items.includes('React'))).toBe(true);
+  });
+
+  it('provides autoApproveDesktopActions and speechLanguage defaults in app settings', () => {
+    const settings = defaultSettings();
+    expect(settings.autoApproveDesktopActions).toBe(true);
+    expect(settings.speechLanguage).toBe('vi-VN');
+  });
+
+  it('formats stdio and http MCP servers conforming to OpenCode specification', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));
+    try {
+      const mcpConfig = {
+        mcpServers: {
+          localServer: {
+            command: 'node',
+            args: ['./server.js'],
+            env: { API_KEY: 'test_key', DEBUG: 'true' },
+          },
+          arrayCmdServer: {
+            command: ['python3', '-m', 'server'],
+          },
+          remoteServer: {
+            url: 'https://mcp.example.com/sse',
+            headers: { Authorization: 'Bearer 123' },
+          },
+        },
+      };
+      fs.writeFileSync(path.join(tmpDir, '.mcp.json'), JSON.stringify(mcpConfig), 'utf8');
+
+      const servers = await loadMcpServersForSession(tmpDir);
+      expect(servers.length).toBe(3);
+
+      const local = servers.find((s) => s.name === 'localServer');
+      expect(local).toBeDefined();
+      expect(local?.command).toBe('node');
+      expect(local?.args).toEqual(['./server.js']);
+      expect(local?.type).toBeUndefined(); // OpenCode stdio forbids type: 'local'
+      expect(local?.env).toEqual([
+        { name: 'API_KEY', value: 'test_key' },
+        { name: 'DEBUG', value: 'true' },
+      ]);
+
+      const arrayCmd = servers.find((s) => s.name === 'arrayCmdServer');
+      expect(arrayCmd).toBeDefined();
+      expect(arrayCmd?.command).toBe('python3');
+      expect(arrayCmd?.args).toEqual(['-m', 'server']);
+
+      const remote = servers.find((s) => s.name === 'remoteServer');
+      expect(remote).toBeDefined();
+      expect(remote?.type).toBe('http'); // OpenCode requires type: 'http', not 'remote'
+      expect(remote?.url).toBe('https://mcp.example.com/sse');
+      expect(remote?.headers).toEqual([{ name: 'Authorization', value: 'Bearer 123' }]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('extracts output from response, value, and stderr fields', () => {
+    expect(extractCleanOutput({ response: 'Assistant answer' }, '')).toBe('Assistant answer');
+    expect(extractCleanOutput({ value: 'Evaluated result' }, '')).toBe('Evaluated result');
+    expect(extractCleanOutput({ stdout: 'ok', stderr: 'warning: note' }, '')).toBe('ok\n\n[stderr]\nwarning: note');
   });
 });
