@@ -33,7 +33,6 @@ textarea:focus,
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-textarea:focus-visible,
 .field-input:focus,
 .field-input:focus-visible,
 .field-select:focus,
@@ -1628,11 +1627,20 @@ body {
   color: var(--danger);
 }
 
-.composer-input {
+.composer-input,
+.composer-input:focus,
+.composer-input:focus-visible,
+.composer-textarea,
+.composer-textarea:focus,
+.composer-textarea:focus-visible,
+#composer-input,
+#composer-input:focus,
+#composer-input:focus-visible {
   width: 100%;
   resize: none;
-  border: none;
-  outline: none;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
   background: transparent;
   color: var(--text-strong);
   font-family: inherit;
