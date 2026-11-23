@@ -1779,6 +1779,29 @@ body {
   animation: pulse-mic 1.2s infinite ease-in-out;
 }
 
+.mic-btn.transcribing {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-color: var(--accent);
+  cursor: wait;
+  animation: pulse-transcribing 1.2s infinite ease-in-out;
+}
+
+@keyframes pulse-transcribing {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 0.6;
+    transform: scale(0.96);
+  }
+}
+
 @keyframes pulse-mic {
   0% {
     transform: scale(1);

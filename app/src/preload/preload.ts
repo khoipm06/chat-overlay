@@ -89,6 +89,11 @@ export interface AgentOverlayApi {
     isUserSlashCommand?: boolean,
   ) => Promise<{ ok: boolean; message: string }>;
   panicStopDesktop: () => Promise<void>;
+  transcribeAudio: (audioData: {
+    data: string;
+    mimeType: string;
+    language?: string;
+  }) => Promise<{ ok: boolean; text?: string; error?: string }>;
   openExternal: (url: string) => Promise<void>;
   auditCapture: (filename: string) => Promise<void>;
   auditDone: () => Promise<void>;
@@ -160,6 +165,7 @@ const api: AgentOverlayApi = {
   executeDesktopAction: (action, isUserSlashCommand) =>
     ipcRenderer.invoke('desktop:execute-action', action, isUserSlashCommand),
   panicStopDesktop: () => ipcRenderer.invoke('desktop:panic-stop'),
+  transcribeAudio: (audioData) => ipcRenderer.invoke('speech:transcribe', audioData),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   auditCapture: (filename) => ipcRenderer.invoke('audit:capture', filename),
   auditDone: () => ipcRenderer.invoke('audit:done'),

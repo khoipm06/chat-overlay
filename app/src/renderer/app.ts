@@ -3038,6 +3038,14 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key === 'Escape') {
+    if (isRecordingSpeech) {
+      cancelSpeechRecording();
+      return;
+    }
+    if (isTranscribingSpeech) {
+      cancelSpeechTranscription();
+      return;
+    }
     if (!modalBackdrop.classList.contains('hidden')) {
       closeModal();
     } else if (popovers.isOpen()) {
@@ -3284,97 +3292,247 @@ async function runAuditFlow(): Promise<void> {
 }
 
 const btnMic = document.getElementById('btn-mic') as HTMLButtonElement | null;
-let speechRecognizer: any = null;
+let mediaStream: MediaStream | null = null;
+let mediaRecorder: MediaRecorder | null = null;
+let audioChunks: Blob[] = [];
 let isRecordingSpeech = false;
+let isTranscribingSpeech = false;
+let speechAutoStopTimer: ReturnType<typeof setTimeout> | null = null;
 
-function setupSpeechToText(): void {
-  if (!btnMic) return;
-  const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-  btnMic.addEventListener('click', () => {
-    if (!SpeechRec) {
-      showNotice('Speech recognition API is not available in this environment.', true);
-      return;
-    }
-    if (isRecordingSpeech) {
-      stopSpeechRecognition();
-    } else {
-      startSpeechRecognition(SpeechRec);
-    }
-  });
-}
-
-function startSpeechRecognition(SpeechRec: any): void {
-  try {
-    speechRecognizer = new SpeechRec();
-    speechRecognizer.continuous = true;
-    speechRecognizer.interimResults = true;
-    speechRecognizer.lang =
-      settings?.speechLanguage && settings.speechLanguage !== 'auto'
-        ? settings.speechLanguage
-        : (navigator.language || 'vi-VN');
-
-    speechRecognizer.onstart = () => {
-      isRecordingSpeech = true;
-      btnMic?.classList.add('recording');
-      btnMic?.setAttribute('title', 'Listening... Click to stop voice input');
-      showNotice(`Listening (${speechRecognizer.lang})... Speak now`);
-    };
-
-    speechRecognizer.onresult = (event: any) => {
-      let interim = '';
-      let final = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const item = event.results[i];
-        if (item.isFinal) {
-          final += item[0].transcript;
-        } else {
-          interim += item[0].transcript;
-        }
-      }
-      const textToInsert = final || interim;
-      if (textToInsert) {
-        const val = composerInput.value;
-        if (val && !val.endsWith(' ') && !val.endsWith('\n')) {
-          composerInput.value += ' ' + textToInsert;
-        } else {
-          composerInput.value += textToInsert;
-        }
-        autoResizeComposer();
-      }
-    };
-
-    speechRecognizer.onerror = (err: any) => {
-      console.warn('Speech recognition error:', err);
-      stopSpeechRecognition();
-      if (err.error !== 'no-speech') {
-        showNotice(`Voice input error: ${err.error || 'Check microphone permission'}`, true);
-      }
-    };
-
-    speechRecognizer.onend = () => {
-      stopSpeechRecognition();
-    };
-
-    speechRecognizer.start();
-  } catch (err: any) {
-    console.error('Failed to start speech recognition:', err);
-    stopSpeechRecognition();
-    showNotice(`Microphone error: ${err?.message || 'Cannot access mic'}`, true);
-  }
-}
-
-function stopSpeechRecognition(): void {
-  isRecordingSpeech = false;
-  btnMic?.classList.remove('recording');
-  btnMic?.setAttribute('title', 'Voice Input (Speech-to-Text)');
-  if (speechRecognizer) {
+function cleanupMediaStream(): void {
+  if (mediaStream) {
     try {
-      speechRecognizer.stop();
+      for (const track of mediaStream.getTracks()) {
+        track.stop();
+      }
     } catch {
       // ignore
     }
-    speechRecognizer = null;
+    mediaStream = null;
+  }
+  mediaRecorder = null;
+}
+
+function cancelSpeechRecording(): void {
+  if (speechAutoStopTimer) {
+    clearTimeout(speechAutoStopTimer);
+    speechAutoStopTimer = null;
+  }
+  isRecordingSpeech = false;
+  btnMic?.classList.remove('recording');
+  btnMic?.setAttribute('title', 'Voice Input (Speech-to-Text)');
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    try {
+      mediaRecorder.stop();
+    } catch {
+      // ignore
+    }
+  }
+  audioChunks = [];
+  cleanupMediaStream();
+  showNotice('Voice input cancelled.');
+}
+
+function cancelSpeechTranscription(): void {
+  isTranscribingSpeech = false;
+  btnMic?.classList.remove('transcribing');
+  btnMic?.setAttribute('title', 'Voice Input (Speech-to-Text)');
+  showNotice('Voice transcription cancelled.');
+}
+
+function insertTranscribedText(text: string): void {
+  const current = composerInput.value;
+  const start = composerInput.selectionStart ?? current.length;
+  const end = composerInput.selectionEnd ?? current.length;
+
+  const before = current.slice(0, start);
+  const after = current.slice(end);
+
+  const needsLeadingSpace = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n');
+  const leading = needsLeadingSpace ? ' ' : '';
+  const insertion = leading + text;
+
+  composerInput.value = before + insertion + after;
+  const newCursor = start + insertion.length;
+  composerInput.setSelectionRange(newCursor, newCursor);
+  autoResizeComposer();
+  updateSendButton();
+  composerInput.dispatchEvent(new Event('input', { bubbles: true }));
+  composerInput.focus();
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const res = reader.result as string;
+      const commaIdx = res.indexOf(',');
+      resolve(commaIdx >= 0 ? res.slice(commaIdx + 1) : res);
+    };
+    reader.onerror = () => reject(reader.error || new Error('Failed to read audio blob'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function setupSpeechToText(): void {
+  if (!btnMic) return;
+
+  btnMic.addEventListener('click', async () => {
+    if (isTranscribingSpeech) return;
+    if (isRecordingSpeech) {
+      await stopAndTranscribeSpeech();
+    } else {
+      await startSpeechRecording();
+    }
+  });
+
+  window.addEventListener('beforeunload', () => cleanupMediaStream());
+}
+
+async function startSpeechRecording(): Promise<void> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showNotice('Microphone access is not supported in this environment.', true);
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStream = stream;
+    audioChunks = [];
+
+    let mimeType = 'audio/webm;codecs=opus';
+    if (typeof MediaRecorder !== 'undefined') {
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        if (MediaRecorder.isTypeSupported('audio/webm')) {
+          mimeType = 'audio/webm';
+        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+          mimeType = 'audio/ogg';
+        } else {
+          mimeType = '';
+        }
+      }
+    }
+
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    mediaRecorder = recorder;
+
+    recorder.ondataavailable = (event: BlobEvent) => {
+      if (event.data && event.data.size > 0) {
+        audioChunks.push(event.data);
+      }
+    };
+
+    recorder.onerror = (event: any) => {
+      console.warn('MediaRecorder error:', event);
+      cleanupMediaStream();
+      btnMic?.classList.remove('recording');
+      isRecordingSpeech = false;
+      showNotice('Audio recording error occurred.', true);
+    };
+
+    recorder.start(250);
+    isRecordingSpeech = true;
+    btnMic?.classList.add('recording');
+    btnMic?.setAttribute('title', 'Listening... Click to stop and transcribe (Esc to cancel)');
+    showNotice('Listening... Speak now (click mic again to transcribe)');
+
+    if (speechAutoStopTimer) clearTimeout(speechAutoStopTimer);
+    speechAutoStopTimer = setTimeout(() => {
+      if (isRecordingSpeech) {
+        void stopAndTranscribeSpeech();
+      }
+    }, 60_000);
+  } catch (err: any) {
+    console.error('Failed to start microphone recording:', err);
+    cleanupMediaStream();
+    btnMic?.classList.remove('recording');
+    isRecordingSpeech = false;
+    showNotice(`Microphone error: ${err?.message || 'Access denied'}`, true);
+  }
+}
+
+async function stopAndTranscribeSpeech(): Promise<void> {
+  if (speechAutoStopTimer) {
+    clearTimeout(speechAutoStopTimer);
+    speechAutoStopTimer = null;
+  }
+
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+    cleanupMediaStream();
+    btnMic?.classList.remove('recording');
+    isRecordingSpeech = false;
+    return;
+  }
+
+  isRecordingSpeech = false;
+  btnMic?.classList.remove('recording');
+  btnMic?.classList.add('transcribing');
+  btnMic?.setAttribute('title', 'Transcribing voice input... (Esc to cancel)');
+  isTranscribingSpeech = true;
+  showNotice('Transcribing audio...');
+
+  const stoppedPromise = new Promise<void>((resolve) => {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(resolve, 2000);
+    mediaRecorder.onstop = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    try {
+      mediaRecorder.stop();
+    } catch {
+      clearTimeout(timeout);
+      resolve();
+    }
+  });
+
+  await stoppedPromise;
+  const recordedMime = mediaRecorder?.mimeType || 'audio/webm';
+  cleanupMediaStream();
+
+  try {
+    const blob = new Blob(audioChunks, { type: recordedMime });
+    audioChunks = [];
+
+    if (blob.size < 200) {
+      showNotice('Voice input too short.');
+      return;
+    }
+
+    const base64 = await blobToBase64(blob);
+    const lang = settings?.speechLanguage || 'auto';
+
+    const result = await window.agentOverlay.transcribeAudio({
+      data: base64,
+      mimeType: recordedMime,
+      language: lang,
+    });
+
+    if (!isTranscribingSpeech) {
+      return;
+    }
+
+    if (result.ok && result.text) {
+      insertTranscribedText(result.text);
+      const noticeLabel = lang === 'auto' ? '' : ` (${lang})`;
+      showNotice(`Transcribed${noticeLabel}: "${result.text.slice(0, 40)}${result.text.length > 40 ? '...' : ''}"`);
+    } else if (result.ok && !result.text) {
+      showNotice('No speech detected.');
+    } else {
+      showNotice(`Voice transcription failed: ${result.error || 'Unknown error'}`, true);
+    }
+  } catch (err: any) {
+    console.error('Speech transcription error:', err);
+    if (isTranscribingSpeech) {
+      showNotice(`Voice transcription error: ${err?.message || 'Network error'}`, true);
+    }
+  } finally {
+    isTranscribingSpeech = false;
+    btnMic?.classList.remove('transcribing');
+    btnMic?.setAttribute('title', 'Voice Input (Speech-to-Text)');
   }
 }
 

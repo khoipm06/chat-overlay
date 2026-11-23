@@ -190,9 +190,17 @@ export function renderTabbedSettingsDrawer(opts: {
         <div class="field-group">
           <label>Voice Input Language (Microphone STT)</label>
           <select id="set-speech-lang" class="field-select">
-            <option value="vi-VN" ${current.speechLanguage === 'vi-VN' ? 'selected' : ''}>Tiếng Việt (vi-VN)</option>
+            <option value="auto" ${current.speechLanguage === 'auto' ? 'selected' : ''}>Auto-detect (System default)</option>
             <option value="en-US" ${current.speechLanguage === 'en-US' ? 'selected' : ''}>English (en-US)</option>
-            <option value="auto" ${current.speechLanguage === 'auto' ? 'selected' : ''}>Auto / Browser default</option>
+            <option value="es-ES" ${current.speechLanguage === 'es-ES' ? 'selected' : ''}>Spanish (es-ES)</option>
+            <option value="fr-FR" ${current.speechLanguage === 'fr-FR' ? 'selected' : ''}>French (fr-FR)</option>
+            <option value="de-DE" ${current.speechLanguage === 'de-DE' ? 'selected' : ''}>German (de-DE)</option>
+            <option value="it-IT" ${current.speechLanguage === 'it-IT' ? 'selected' : ''}>Italian (it-IT)</option>
+            <option value="pt-BR" ${current.speechLanguage === 'pt-BR' ? 'selected' : ''}>Portuguese (pt-BR)</option>
+            <option value="ja-JP" ${current.speechLanguage === 'ja-JP' ? 'selected' : ''}>Japanese (ja-JP)</option>
+            <option value="ko-KR" ${current.speechLanguage === 'ko-KR' ? 'selected' : ''}>Korean (ko-KR)</option>
+            <option value="zh-CN" ${current.speechLanguage === 'zh-CN' ? 'selected' : ''}>Chinese (zh-CN)</option>
+            <option value="vi-VN" ${current.speechLanguage === 'vi-VN' ? 'selected' : ''}>Tiếng Việt (vi-VN)</option>
           </select>
         </div>
         <div class="field-group">
@@ -376,6 +384,7 @@ export function renderTabbedSettingsDrawer(opts: {
       } else if (activeTab === 'vision') {
         patch.followUpBehavior = (body.querySelector('#set-followup') as HTMLSelectElement).value as FollowUpBehavior;
         patch.screenshotQuality = (body.querySelector('#set-shot-quality') as HTMLSelectElement).value as ScreenshotQuality;
+        patch.speechLanguage = (body.querySelector('#set-speech-lang') as HTMLSelectElement)?.value || 'auto';
         patch.markupAutoClearSeconds = Math.max(0, Number((body.querySelector('#set-markup-clear') as HTMLInputElement).value) || 0);
         patch.idleSleepMinutes = Math.max(0, Number((body.querySelector('#set-idle-sleep') as HTMLInputElement).value) || 0);
         patch.soundCues = (body.querySelector('#set-sound-cues') as HTMLInputElement).checked;
