@@ -21,36 +21,14 @@
   box-sizing: border-box;
 }
 
-/* Comprehensive focus outline reset - avoid OS default bright yellow/orange focus rings */
 button:focus,
-input:focus,
-select:focus,
-textarea:focus,
 [tabindex]:focus {
   outline: none;
 }
 
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible,
-.field-input:focus,
-.field-input:focus-visible,
-.field-select:focus,
-.field-select:focus-visible,
-.picker-btn:focus-visible,
-.mini-action-btn:focus-visible,
-.perm-btn:focus-visible,
-.send-btn:focus-visible {
-  outline: none !important;
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 1px var(--accent) !important;
-}
-
-/* Ensure buttons fit their contents rather than stretching */
-button {
-  width: fit-content;
-  max-width: 100%;
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--border-strong);
 }
 
 ::-webkit-scrollbar {
@@ -727,8 +705,6 @@ body {
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 260px;
-  overflow-y: auto;
 }
 
 /* Revert & Undo/Redo UI */
@@ -961,57 +937,6 @@ body {
   letter-spacing: 0.04em;
   color: var(--text-muted);
   margin-bottom: 4px;
-}
-
-.tool-vis-sec-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-}
-
-.tool-vis-count-pill {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-muted);
-}
-
-.tool-vis-copy-btn {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.12s ease;
-  width: fit-content;
-}
-
-.tool-vis-copy-btn:hover {
-  background: var(--hover);
-  color: var(--text-strong);
-  border-color: var(--border-strong);
-}
-
-.tool-vis-choices {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-}
-
-.tool-vis-choice-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: var(--text);
 }
 
 .tool-vis-code {
@@ -1731,8 +1656,8 @@ body {
 }
 
 .send-btn.queue {
-  background: #0284c7;
-  color: #ffffff;
+  background: var(--warning);
+  color: #141414;
 }
 
 .picker-btn span {
@@ -1748,50 +1673,8 @@ body {
 .composer-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
-}
-
-.mic-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.14s ease;
-  flex-shrink: 0;
-}
-
-.mic-btn:hover {
-  background: var(--hover);
-  color: var(--text-strong);
-}
-
-.mic-btn.recording {
-  background: rgba(241, 76, 76, 0.2);
-  color: #ff6b6b;
-  border-color: rgba(241, 76, 76, 0.4);
-  animation: pulse-mic 1.2s infinite ease-in-out;
-}
-
-@keyframes pulse-mic {
-  0% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(241, 76, 76, 0.4);
-  }
-  50% {
-    transform: scale(1.08);
-    box-shadow: 0 0 0 4px rgba(241, 76, 76, 0.1);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(241, 76, 76, 0);
-  }
 }
 
 .send-btn {
@@ -1988,7 +1871,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 2px;
   padding: 5px 4px;
   border-radius: 6px;
@@ -1997,7 +1879,6 @@ body {
   color: var(--text-muted);
   font-size: 10.5px;
   cursor: pointer;
-  width: 100%;
 }
 
 .settings-tab-btn.active {
@@ -2089,28 +1970,6 @@ body {
   background: #141414;
   color: var(--text-strong);
   font-size: 12.5px;
-  outline: none;
-  width: 100%;
-  max-width: 100%;
-}
-
-.field-select {
-  cursor: pointer;
-  appearance: auto;
-}
-
-.field-select option {
-  background: #1f1f1f;
-  color: var(--text-strong);
-}
-
-.field-input:focus,
-.field-input:focus-visible,
-.field-select:focus,
-.field-select:focus-visible {
-  outline: none !important;
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 1px var(--accent) !important;
 }
 
 .toggle-row {
@@ -2593,56 +2452,4 @@ body {
   background: rgba(234, 179, 8, 0.12);
   border: 1px solid rgba(234, 179, 8, 0.3);
   color: #facc15;
-}
-
-/* Elicitation & Interactive Question Prompts */
-.elicitation-card {
-  margin: 8px 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(0, 120, 212, 0.08);
-  border: 1px solid rgba(0, 120, 212, 0.35);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.elicitation-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  font-size: 12px;
-  color: #7cc4fa;
-}
-
-.elicitation-message {
-  font-size: 12.5px;
-  color: var(--text-strong);
-  line-height: 1.4;
-  white-space: pre-wrap;
-}
-
-.elicitation-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.elicitation-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.elicitation-label {
-  font-size: 11.5px;
-  color: var(--text-muted);
-}
-
-.elicitation-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
 }

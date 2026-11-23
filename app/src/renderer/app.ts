@@ -3,7 +3,6 @@ import type {
   AppSettings,
   ChatAttachment,
   DesktopAction,
-  ElicitationProperty,
   GitGlance,
   HarnessKind,
   SavedSession,
@@ -177,23 +176,8 @@ interface ToolCardDom {
   detailEl: HTMLElement;
 }
 
-interface ActiveSegmentDom {
-  kind: 'thought' | 'tool' | 'text';
-  id?: string;
-  element: HTMLElement;
-  triggerText?: HTMLElement;
-  body?: HTMLElement;
-  thoughtStartedAt?: number;
-  durationMs?: number;
-  markdownRaw?: string;
-}
-
 interface ActiveTurnRefs {
   turn: StoredTurn;
-  flowContainer: HTMLElement;
-  activeSegments: ActiveSegmentDom[];
-  currentThinkingSegment: ActiveSegmentDom | null;
-  currentTextSegment: ActiveSegmentDom | null;
   thinkingStartedAt: number;
   thinkingDisclosure: HTMLElement;
   thinkingTriggerText: HTMLElement;
@@ -357,33 +341,17 @@ function renderRevertModeControl(): void {
 }
 
 function updateContextBudget(m?: TurnMetrics): void {
-  if (!m || (!m.totalTokens && !m.inputTokens)) {
+  if (!m?.totalTokens) {
     contextBudgetEl.classList.add('hidden');
     return;
   }
   contextBudgetEl.classList.remove('hidden');
-
   const limit = m.contextSize || 200_000;
-  // If inputTokens is provided, active context window is prompt context + generated output
-  const hasTurnTokens = m.inputTokens !== undefined;
-  const turnContext = hasTurnTokens
-    ? (m.inputTokens || 0) + (m.outputTokens || 0)
-    : (m.totalTokens || 0);
-
-  if (turnContext <= limit) {
-    const pct = Math.min(100, Math.max(1, Math.round((turnContext / limit) * 100)));
-    contextBudgetText.textContent = `${formatTokenCount(turnContext)} / ${formatTokenCount(limit)} (${pct}%)`;
-    contextBudgetFill.style.width = `${pct}%`;
-    contextBudgetFill.style.background =
-      pct >= 85 ? 'var(--danger)' : pct >= 65 ? 'rgba(0, 120, 212, 0.9)' : 'var(--success)';
-  } else {
-    // When cumulative session tokens exceed context window limit, show total tokens clearly
-    const pct = Math.min(100, Math.round(((m.inputTokens || limit) / limit) * 100));
-    contextBudgetText.textContent = `${formatTokenCount(m.totalTokens || turnContext)} tok · limit ${formatTokenCount(limit)}`;
-    contextBudgetFill.style.width = `${pct}%`;
-    contextBudgetFill.style.background =
-      pct >= 85 ? 'var(--danger)' : pct >= 65 ? 'rgba(0, 120, 212, 0.9)' : 'var(--success)';
-  }
+  const pct = Math.min(100, Math.round((m.totalTokens / limit) * 100));
+  contextBudgetText.textContent = `${formatTokenCount(m.totalTokens)} / ${formatTokenCount(limit)} (${pct}%)`;
+  contextBudgetFill.style.width = `${Math.max(4, pct)}%`;
+  contextBudgetFill.style.background =
+    pct >= 80 ? 'var(--danger)' : pct >= 60 ? 'var(--warning)' : 'var(--success)';
   contextBudgetEl.title = formatTurnMetrics(m).tooltip;
 }
 
@@ -917,36 +885,6 @@ async function persistCurrentSession(): Promise<void> {
   });
 }
 
-function createThinkingDisclosureDom(initialTriggerText: string, bodyText = ''): {
-  root: HTMLElement;
-  trigger: HTMLButtonElement;
-  chevron: HTMLElement;
-  triggerText: HTMLElement;
-  body: HTMLElement;
-} {
-  const disclosure = document.createElement('div');
-  disclosure.className = 'disclosure';
-  const trigger = document.createElement('button');
-  trigger.type = 'button';
-  trigger.className = 'disclosure-trigger';
-  const chevron = document.createElement('i');
-  chevron.className = 'codicon codicon-chevron-right';
-  const triggerText = document.createElement('span');
-  triggerText.textContent = initialTriggerText;
-  trigger.append(chevron, triggerText);
-  const body = document.createElement('div');
-  body.className = 'disclosure-body hidden';
-  body.textContent = bodyText;
-  trigger.addEventListener('click', () => {
-    const open = body.classList.toggle('hidden');
-    chevron.className = open
-      ? 'codicon codicon-chevron-down'
-      : 'codicon codicon-chevron-right';
-  });
-  disclosure.append(trigger, body);
-  return { root: disclosure, trigger, chevron, triggerText, body };
-}
-
 function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   welcomeView.classList.add('hidden');
   messagesView.classList.remove('hidden');
@@ -1024,35 +962,37 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
   header.appendChild(workingBadge);
   assistantTurn.appendChild(header);
 
-  // Sequential Flow Container
-  const flowContainer = document.createElement('div');
-  flowContainer.className = 'turn-flow-container';
-  flowContainer.style.display = 'flex';
-  flowContainer.style.flexDirection = 'column';
-  flowContainer.style.gap = '6px';
-  assistantTurn.appendChild(flowContainer);
+  // Collapsible Thinking Section
+  const thinkingDisclosure = document.createElement('div');
+  thinkingDisclosure.className = `disclosure${turn.thinkingText ? '' : ' hidden'}`;
+  const thinkingTrigger = document.createElement('button');
+  thinkingTrigger.type = 'button';
+  thinkingTrigger.className = 'disclosure-trigger';
+  const thinkingChevron = document.createElement('i');
+  thinkingChevron.className = 'codicon codicon-chevron-right';
+  const thinkingTriggerText = document.createElement('span');
+  thinkingTriggerText.textContent = turn.thinkingDurationMs
+    ? `Thought for ${(turn.thinkingDurationMs / 1000).toFixed(1)}s`
+    : 'Thinking';
+  thinkingTrigger.append(thinkingChevron, thinkingTriggerText);
+  const thinkingBody = document.createElement('div');
+  thinkingBody.className = 'disclosure-body hidden';
+  thinkingBody.textContent = turn.thinkingText;
+  thinkingTrigger.addEventListener('click', () => {
+    const open = thinkingBody.classList.toggle('hidden');
+    thinkingChevron.className = open
+      ? 'codicon codicon-chevron-right'
+      : 'codicon codicon-chevron-down';
+  });
+  thinkingDisclosure.append(thinkingTrigger, thinkingBody);
+  assistantTurn.appendChild(thinkingDisclosure);
 
-  const toolCardMap = new Map<string, ToolCardDom>();
-  const activeSegments: ActiveSegmentDom[] = [];
-
-  // Default elements for ActiveTurnRefs compatibility
-  const defaultDisc = createThinkingDisclosureDom(
-    turn.thinkingDurationMs
-      ? `Thought for ${(turn.thinkingDurationMs / 1000).toFixed(1)}s`
-      : 'Thinking',
-    turn.thinkingText,
-  );
-  if (!turn.thinkingText) {
-    defaultDisc.root.classList.add('hidden');
-  }
-
-  const defaultToolsContainer = document.createElement('div');
-  defaultToolsContainer.style.display = 'flex';
-  defaultToolsContainer.style.flexDirection = 'column';
-  defaultToolsContainer.style.gap = '6px';
-
-  const defaultMarkdownEl = document.createElement('div');
-  defaultMarkdownEl.className = 'assistant-markdown';
+  // Tools container
+  const toolsContainer = document.createElement('div');
+  toolsContainer.style.display = 'flex';
+  toolsContainer.style.flexDirection = 'column';
+  toolsContainer.style.gap = '6px';
+  assistantTurn.appendChild(toolsContainer);
 
   // Shimmer skeleton shown until first text arrives
   const skeletonEl = document.createElement('div');
@@ -1062,78 +1002,21 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
     <div class="skeleton-line" style="width: 92%"></div>
     <div class="skeleton-line" style="width: 54%"></div>
   `;
-  flowContainer.appendChild(skeletonEl);
+  assistantTurn.appendChild(skeletonEl);
 
-  // If loading history with segments:
-  if (turn.segments && turn.segments.length > 0) {
-    for (const seg of turn.segments) {
-      if (seg.kind === 'thought') {
-        const disc = createThinkingDisclosureDom(
-          seg.durationMs ? `Thought for ${(seg.durationMs / 1000).toFixed(1)}s` : 'Thought',
-          seg.text,
-        );
-        flowContainer.appendChild(disc.root);
-        activeSegments.push({
-          kind: 'thought',
-          element: disc.root,
-          triggerText: disc.triggerText,
-          body: disc.body,
-          durationMs: seg.durationMs,
-          markdownRaw: seg.text,
-        });
-      } else if (seg.kind === 'tool') {
-        const toolId = seg.toolId || seg.id;
-        const t = turn.tools.find((tool) => tool.id === toolId);
-        if (t) {
-          appendToolCard(
-            flowContainer,
-            toolCardMap,
-            t.id,
-            t.name,
-            t.title,
-            t.args,
-            t.status,
-            t.output,
-            t.durationMs,
-          );
-        }
-      } else if (seg.kind === 'text') {
-        const mdEl = document.createElement('div');
-        mdEl.className = 'assistant-markdown';
-        const txt = seg.markdown || seg.text || '';
-        mdEl.innerHTML = renderMarkdownHtml(txt);
-        void hydrateRenderedMarkdown(mdEl, false);
-        flowContainer.appendChild(mdEl);
-        activeSegments.push({
-          kind: 'text',
-          element: mdEl,
-          markdownRaw: txt,
-        });
-      }
-    }
-  } else if (!streamingNow) {
-    // Legacy fallback rendering
-    if (turn.thinkingText) {
-      flowContainer.appendChild(defaultDisc.root);
-    }
-    for (const t of turn.tools) {
-      appendToolCard(
-        flowContainer,
-        toolCardMap,
-        t.id,
-        t.name,
-        t.title,
-        t.args,
-        t.status,
-        t.output,
-        t.durationMs,
-      );
-    }
-    if (turn.assistantMarkdown) {
-      defaultMarkdownEl.innerHTML = renderMarkdownHtml(turn.assistantMarkdown);
-      void hydrateRenderedMarkdown(defaultMarkdownEl, false);
-      flowContainer.appendChild(defaultMarkdownEl);
-    }
+  // Assistant Markdown Body
+  const markdownEl = document.createElement('div');
+  markdownEl.className = 'assistant-markdown';
+  if (turn.assistantMarkdown) {
+    markdownEl.innerHTML = renderMarkdownHtml(turn.assistantMarkdown);
+    void hydrateRenderedMarkdown(markdownEl, false);
+  }
+  assistantTurn.appendChild(markdownEl);
+
+  // Render stored tools if loading history
+  const toolCardMap = new Map<string, ToolCardDom>();
+  for (const t of turn.tools) {
+    appendToolCard(toolsContainer, toolCardMap, t.id, t.name, t.title, t.args, t.status, t.output, t.durationMs);
   }
 
   // Footer
@@ -1180,18 +1063,14 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
 
   return {
     turn,
-    flowContainer,
-    activeSegments,
-    currentThinkingSegment: null,
-    currentTextSegment: null,
     thinkingStartedAt: 0,
-    thinkingDisclosure: defaultDisc.root,
-    thinkingTriggerText: defaultDisc.triggerText,
-    thinkingBody: defaultDisc.body,
-    toolsContainer: defaultToolsContainer,
+    thinkingDisclosure,
+    thinkingTriggerText,
+    thinkingBody,
+    toolsContainer,
     toolCardMap,
     skeletonEl,
-    markdownEl: defaultMarkdownEl,
+    markdownEl,
     workingBadge,
     footerEl,
     metricsEl,
@@ -1283,20 +1162,6 @@ function scheduleMarkdownUpdate(ref: ActiveTurnRefs): void {
     ref.skeletonEl.classList.add('hidden');
     ref.markdownEl.innerHTML = renderMarkdownHtml(ref.turn.assistantMarkdown);
     void hydrateRenderedMarkdown(ref.markdownEl, true).then(() => scrollToBottomIfPinned());
-    scrollToBottomIfPinned();
-  }, 60);
-}
-
-function scheduleMarkdownUpdateForSegment(
-  ref: ActiveTurnRefs,
-  seg: ActiveSegmentDom,
-): void {
-  if (ref.renderScheduled !== null) return;
-  ref.renderScheduled = window.setTimeout(() => {
-    ref.renderScheduled = null;
-    ref.skeletonEl.classList.add('hidden');
-    seg.element.innerHTML = renderMarkdownHtml(seg.markdownRaw || '');
-    void hydrateRenderedMarkdown(seg.element, true).then(() => scrollToBottomIfPinned());
     scrollToBottomIfPinned();
   }, 60);
 }
@@ -1533,23 +1398,35 @@ function appendDesktopActionsCard(
 
   const ctrls = document.createElement('div');
   ctrls.className = 'desktop-actions-controls';
+  const previewBtn = document.createElement('button');
+  previewBtn.type = 'button';
+  previewBtn.className = 'mini-action-btn';
+  previewBtn.textContent = 'Preview';
+  previewBtn.addEventListener('click', () => {
+    void window.agentOverlay.previewDesktopActions(actions);
+  });
 
-  // Only 1 Run button needed; hidden by default when autoApproveDesktopActions is enabled
-  const runBtn = document.createElement('button');
-  runBtn.type = 'button';
-  runBtn.className = 'mini-action-btn primary';
-  runBtn.textContent = 'Run';
+  const runAllBtn = document.createElement('button');
+  runAllBtn.type = 'button';
+  runAllBtn.className = 'mini-action-btn primary';
+  runAllBtn.textContent = 'Run All';
 
-  const isAutoApproved = settings?.autoApproveDesktopActions !== false;
-  if (isAutoApproved) {
-    runBtn.classList.add('hidden');
-  }
+  const panicBtn = document.createElement('button');
+  panicBtn.type = 'button';
+  panicBtn.className = 'mini-action-btn danger';
+  panicBtn.textContent = 'Panic Stop';
+  panicBtn.addEventListener('click', () => {
+    desktopPanicToken++;
+    void window.agentOverlay.panicStopDesktop();
+    title.textContent = 'Desktop Actions · Stopped';
+  });
 
-  ctrls.appendChild(runBtn);
+  ctrls.append(previewBtn, runAllBtn, panicBtn);
   head.append(title, ctrls);
   card.appendChild(head);
 
-  // List actions cleanly without individual buttons
+  const rowRunners: Array<() => Promise<void>> = [];
+
   for (const act of actions) {
     const row = document.createElement('div');
     row.className = 'desktop-action-row';
@@ -1557,33 +1434,59 @@ function appendDesktopActionsCard(
     desc.className = 'desktop-action-desc';
     desc.textContent = describeDesktopAction(act);
     desc.title = desc.textContent;
-    row.appendChild(desc);
+
+    const btns = document.createElement('div');
+    btns.className = 'desktop-action-btns';
+    const runBtn = document.createElement('button');
+    runBtn.type = 'button';
+    runBtn.className = 'mini-action-btn';
+    runBtn.textContent = 'Run';
+
+    const executeOne = async () => {
+      if (desktopPanicToken !== epoch || runBtn.disabled) return;
+      runBtn.disabled = true;
+      runBtn.textContent = '...';
+      const res = await window.agentOverlay.executeDesktopAction(act, false);
+      runBtn.textContent = res.ok ? 'Done ✓' : 'Failed';
+      if (!res.ok) showNotice(res.message, true);
+    };
+
+    runBtn.addEventListener('click', () => void executeOne());
+    rowRunners.push(executeOne);
+
+    btns.appendChild(runBtn);
+    row.append(desc, btns);
     card.appendChild(row);
   }
 
   const runAllSequence = async () => {
-    runBtn.disabled = true;
-    runBtn.textContent = 'Running...';
-    for (const act of actions) {
+    runAllBtn.disabled = true;
+    for (const fn of rowRunners) {
       if (desktopPanicToken !== epoch) break;
-      await window.agentOverlay.executeDesktopAction(act, false);
-      await new Promise((r) => setTimeout(r, 120));
+      await fn();
+      await new Promise((r) => setTimeout(r, 150));
     }
-    runBtn.textContent = desktopPanicToken === epoch ? 'Finished ✓' : 'Stopped';
-    title.innerHTML = `<i class="codicon codicon-vm"></i><span>Desktop Actions (${actions.length}) · ${desktopPanicToken === epoch ? 'Done ✓' : 'Stopped'}</span>`;
+    runAllBtn.textContent = desktopPanicToken === epoch ? 'Finished' : 'Stopped';
   };
 
-  runBtn.addEventListener('click', () => void runAllSequence());
+  runAllBtn.addEventListener('click', () => void runAllSequence());
   container.appendChild(card);
 
-  // If auto-approved, execute immediately
-  if (isAutoApproved && !window.location.search.includes('audit=1')) {
-    title.innerHTML = `<i class="codicon codicon-vm"></i><span>Desktop Actions (${actions.length}) · Executing...</span>`;
+  if (settings.desktopControlMode === 'auto' && !window.location.search.includes('audit=1')) {
+    title.textContent = 'Auto-running desktop actions...';
     window.setTimeout(() => {
       if (desktopPanicToken === epoch) {
         void runAllSequence();
       }
-    }, 80);
+    }, 60);
+  } else if (autoPreview && !window.location.search.includes('audit=1')) {
+    void window.agentOverlay.previewDesktopActions(actions);
+    title.textContent = 'Auto-running in 1.2s (Ctrl+Alt+X stops)...';
+    window.setTimeout(() => {
+      if (desktopPanicToken === epoch) {
+        void runAllSequence();
+      }
+    }, 1200);
   }
 }
 
@@ -1609,124 +1512,24 @@ function handleStreamEvent(ev: StreamEvent): void {
         activeTurn.thinkingStartedAt = Date.now();
       }
       activeTurn.turn.thinkingText += ev.text;
-
-      const msgId = ev.messageId;
-      // If we have an active thinking segment with a different messageId, finalize it and start a new one!
-      if (
-        activeTurn.currentThinkingSegment &&
-        msgId &&
-        activeTurn.currentThinkingSegment.id &&
-        activeTurn.currentThinkingSegment.id !== msgId
-      ) {
-        const dur = activeTurn.currentThinkingSegment.thoughtStartedAt
-          ? Date.now() - activeTurn.currentThinkingSegment.thoughtStartedAt
-          : 0;
-        activeTurn.currentThinkingSegment.durationMs = dur;
-        if (activeTurn.currentThinkingSegment.triggerText) {
-          activeTurn.currentThinkingSegment.triggerText.textContent =
-            dur > 0 ? `Thought for ${(dur / 1000).toFixed(1)}s` : 'Thought';
-        }
-        activeTurn.currentThinkingSegment = null;
-      }
-
-      if (!activeTurn.currentThinkingSegment) {
-        // Start a fresh thinking disclosure in the flow container
-        const disc = createThinkingDisclosureDom('Thinking...');
-        activeTurn.flowContainer.appendChild(disc.root);
-        const segDom: ActiveSegmentDom = {
-          kind: 'thought',
-          id: msgId,
-          element: disc.root,
-          triggerText: disc.triggerText,
-          body: disc.body,
-          thoughtStartedAt: Date.now(),
-          markdownRaw: ev.text,
-        };
-        disc.body.textContent = ev.text;
-        activeTurn.activeSegments.push(segDom);
-        activeTurn.currentThinkingSegment = segDom;
-        activeTurn.currentTextSegment = null;
-        if (!activeTurn.turn.segments) activeTurn.turn.segments = [];
-        activeTurn.turn.segments.push({ kind: 'thought', id: msgId, text: ev.text });
-      } else {
-        activeTurn.currentThinkingSegment.markdownRaw =
-          (activeTurn.currentThinkingSegment.markdownRaw || '') + ev.text;
-        activeTurn.currentThinkingSegment.body!.textContent =
-          activeTurn.currentThinkingSegment.markdownRaw;
-        const lastSeg = activeTurn.turn.segments?.[activeTurn.turn.segments.length - 1];
-        if (lastSeg && lastSeg.kind === 'thought') {
-          lastSeg.text = activeTurn.currentThinkingSegment.markdownRaw;
-        }
-      }
+      activeTurn.thinkingDisclosure.classList.remove('hidden');
+      activeTurn.thinkingBody.textContent = activeTurn.turn.thinkingText;
+      activeTurn.thinkingTriggerText.textContent = 'Thinking...';
       scrollToBottomIfPinned();
       break;
     }
     case 'text_delta': {
       if (!activeTurn) break;
-      if (activeTurn.currentThinkingSegment) {
-        const dur = activeTurn.currentThinkingSegment.thoughtStartedAt
-          ? Date.now() - activeTurn.currentThinkingSegment.thoughtStartedAt
-          : 0;
-        activeTurn.currentThinkingSegment.durationMs = dur;
-        if (activeTurn.currentThinkingSegment.triggerText) {
-          activeTurn.currentThinkingSegment.triggerText.textContent =
-            dur > 0 ? `Thought for ${(dur / 1000).toFixed(1)}s` : 'Thought';
-        }
-        const lastSeg = activeTurn.turn.segments?.[activeTurn.turn.segments.length - 1];
-        if (lastSeg && lastSeg.kind === 'thought') {
-          lastSeg.durationMs = dur;
-        }
-        activeTurn.currentThinkingSegment = null;
+      if (activeTurn.thinkingStartedAt > 0 && activeTurn.turn.thinkingDurationMs === 0) {
+        activeTurn.turn.thinkingDurationMs = Date.now() - activeTurn.thinkingStartedAt;
+        activeTurn.thinkingTriggerText.textContent = `Thought for ${(activeTurn.turn.thinkingDurationMs / 1000).toFixed(1)}s`;
       }
       activeTurn.turn.assistantMarkdown += ev.text;
-      activeTurn.skeletonEl.classList.add('hidden');
-
-      if (!activeTurn.currentTextSegment) {
-        const mdEl = document.createElement('div');
-        mdEl.className = 'assistant-markdown';
-        activeTurn.flowContainer.appendChild(mdEl);
-        const segDom: ActiveSegmentDom = {
-          kind: 'text',
-          element: mdEl,
-          markdownRaw: ev.text,
-        };
-        activeTurn.activeSegments.push(segDom);
-        activeTurn.currentTextSegment = segDom;
-        activeTurn.markdownEl = mdEl;
-        if (!activeTurn.turn.segments) activeTurn.turn.segments = [];
-        activeTurn.turn.segments.push({ kind: 'text', text: ev.text, markdown: ev.text });
-      } else {
-        activeTurn.currentTextSegment.markdownRaw =
-          (activeTurn.currentTextSegment.markdownRaw || '') + ev.text;
-        const lastSeg = activeTurn.turn.segments?.[activeTurn.turn.segments.length - 1];
-        if (lastSeg && lastSeg.kind === 'text') {
-          lastSeg.text = activeTurn.currentTextSegment.markdownRaw;
-          lastSeg.markdown = activeTurn.currentTextSegment.markdownRaw;
-        }
-      }
-      scheduleMarkdownUpdateForSegment(activeTurn, activeTurn.currentTextSegment);
+      scheduleMarkdownUpdate(activeTurn);
       break;
     }
     case 'tool_start': {
       if (!activeTurn) break;
-      if (activeTurn.currentThinkingSegment) {
-        const dur = activeTurn.currentThinkingSegment.thoughtStartedAt
-          ? Date.now() - activeTurn.currentThinkingSegment.thoughtStartedAt
-          : 0;
-        activeTurn.currentThinkingSegment.durationMs = dur;
-        if (activeTurn.currentThinkingSegment.triggerText) {
-          activeTurn.currentThinkingSegment.triggerText.textContent =
-            dur > 0 ? `Thought for ${(dur / 1000).toFixed(1)}s` : 'Thought';
-        }
-        const lastSeg = activeTurn.turn.segments?.[activeTurn.turn.segments.length - 1];
-        if (lastSeg && lastSeg.kind === 'thought') {
-          lastSeg.durationMs = dur;
-        }
-        activeTurn.currentThinkingSegment = null;
-      }
-      activeTurn.currentTextSegment = null;
-      activeTurn.skeletonEl.classList.add('hidden');
-
       activeTurn.turn.tools.push({
         id: ev.id,
         name: ev.name,
@@ -1735,11 +1538,8 @@ function handleStreamEvent(ev: StreamEvent): void {
         status: 'running',
         output: '',
       });
-      if (!activeTurn.turn.segments) activeTurn.turn.segments = [];
-      activeTurn.turn.segments.push({ kind: 'tool', id: ev.id, toolId: ev.id });
-
       appendToolCard(
-        activeTurn.flowContainer,
+        activeTurn.toolsContainer,
         activeTurn.toolCardMap,
         ev.id,
         ev.name,
@@ -1819,194 +1619,13 @@ function handleStreamEvent(ev: StreamEvent): void {
         actions.appendChild(b);
       }
       card.appendChild(actions);
-      activeTurn.flowContainer.appendChild(card);
+      activeTurn.toolsContainer.appendChild(card);
       if (settings.soundCues) playAttentionChime();
       void window.agentOverlay.flashAttention();
       void window.agentOverlay.notifyBackground(
         'Approval Needed',
         req.toolTitle || 'Agent requires tool permission',
       );
-      scrollToBottomIfPinned();
-      break;
-    }
-    case 'elicitation_request': {
-      if (!activeTurn) break;
-      const req = ev.request;
-      const card = document.createElement('div');
-      card.className = 'elicitation-card';
-
-      const head = document.createElement('div');
-      head.className = 'elicitation-header';
-      head.innerHTML = '<i class="codicon codicon-question"></i><span>Agent Question</span>';
-
-      const msg = document.createElement('div');
-      msg.className = 'elicitation-message';
-      msg.textContent = req.message;
-
-      card.append(head, msg);
-
-      const fieldsContainer = document.createElement('div');
-      fieldsContainer.className = 'elicitation-fields';
-      const fieldDataGetters: Record<string, () => unknown> = {};
-      const disableInputs: Array<() => void> = [];
-
-      const schemaProps = (req.schema || req.requestedSchema)?.properties;
-      if (schemaProps && Object.keys(schemaProps).length > 0) {
-        for (const [key, rawProp] of Object.entries(schemaProps)) {
-          const prop = rawProp as ElicitationProperty;
-          const field = document.createElement('div');
-          field.className = 'elicitation-field';
-          const label = document.createElement('label');
-          label.className = 'elicitation-label';
-          label.textContent = prop.title || prop.description || key;
-          field.appendChild(label);
-
-          const rawOptions =
-            prop.oneOf ||
-            prop.anyOf ||
-            prop.items?.anyOf ||
-            prop.items?.oneOf ||
-            (prop.enum ? prop.enum.map((e) => ({ const: e, title: e })) : []);
-
-          if (rawOptions && rawOptions.length > 0) {
-            if (prop.type === 'array') {
-              const checkGroup = document.createElement('div');
-              checkGroup.className = 'elicitation-checkbox-group';
-              for (const opt of rawOptions) {
-                const optAny = opt as any;
-                const val = String(optAny.const ?? optAny.value ?? '');
-                const labelText = String(optAny.title ?? optAny.label ?? val);
-                const row = document.createElement('label');
-                row.className = 'toggle-row';
-                row.style.cssText = 'font-size:12px;margin:2px 0;cursor:pointer;';
-                const chk = document.createElement('input');
-                chk.type = 'checkbox';
-                chk.value = val;
-                if (Array.isArray(prop.default) && prop.default.includes(val)) {
-                  chk.checked = true;
-                }
-                const span = document.createElement('span');
-                span.textContent = labelText;
-                row.append(span, chk);
-                checkGroup.appendChild(row);
-                disableInputs.push(() => { chk.disabled = true; });
-              }
-              fieldDataGetters[key] = () => {
-                const selected: string[] = [];
-                checkGroup.querySelectorAll('input[type="checkbox"]').forEach((c: any) => {
-                  if (c.checked) selected.push(c.value);
-                });
-                return selected;
-              };
-              field.appendChild(checkGroup);
-            } else {
-              const select = document.createElement('select');
-              select.className = 'field-select';
-              for (const opt of rawOptions) {
-                const optAny = opt as any;
-                const val = String(optAny.const ?? optAny.value ?? '');
-                const labelText = String(optAny.title ?? optAny.label ?? val);
-                const optEl = document.createElement('option');
-                optEl.value = val;
-                optEl.textContent = labelText;
-                if (prop.default !== undefined && String(prop.default) === val) {
-                  optEl.selected = true;
-                }
-                select.appendChild(optEl);
-              }
-              disableInputs.push(() => { select.disabled = true; });
-              fieldDataGetters[key] = () => select.value;
-              field.appendChild(select);
-            }
-          } else if (prop.type === 'boolean') {
-            const row = document.createElement('label');
-            row.className = 'toggle-row';
-            const chk = document.createElement('input');
-            chk.type = 'checkbox';
-            if (prop.default === true) chk.checked = true;
-            row.appendChild(chk);
-            disableInputs.push(() => { chk.disabled = true; });
-            fieldDataGetters[key] = () => chk.checked;
-            field.appendChild(row);
-          } else if (prop.type === 'number' || prop.type === 'integer') {
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.className = 'field-input';
-            if (prop.minimum !== undefined) input.min = String(prop.minimum);
-            if (prop.maximum !== undefined) input.max = String(prop.maximum);
-            if (prop.default !== undefined) input.value = String(prop.default);
-            disableInputs.push(() => { input.disabled = true; });
-            fieldDataGetters[key] = () => (input.value ? Number(input.value) : undefined);
-            field.appendChild(input);
-          } else {
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.className = 'field-input';
-            input.placeholder = prop.description || `Enter ${key}...`;
-            if (prop.default !== undefined) input.value = String(prop.default);
-            disableInputs.push(() => { input.disabled = true; });
-            fieldDataGetters[key] = () => input.value.trim();
-            field.appendChild(input);
-          }
-          fieldsContainer.appendChild(field);
-        }
-      } else {
-        const field = document.createElement('div');
-        field.className = 'elicitation-field';
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'field-input';
-        input.placeholder = 'Type your response here...';
-        disableInputs.push(() => { input.disabled = true; });
-        fieldDataGetters['response'] = () => input.value.trim();
-        field.appendChild(input);
-        fieldsContainer.appendChild(field);
-      }
-
-      const actions = document.createElement('div');
-      actions.className = 'elicitation-actions';
-
-      const submitBtn = document.createElement('button');
-      submitBtn.type = 'button';
-      submitBtn.className = 'mini-action-btn primary';
-      submitBtn.textContent = 'Submit Answer';
-
-      const cancelBtn = document.createElement('button');
-      cancelBtn.type = 'button';
-      cancelBtn.className = 'mini-action-btn';
-      cancelBtn.textContent = 'Decline';
-
-      actions.append(submitBtn, cancelBtn);
-      card.append(fieldsContainer, actions);
-
-      const disableForm = (statusText: string) => {
-        disableInputs.forEach((fn) => fn());
-        submitBtn.disabled = true;
-        cancelBtn.disabled = true;
-        submitBtn.textContent = statusText;
-      };
-
-      submitBtn.addEventListener('click', () => {
-        const data: Record<string, any> = {};
-        for (const [k, getter] of Object.entries(fieldDataGetters)) {
-          const val = getter();
-          if (val !== undefined && val !== '') {
-            data[k] = val;
-          }
-        }
-        disableForm('Answered ✓');
-        void window.agentOverlay.respondElicitation(req.requestId, 'accept', data);
-      });
-
-      cancelBtn.addEventListener('click', () => {
-        disableForm('Declined');
-        void window.agentOverlay.respondElicitation(req.requestId, 'cancel');
-      });
-
-      activeTurn.flowContainer.appendChild(card);
-      if (settings.soundCues) playAttentionChime();
-      void window.agentOverlay.flashAttention();
-      void window.agentOverlay.notifyBackground('Question from Agent', req.message);
       scrollToBottomIfPinned();
       break;
     }
@@ -2030,7 +1649,7 @@ function handleStreamEvent(ev: StreamEvent): void {
     case 'desktop_actions': {
       if (!activeTurn || ev.actions.length === 0) break;
       appendDesktopActionsCard(
-        activeTurn.flowContainer,
+        activeTurn.toolsContainer,
         ev.actions,
         settings.desktopControlMode === 'preview_auto',
       );
@@ -2040,10 +1659,7 @@ function handleStreamEvent(ev: StreamEvent): void {
     case 'error': {
       if (!activeTurn) break;
       activeTurn.turn.assistantMarkdown += `\n\n> [!CAUTION]\n> ${ev.message}\n`;
-      if (!activeTurn.markdownEl.parentElement) {
-        activeTurn.flowContainer.appendChild(activeTurn.markdownEl);
-      }
-      activeTurn.markdownEl.innerHTML = renderMarkdownHtml(activeTurn.turn.assistantMarkdown);
+      scheduleMarkdownUpdate(activeTurn);
       break;
     }
     case 'done': {
@@ -2066,43 +1682,29 @@ function handleStreamEvent(ev: StreamEvent): void {
             }
           }
         }
-        activeTurn.flowContainer
-          .querySelectorAll<HTMLButtonElement>('.permission-actions button, .elicitation-actions button')
+        activeTurn.toolsContainer
+          .querySelectorAll<HTMLButtonElement>('.permission-actions button')
           .forEach((btn) => {
             btn.disabled = true;
           });
         activeTurn.workingBadge.classList.add('hidden');
         activeTurn.skeletonEl.classList.add('hidden');
         activeTurn.footerEl.classList.remove('hidden');
-
-        // Finalize all segments
-        for (const seg of activeTurn.activeSegments) {
-          if (seg.kind === 'text') {
-            seg.element.innerHTML = renderMarkdownHtml(seg.markdownRaw || '');
-            void hydrateRenderedMarkdown(seg.element, false);
-          } else if (seg.kind === 'thought') {
-            if (seg.thoughtStartedAt && !seg.durationMs) {
-              const ms = Date.now() - seg.thoughtStartedAt;
-              seg.durationMs = ms;
-              if (seg.triggerText) {
-                seg.triggerText.textContent = `Thought for ${(ms / 1000).toFixed(1)}s`;
-              }
-            }
+        if (activeTurn.turn.thinkingText) {
+          if (activeTurn.thinkingStartedAt > 0 && activeTurn.turn.thinkingDurationMs === 0) {
+            activeTurn.turn.thinkingDurationMs = Date.now() - activeTurn.thinkingStartedAt;
           }
+          const ms = activeTurn.turn.thinkingDurationMs || activeTurn.turn.metrics?.durationMs || 0;
+          activeTurn.thinkingTriggerText.textContent = ms
+            ? `Thought for ${(ms / 1000).toFixed(1)}s`
+            : 'Thought';
         }
-
-        if (activeTurn.activeSegments.length === 0 && activeTurn.turn.assistantMarkdown) {
-          if (!activeTurn.markdownEl.parentElement) {
-            activeTurn.flowContainer.appendChild(activeTurn.markdownEl);
-          }
-          activeTurn.markdownEl.innerHTML = renderMarkdownHtml(
-            activeTurn.turn.assistantMarkdown,
-          );
-          void hydrateRenderedMarkdown(activeTurn.markdownEl, false).then(() => {
-            scrollToBottomIfPinned();
-          });
-        }
-
+        activeTurn.markdownEl.innerHTML = renderMarkdownHtml(
+          activeTurn.turn.assistantMarkdown,
+        );
+        void hydrateRenderedMarkdown(activeTurn.markdownEl, false).then(() => {
+          scrollToBottomIfPinned();
+        });
         btnClearMarkup.classList.toggle(
           'hidden',
           !/\[\[markup:/i.test(activeTurn.turn.assistantMarkdown),
@@ -2420,43 +2022,21 @@ function openSettingsModal(): void {
 }
 
 async function openHistoryModal(): Promise<void> {
-  modalTitle.textContent = 'Conversation History & ACP Sessions';
+  modalTitle.textContent = 'Conversation History';
   const sessions = await window.agentOverlay.listSessions();
   modalBody.innerHTML = '';
 
-  const syncBar = document.createElement('div');
-  syncBar.style.cssText =
-    'display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);';
-  const syncBtn = document.createElement('button');
-  syncBtn.type = 'button';
-  syncBtn.className = 'mini-action-btn primary';
-  syncBtn.innerHTML = '<i class="codicon codicon-sync"></i> <span>Sync from OpenCode</span>';
-  syncBtn.addEventListener('click', async () => {
-    syncBtn.disabled = true;
-    syncBtn.innerHTML =
-      '<i class="codicon codicon-loading codicon-modifier-spin"></i> <span>Syncing...</span>';
-    await openHistoryModal();
-    showNotice('Sessions refreshed from OpenCode');
-  });
-  syncBar.appendChild(syncBtn);
-  modalBody.appendChild(syncBar);
-
   if (sessions.length === 0) {
-    const emptyNotice = document.createElement('div');
-    emptyNotice.style.cssText = 'color:var(--text-muted);text-align:center;padding:18px;';
-    emptyNotice.textContent = 'No saved conversations yet.';
-    modalBody.appendChild(emptyNotice);
+    modalBody.innerHTML =
+      '<div style="color:var(--text-muted);text-align:center;padding:18px;">No saved conversations yet.</div>';
   } else {
     for (const s of sessions) {
       const row = document.createElement('div');
       row.className = 'history-item';
       const info = document.createElement('div');
       const hTitle = document.createElement('div');
-      hTitle.style.cssText = 'font-weight:500;color:var(--text-strong);display:flex;align-items:center;gap:6px;';
-      const badge = (s as any).isRemote
-        ? '<span style="font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(0,120,212,0.2);color:#7cc4fa;">OpenCode ACP</span>'
-        : '';
-      hTitle.innerHTML = `<span>${s.title}</span>${badge}`;
+      hTitle.style.cssText = 'font-weight:500;color:var(--text-strong);';
+      hTitle.textContent = s.title;
       const hMeta = document.createElement('div');
       hMeta.style.cssText = 'font-size:11px;color:var(--text-muted);';
       hMeta.textContent = `${s.harness} · ${s.turns.length} turns · ${new Date(s.updatedAt).toLocaleString()}`;
@@ -2471,19 +2051,8 @@ async function openHistoryModal(): Promise<void> {
         void openHistoryModal();
       });
 
-      row.addEventListener('click', async () => {
+      row.addEventListener('click', () => {
         if (isStreaming) return;
-        if ((s as any).isRemote) {
-          showNotice(`Syncing remote session ${s.id.slice(0, 8)}...`);
-          const res = await window.agentOverlay.loadRemoteSession(s.id);
-          if (!res.ok) {
-            showNotice(`Failed to load remote ACP session: ${res.error || 'unknown'}`, true);
-            return;
-          }
-          if (res.turns) {
-            s.turns = res.turns;
-          }
-        }
         currentSessionId = s.id;
         currentSessionTitle = s.title;
         currentSessionWorkspaceDir = s.workspaceDir || settings.workspaceDir;
@@ -2564,140 +2133,6 @@ document.getElementById('btn-history')?.addEventListener('click', () => {
   void openHistoryModal();
 });
 document.getElementById('btn-settings')?.addEventListener('click', openSettingsModal);
-document.getElementById('btn-app-menu')?.addEventListener('click', (e) => {
-  const btn = e.currentTarget as HTMLElement;
-  popovers.openList({
-    anchor: btn,
-    placement: 'below',
-    headerText: 'Menu & Commands',
-    minWidth: 230,
-    items: [
-      {
-        id: 'new_chat',
-        title: 'New Conversation',
-        detail: 'Ctrl+N',
-        icon: 'codicon-add',
-        onSelect: () => {
-          void startNewConversation();
-        },
-      },
-      {
-        id: 'sync_sessions',
-        title: 'Sync ACP Sessions',
-        detail: 'Fetch OpenCode / external sessions',
-        icon: 'codicon-sync',
-        onSelect: () => {
-          void openHistoryModal();
-        },
-      },
-      {
-        id: 'sync_current_session',
-        title: 'Sync Active Session with OpenCode',
-        detail: 'Pull latest turns & reasoning blocks',
-        icon: 'codicon-refresh',
-        onSelect: async () => {
-          if (isStreaming) {
-            showNotice('Cannot sync while streaming', true);
-            return;
-          }
-          if (!currentSessionId) {
-            showNotice('No active session to sync', true);
-            return;
-          }
-          showNotice(`Syncing session ${currentSessionId.slice(0, 8)}...`);
-          const res = await window.agentOverlay.loadRemoteSession(currentSessionId);
-          if (res.ok && res.turns) {
-            turns = structuredClone(res.turns);
-            rebuildMessagesList();
-            showNotice(`Synced ${turns.length} turn(s) from OpenCode`);
-          } else {
-            showNotice(res.error ? `Sync error: ${res.error}` : 'Session loaded');
-          }
-        },
-      },
-      {
-        id: 'switch_harness',
-        title: 'Switch ACP Harness',
-        detail: catalog.harness,
-        icon: 'codicon-plug',
-        onSelect: () => {
-          btnHarness.click();
-        },
-      },
-      {
-        id: 'list_windows',
-        title: 'Inspect Open Windows',
-        detail: 'List desktop GUI windows',
-        icon: 'codicon-window',
-        onSelect: async () => {
-          const res = await window.agentOverlay.executeDesktopAction({ id: `act_win_${Date.now()}`, kind: 'list_windows' }, true);
-          showNotice(res.message, !res.ok);
-        },
-      },
-      {
-        id: 'list_apps',
-        title: 'Inspect Desktop Apps',
-        detail: 'List installed system applications',
-        icon: 'codicon-apps',
-        onSelect: async () => {
-          const res = await window.agentOverlay.executeDesktopAction({ id: `act_app_${Date.now()}`, kind: 'list_apps' }, true);
-          showNotice(res.message, !res.ok);
-        },
-      },
-      {
-        id: 'capture_screen',
-        title: 'Capture Screen Context',
-        detail: '@screen',
-        icon: 'codicon-screen-normal',
-        onSelect: async () => {
-          try {
-            const shot = await window.agentOverlay.captureScreen('fullscreen');
-            addAttachment(shot);
-            showNotice('Screen context attached to prompt');
-          } catch (e: any) {
-            showNotice(`Screen capture failed: ${e?.message || 'unknown'}`, true);
-          }
-        },
-      },
-      {
-        id: 'clear_markups',
-        title: 'Clear Screen Markups',
-        icon: 'codicon-paintcan',
-        onSelect: () => {
-          void window.agentOverlay.clearAgentMarkup();
-          showNotice('Screen markups cleared');
-        },
-      },
-      {
-        id: 'settings',
-        title: 'Preferences & Settings',
-        detail: 'Ctrl+,',
-        icon: 'codicon-settings-gear',
-        onSelect: () => {
-          openSettingsModal();
-        },
-      },
-      {
-        id: 'acp_docs',
-        title: 'ACP Protocol Documentation',
-        detail: 'https://agentclientprotocol.com',
-        icon: 'codicon-book',
-        onSelect: () => {
-          void window.agentOverlay.openExternal('https://agentclientprotocol.com');
-        },
-      },
-      {
-        id: 'help',
-        title: 'Shortcuts & Slash Commands',
-        detail: 'Ctrl+/',
-        icon: 'codicon-question',
-        onSelect: () => {
-          openHelpModal();
-        },
-      },
-    ],
-  });
-});
 document.getElementById('btn-close')?.addEventListener('click', () => {
   void window.agentOverlay.hideWindow();
 });
@@ -3283,101 +2718,6 @@ async function runAuditFlow(): Promise<void> {
   await window.agentOverlay.auditDone();
 }
 
-const btnMic = document.getElementById('btn-mic') as HTMLButtonElement | null;
-let speechRecognizer: any = null;
-let isRecordingSpeech = false;
-
-function setupSpeechToText(): void {
-  if (!btnMic) return;
-  const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-  btnMic.addEventListener('click', () => {
-    if (!SpeechRec) {
-      showNotice('Speech recognition API is not available in this environment.', true);
-      return;
-    }
-    if (isRecordingSpeech) {
-      stopSpeechRecognition();
-    } else {
-      startSpeechRecognition(SpeechRec);
-    }
-  });
-}
-
-function startSpeechRecognition(SpeechRec: any): void {
-  try {
-    speechRecognizer = new SpeechRec();
-    speechRecognizer.continuous = true;
-    speechRecognizer.interimResults = true;
-    speechRecognizer.lang =
-      settings?.speechLanguage && settings.speechLanguage !== 'auto'
-        ? settings.speechLanguage
-        : (navigator.language || 'vi-VN');
-
-    speechRecognizer.onstart = () => {
-      isRecordingSpeech = true;
-      btnMic?.classList.add('recording');
-      btnMic?.setAttribute('title', 'Listening... Click to stop voice input');
-      showNotice(`Listening (${speechRecognizer.lang})... Speak now`);
-    };
-
-    speechRecognizer.onresult = (event: any) => {
-      let interim = '';
-      let final = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const item = event.results[i];
-        if (item.isFinal) {
-          final += item[0].transcript;
-        } else {
-          interim += item[0].transcript;
-        }
-      }
-      const textToInsert = final || interim;
-      if (textToInsert) {
-        const val = composerInput.value;
-        if (val && !val.endsWith(' ') && !val.endsWith('\n')) {
-          composerInput.value += ' ' + textToInsert;
-        } else {
-          composerInput.value += textToInsert;
-        }
-        autoResizeComposer();
-      }
-    };
-
-    speechRecognizer.onerror = (err: any) => {
-      console.warn('Speech recognition error:', err);
-      stopSpeechRecognition();
-      if (err.error !== 'no-speech') {
-        showNotice(`Voice input error: ${err.error || 'Check microphone permission'}`, true);
-      }
-    };
-
-    speechRecognizer.onend = () => {
-      stopSpeechRecognition();
-    };
-
-    speechRecognizer.start();
-  } catch (err: any) {
-    console.error('Failed to start speech recognition:', err);
-    stopSpeechRecognition();
-    showNotice(`Microphone error: ${err?.message || 'Cannot access mic'}`, true);
-  }
-}
-
-function stopSpeechRecognition(): void {
-  isRecordingSpeech = false;
-  btnMic?.classList.remove('recording');
-  btnMic?.setAttribute('title', 'Voice Input (Speech-to-Text)');
-  if (speechRecognizer) {
-    try {
-      speechRecognizer.stop();
-    } catch {
-      // ignore
-    }
-    speechRecognizer = null;
-  }
-}
-
 async function bootstrap(): Promise<void> {
   settings = await window.agentOverlay.getSettings();
   currentSessionWorkspaceDir = settings.workspaceDir;
@@ -3385,7 +2725,6 @@ async function bootstrap(): Promise<void> {
   renderHeaderAndPickers();
   updateSendButton();
   void refreshGitGlance();
-  setupSpeechToText();
 
   window.agentOverlay.onStreamEvent(handleStreamEvent);
   window.agentOverlay.onFocusComposer(() => composerInput.focus());
@@ -3399,25 +2738,6 @@ async function bootstrap(): Promise<void> {
     desktopPanicToken++;
     showNotice('Desktop automation stopped (Panic Stop).', true);
   });
-
-  let lastFocusSync = 0;
-  window.addEventListener('focus', async () => {
-    if (isStreaming || !currentSessionId) return;
-    const now = Date.now();
-    if (now - lastFocusSync < 10_000) return;
-    lastFocusSync = now;
-    try {
-      const res = await window.agentOverlay.loadRemoteSession(currentSessionId);
-      if (res.ok && res.turns && res.turns.length > turns.length) {
-        turns = structuredClone(res.turns);
-        rebuildMessagesList();
-        showNotice(`Synced ${turns.length} turn(s) from OpenCode`);
-      }
-    } catch {
-      // ignore
-    }
-  });
-
   composerInput.focus();
 
   if (window.location.search.includes('audit=1')) {

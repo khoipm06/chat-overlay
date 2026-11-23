@@ -133,16 +133,6 @@ export function renderTabbedSettingsDrawer(opts: {
             <option value="off" ${current.desktopControlMode === 'off' ? 'selected' : ''}>Disabled for AI prompts</option>
           </select>
         </div>
-        <div class="field-group">
-          <label>Computer Tool Actions (Desktop Automation)</label>
-          <div class="toggle-row" style="margin-top:4px;">
-            <span>Auto-approve Computer &amp; Desktop Actions</span>
-            <input id="set-auto-desktop" type="checkbox" ${current.autoApproveDesktopActions ? 'checked' : ''} />
-          </div>
-          <div class="settings-hint">
-            When enabled, computer actions execute automatically. If disabled, a 'Run' button appears for manual approval.
-          </div>
-        </div>
         <div class="diag-card" style="margin-top:4px;">
           <div class="diag-card-top">
             <strong>Desktop Drivers</strong>
@@ -185,14 +175,6 @@ export function renderTabbedSettingsDrawer(opts: {
           <select id="set-shot-quality" class="field-select">
             <option value="compressed" ${current.screenshotQuality === 'compressed' ? 'selected' : ''}>Fast JPEG (~200KB, max 1600px)</option>
             <option value="original" ${current.screenshotQuality === 'original' ? 'selected' : ''}>Lossless PNG (Full Retina/4K)</option>
-          </select>
-        </div>
-        <div class="field-group">
-          <label>Voice Input Language (Microphone STT)</label>
-          <select id="set-speech-lang" class="field-select">
-            <option value="vi-VN" ${current.speechLanguage === 'vi-VN' ? 'selected' : ''}>Tiếng Việt (vi-VN)</option>
-            <option value="en-US" ${current.speechLanguage === 'en-US' ? 'selected' : ''}>English (en-US)</option>
-            <option value="auto" ${current.speechLanguage === 'auto' ? 'selected' : ''}>Auto / Browser default</option>
           </select>
         </div>
         <div class="field-group">

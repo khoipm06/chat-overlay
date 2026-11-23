@@ -15,7 +15,6 @@ import type {
   SavedSession,
   ScreenshotQuality,
   SessionCatalog,
-  StoredTurn,
   StreamEvent,
   WidthPreset,
 } from '../shared/types';
@@ -40,12 +39,6 @@ export interface AgentOverlayApi {
   sendPrompt: (prompt: string, attachments: ChatAttachment[]) => Promise<void>;
   cancelTurn: () => Promise<void>;
   respondPermission: (requestId: string, optionId: string | null) => Promise<void>;
-  respondElicitation: (
-    requestId: string,
-    action: 'accept' | 'decline' | 'cancel',
-    content?: Record<string, unknown>,
-  ) => Promise<void>;
-  loadRemoteSession: (sessionId: string) => Promise<{ ok: boolean; turns?: StoredTurn[]; error?: string }>;
   getMentions: (query: string) => Promise<MentionItem[]>;
   readClipboardContext: (preferSelection?: boolean) => Promise<ChatAttachment | null>;
   readFilePreview: (filePath: string) => Promise<FilePreviewResult>;
@@ -118,9 +111,6 @@ const api: AgentOverlayApi = {
   cancelTurn: () => ipcRenderer.invoke('acp:cancel-turn'),
   respondPermission: (requestId, optionId) =>
     ipcRenderer.invoke('acp:respond-permission', requestId, optionId),
-  respondElicitation: (requestId, action, content) =>
-    ipcRenderer.invoke('acp:respond-elicitation', requestId, action, content),
-  loadRemoteSession: (sessionId) => ipcRenderer.invoke('sessions:load-remote', sessionId),
   getMentions: (query) => ipcRenderer.invoke('mentions:query', query),
   readClipboardContext: (preferSelection) =>
     ipcRenderer.invoke('context:clipboard', preferSelection),

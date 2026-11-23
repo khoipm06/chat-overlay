@@ -1,6 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { HARNESS_LIST } from '../shared/types';
@@ -12,7 +11,6 @@ import type {
   PermissionOption,
   PermissionPolicy,
   SessionCatalog,
-  StoredTurn,
   StreamEvent,
 } from '../shared/types';
 import {
@@ -39,114 +37,7 @@ const SCREEN_MARKUP_HINT =
   '\n\n[Screen context attached. To highlight steps or targets on the user\'s screen, emit inline tags like [[markup: box x=12 y=30 w=25 h=10 step=1 pulse=true label="Retry button"]] or [[markup: arrow x1=50 y1=50 x2=25 y2=30 step=2 label="Click here"]]. Coordinates are percentages of the screen (0-100), origin top-left.]';
 
 const DESKTOP_CONTROL_HINT =
-  '\n\n[Desktop Quick Actions & UI Control are available (user-confirmed). Only when the user asks to perform an OS setting or UI interaction, emit inline tags: [[desktop: os action=theme_dark|theme_light|snap_left|snap_right|snap_maximize|volume_mute|dnd_on|dnd_off|list_windows|list_apps|active_window|screenshot]], [[desktop: os action=volume_set value=50]], [[desktop: os action=open_app target="konsole"]], [[desktop: click x=45 y=20 label="Save"]], [[desktop: double_click x=45 y=20]], [[desktop: right_click x=45 y=20]], [[desktop: scroll x=50 y=50 delta=-3]], [[desktop: type text="hello"]], or [[desktop: key combo="ctrl+s"]]. Pointer x/y are 0-100 screen percentages.]';
-
-function toEnvArray(env: unknown): Array<{ name: string; value: string }> {
-  if (!env || typeof env !== 'object') return [];
-  if (Array.isArray(env)) {
-    return env
-      .map((item) => {
-        if (item && typeof item === 'object') {
-          const o = item as Record<string, unknown>;
-          return { name: String(o.name ?? ''), value: String(o.value ?? '') };
-        }
-        return { name: String(item), value: '' };
-      })
-      .filter((e) => e.name);
-  }
-  return Object.entries(env as Record<string, unknown>).map(([name, val]) => ({
-    name,
-    value: String(val ?? ''),
-  }));
-}
-
-export async function loadMcpServersForSession(
-  workspaceDir: string,
-): Promise<Array<Record<string, unknown>>> {
-  const servers: Array<Record<string, unknown>> = [];
-  try {
-    const wsMcp = path.join(workspaceDir, '.mcp.json');
-    const raw = await fs.readFile(wsMcp, 'utf8');
-    const parsed = JSON.parse(raw);
-    const mcpServers = parsed?.mcpServers || parsed;
-    if (mcpServers && typeof mcpServers === 'object') {
-      for (const [name, cfg] of Object.entries(mcpServers)) {
-        if (!cfg || typeof cfg !== 'object') continue;
-        const c = cfg as Record<string, unknown>;
-        if (typeof c.url === 'string') {
-          servers.push({
-            name,
-            type: 'http',
-            url: c.url,
-            headers: toEnvArray(c.headers),
-          });
-        } else if (Array.isArray(c.command) && c.command.length > 0) {
-          servers.push({
-            name,
-            command: String(c.command[0]),
-            args: c.command.slice(1).map(String),
-            env: toEnvArray(c.env || c.environment),
-          });
-        } else if (typeof c.command === 'string') {
-          const args = Array.isArray(c.args) ? c.args.map(String) : [];
-          servers.push({
-            name,
-            command: c.command,
-            args,
-            env: toEnvArray(c.env || c.environment),
-          });
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  if (servers.length === 0) {
-    try {
-      const opencodeCfg = path.join(
-        process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
-        'opencode',
-        'opencode.json',
-      );
-      const raw = await fs.readFile(opencodeCfg, 'utf8');
-      const parsed = JSON.parse(raw);
-      const mcpObj = parsed?.mcp?.servers || parsed?.mcpServers;
-      if (mcpObj && typeof mcpObj === 'object') {
-        for (const [name, cfg] of Object.entries(mcpObj)) {
-          if (!cfg || typeof cfg !== 'object') continue;
-          const c = cfg as Record<string, unknown>;
-          if (typeof c.url === 'string') {
-            servers.push({
-              name,
-              type: 'http',
-              url: c.url,
-              headers: toEnvArray(c.headers),
-            });
-          } else if (Array.isArray(c.command) && c.command.length > 0) {
-            servers.push({
-              name,
-              command: String(c.command[0]),
-              args: c.command.slice(1).map(String),
-              env: toEnvArray(c.env || c.environment),
-            });
-          } else if (typeof c.command === 'string') {
-            const args = Array.isArray(c.args) ? c.args.map(String) : [];
-            servers.push({
-              name,
-              command: c.command,
-              args,
-              env: toEnvArray(c.env || c.environment),
-            });
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-  return servers;
-}
+  '\n\n[Desktop Quick Actions & UI Control are available (user-confirmed). Only when the user asks to perform an OS setting or UI interaction, emit inline tags: [[desktop: os action=theme_dark|theme_light|snap_left|snap_right|snap_maximize|volume_mute|dnd_on|dnd_off]], [[desktop: os action=volume_set value=50]], [[desktop: os action=open_app target="konsole"]], [[desktop: click x=45 y=20 label="Save"]], [[desktop: double_click x=45 y=20]], [[desktop: right_click x=45 y=20]], [[desktop: scroll x=50 y=50 delta=-3]], [[desktop: type text="hello"]], or [[desktop: key combo="ctrl+s"]]. Pointer x/y are 0-100 screen percentages.]';
 
 export class AcpAgentController {
   private proc: ChildProcessWithoutNullStreams | null = null;
@@ -156,12 +47,6 @@ export class AcpAgentController {
   private pendingPermissions = new Map<string, { toolKey: string; allowAlwaysIds: Set<string> }>();
   private stderrTail: string[] = [];
   private activeTools = new Map<string, ToolTracker>();
-  private pendingElicitations = new Map<string, unknown>();
-  private currentContextSize: number | undefined;
-
-  private sessionLoading = false;
-  private replayedTurns: StoredTurn[] = [];
-  private currentReplayedTurn: StoredTurn | null = null;
 
   private currentHarness: HarnessKind;
   private currentWorkspace: string;
@@ -256,25 +141,17 @@ export class AcpAgentController {
         clientCapabilities: {
           fs: { readTextFile: true, writeTextFile: true },
           terminal: false,
-          elicitation: {
-            form: {},
-            url: {},
-          },
-          _meta: {
-            'opencode/child-session-updates': true,
-          },
         },
         clientInfo: {
           name: 'chat-overlay',
-          version: '3.2.4',
+          version: '3.2.3',
         },
       }, 20_000);
       if (gen !== this.warmupSeq) return this.catalog;
 
-      const mcpServers = await loadMcpServersForSession(settings.workspaceDir);
       const sessionRes = (await this.sendRpc('session/new', {
         cwd: settings.workspaceDir,
-        mcpServers,
+        mcpServers: [],
       }, 25_000)) as Record<string, unknown>;
       if (gen !== this.warmupSeq) return this.catalog;
 
@@ -551,7 +428,6 @@ export class AcpAgentController {
           cachedReadTokens:
             typeof usage?.cachedReadTokens === 'number' ? usage.cachedReadTokens : undefined,
           totalTokens: typeof usage?.totalTokens === 'number' ? usage.totalTokens : undefined,
-          contextSize: this.currentContextSize,
           durationMs,
         });
       }
@@ -607,84 +483,6 @@ export class AcpAgentController {
       this.writeResponse(id, { outcome: { outcome: 'selected', optionId } });
     } else {
       this.writeResponse(id, { outcome: { outcome: 'cancelled' } });
-    }
-  }
-
-  respondElicitation(
-    requestId: string,
-    action: 'accept' | 'decline' | 'cancel',
-    content?: Record<string, unknown>,
-  ): void {
-    const rawId = this.pendingElicitations.get(requestId);
-    this.pendingElicitations.delete(requestId);
-    const numId = Number(requestId);
-    const id = (rawId !== undefined ? rawId : Number.isNaN(numId) ? requestId : numId) as
-      | string
-      | number;
-    if (action === 'accept') {
-      this.writeResponse(id, { action: 'accept', content: content ?? {} });
-    } else if (action === 'decline') {
-      this.writeResponse(id, { action: 'decline' });
-    } else {
-      this.writeResponse(id, { action: 'cancel' });
-    }
-  }
-
-  async listRemoteSessions(): Promise<Array<{ id: string; title: string; updatedAt: number }>> {
-    if (!this.proc) return [];
-    try {
-      const res = (await this.sendRpc('session/list', {
-        cwd: this.currentWorkspace,
-      }, 5000)) as Record<string, unknown>;
-      if (Array.isArray(res?.sessions)) {
-        return res.sessions
-          .map((s: Record<string, unknown>) => ({
-            id: String(s.sessionId ?? s.id ?? ''),
-            title: String(s.title ?? 'Session'),
-            updatedAt:
-              typeof s.updatedAt === 'string'
-                ? new Date(s.updatedAt).getTime()
-                : typeof s.updatedAt === 'number'
-                  ? s.updatedAt
-                  : Date.now(),
-          }))
-          .filter((s) => s.id);
-      }
-    } catch {
-      // Harness does not support session/list
-    }
-    return [];
-  }
-
-  async loadRemoteSession(
-    sessionId: string,
-  ): Promise<{ ok: boolean; turns?: StoredTurn[]; error?: string }> {
-    if (!this.proc) return { ok: false, error: 'No ACP process running' };
-    try {
-      this.sessionLoading = true;
-      this.replayedTurns = [];
-      this.currentReplayedTurn = null;
-      this.catalog.sessionId = sessionId;
-      const mcpServers = await loadMcpServersForSession(this.currentWorkspace);
-      await this.sendRpc(
-        'session/load',
-        {
-          sessionId,
-          cwd: this.currentWorkspace,
-          mcpServers,
-        },
-        25_000,
-      );
-      if (this.currentReplayedTurn) {
-        this.replayedTurns.push(this.currentReplayedTurn);
-        this.currentReplayedTurn = null;
-      }
-      return { ok: true, turns: this.replayedTurns };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    } finally {
-      this.sessionLoading = false;
-      this.currentReplayedTurn = null;
     }
   }
 
@@ -1109,34 +907,6 @@ export class AcpAgentController {
       return;
     }
 
-    if (method === 'elicitation/create') {
-      const reqKey = String(id);
-      this.pendingElicitations.set(reqKey, id);
-      const mode = (typeof params.mode === 'string' ? params.mode : 'form') as 'form' | 'url';
-      const message =
-        typeof params.message === 'string'
-          ? params.message
-          : 'The agent has a question for you:';
-      const requestedSchema =
-        params.requestedSchema && typeof params.requestedSchema === 'object'
-          ? (params.requestedSchema as Record<string, unknown>)
-          : null;
-      const toolCallId =
-        typeof params.toolCallId === 'string' ? params.toolCallId : undefined;
-
-      this.onEvent({
-        type: 'elicitation_request',
-        request: {
-          requestId: reqKey,
-          mode,
-          message,
-          requestedSchema: requestedSchema as any,
-          toolCallId,
-        },
-      });
-      return;
-    }
-
     this.writeErrorResponse(id, -32601, `Unsupported client method: ${method}`);
   }
 
@@ -1156,95 +926,18 @@ export class AcpAgentController {
     const kind = typeof update.sessionUpdate === 'string' ? update.sessionUpdate : '';
 
     switch (kind) {
-      case 'user_message_chunk': {
-        const text = extractChunkText(update.content);
-        if (this.sessionLoading) {
-          if (this.currentReplayedTurn) {
-            this.replayedTurns.push(this.currentReplayedTurn);
-          }
-          this.currentReplayedTurn = {
-            id: String(update.messageId || `turn_${Date.now()}`),
-            userText: text,
-            attachments: [],
-            thinkingText: '',
-            thinkingDurationMs: 0,
-            assistantMarkdown: '',
-            tools: [],
-            segments: [],
-          };
-        }
-        break;
-      }
       case 'agent_thought_chunk': {
-        const text = extractChunkText(update.content);
-        const messageId = typeof update.messageId === 'string' ? update.messageId : undefined;
-        if (this.sessionLoading) {
-          if (!this.currentReplayedTurn) {
-            this.currentReplayedTurn = {
-              id: `turn_${Date.now()}`,
-              userText: '',
-              attachments: [],
-              thinkingText: '',
-              thinkingDurationMs: 0,
-              assistantMarkdown: '',
-              tools: [],
-              segments: [],
-            };
-          }
-          if (text) {
-            this.currentReplayedTurn.thinkingText += (this.currentReplayedTurn.thinkingText ? '\n' : '') + text;
-            const lastSeg = this.currentReplayedTurn.segments?.[this.currentReplayedTurn.segments.length - 1];
-            if (lastSeg && lastSeg.kind === 'thought' && (!messageId || lastSeg.id === messageId)) {
-              lastSeg.text += text;
-            } else {
-              this.currentReplayedTurn.segments?.push({
-                kind: 'thought',
-                id: messageId,
-                text,
-              });
-            }
-          }
-          break;
-        }
         if (!this.turnActive) break;
+        const text = extractChunkText(update.content);
         if (text) {
           this.emitStatus('thinking', 'Thinking...');
-          this.onEvent({ type: 'thinking_delta', text, messageId });
+          this.onEvent({ type: 'thinking_delta', text });
         }
         break;
       }
       case 'agent_message_chunk': {
-        const text = extractChunkText(update.content);
-        if (this.sessionLoading) {
-          if (!this.currentReplayedTurn) {
-            this.currentReplayedTurn = {
-              id: `turn_${Date.now()}`,
-              userText: '',
-              attachments: [],
-              thinkingText: '',
-              thinkingDurationMs: 0,
-              assistantMarkdown: '',
-              tools: [],
-              segments: [],
-            };
-          }
-          if (text) {
-            this.currentReplayedTurn.assistantMarkdown += text;
-            const lastSeg = this.currentReplayedTurn.segments?.[this.currentReplayedTurn.segments.length - 1];
-            if (lastSeg && lastSeg.kind === 'text') {
-              lastSeg.text += text;
-              lastSeg.markdown = lastSeg.text;
-            } else {
-              this.currentReplayedTurn.segments?.push({
-                kind: 'text',
-                text,
-                markdown: text,
-              });
-            }
-          }
-          break;
-        }
         if (!this.turnActive) break;
+        const text = extractChunkText(update.content);
         if (text) {
           this.assistantTextBuffer += text;
           this.emitStatus('streaming', 'Writing response...');
@@ -1253,55 +946,11 @@ export class AcpAgentController {
         break;
       }
       case 'tool_call': {
+        if (!this.turnActive) break;
         const id = String(update.toolCallId ?? `tool_${Date.now()}`);
         const name = String(update.title ?? update.name ?? update.kind ?? 'tool');
         const args = formatToolInput(update.rawInput);
-        const contentText = extractContentText(update.content);
-        let initialOut: string;
-        if (update.rawOutput && typeof update.rawOutput === 'object' && !Array.isArray(update.rawOutput)) {
-          const rawObj = { ...(update.rawOutput as Record<string, unknown>) };
-          if (contentText && !rawObj.output && !rawObj.stdout) {
-            rawObj.output = contentText;
-          }
-          initialOut = JSON.stringify(rawObj);
-        } else {
-          initialOut = contentText || formatToolOutput(update.rawOutput ?? update.content);
-        }
-        if (this.sessionLoading) {
-          if (!this.currentReplayedTurn) {
-            this.currentReplayedTurn = {
-              id: `turn_${Date.now()}`,
-              userText: '',
-              attachments: [],
-              thinkingText: '',
-              thinkingDurationMs: 0,
-              assistantMarkdown: '',
-              tools: [],
-              segments: [],
-            };
-          }
-          const tModel = {
-            id,
-            name,
-            title: typeof update.title === 'string' ? update.title : undefined,
-            args,
-            status: 'running' as const,
-            output: initialOut,
-          };
-          this.currentReplayedTurn.tools.push(tModel);
-          this.currentReplayedTurn.segments?.push({
-            kind: 'tool',
-            id,
-            toolId: id,
-            name,
-            title: tModel.title,
-            args,
-            status: 'running',
-            output: initialOut,
-          });
-          break;
-        }
-        if (!this.turnActive) break;
+        const initialOut = formatToolOutput(update.rawOutput ?? update.content);
         this.activeTools.set(id, { name, startedAt: Date.now() });
         this.emitStatus('tool', `Running ${name}...`);
         this.onEvent({
@@ -1323,6 +972,7 @@ export class AcpAgentController {
         break;
       }
       case 'tool_call_update': {
+        if (!this.turnActive) break;
         const id = String(update.toolCallId ?? '');
         if (!id) break;
         const rawStatus = typeof update.status === 'string' ? update.status : 'in_progress';
@@ -1335,33 +985,7 @@ export class AcpAgentController {
         const tracker = this.activeTools.get(id);
         const durationMs = tracker ? Date.now() - tracker.startedAt : undefined;
         const args = update.rawInput !== undefined ? formatToolInput(update.rawInput) : undefined;
-        const contentText = extractContentText(update.content);
-        let output: string;
-        if (update.rawOutput && typeof update.rawOutput === 'object' && !Array.isArray(update.rawOutput)) {
-          const rawObj = { ...(update.rawOutput as Record<string, unknown>) };
-          if (contentText && !rawObj.output && !rawObj.stdout) {
-            rawObj.output = contentText;
-          }
-          output = JSON.stringify(rawObj);
-        } else {
-          output = contentText || formatToolOutput(update.rawOutput ?? update.content);
-        }
-        if (this.sessionLoading && this.currentReplayedTurn) {
-          const t = this.currentReplayedTurn.tools.find((x) => x.id === id);
-          if (t) {
-            t.status = status;
-            if (output) t.output = output;
-            if (args) t.args = args;
-          }
-          const s = this.currentReplayedTurn.segments?.find((x) => x.kind === 'tool' && x.id === id);
-          if (s && s.kind === 'tool') {
-            s.status = status;
-            if (output) s.output = output;
-            if (args) s.args = args;
-          }
-          break;
-        }
-        if (!this.turnActive) break;
+        const output = formatToolOutput(update.rawOutput ?? update.content);
         this.onEvent({
           type: 'tool_update',
           id,
@@ -1413,14 +1037,11 @@ export class AcpAgentController {
       case 'usage_update': {
         const used = typeof update.used === 'number' ? update.used : undefined;
         const size = typeof update.size === 'number' ? update.size : undefined;
-        if (size !== undefined) {
-          this.currentContextSize = size;
-        }
         if (used !== undefined && this.turnStartedAt > 0) {
           this.onEvent({
             type: 'metrics',
             totalTokens: used,
-            contextSize: this.currentContextSize,
+            contextSize: size,
             durationMs: Date.now() - this.turnStartedAt,
           });
         }
@@ -1544,39 +1165,6 @@ function formatToolInput(raw: unknown): string {
   } catch {
     return String(raw);
   }
-}
-
-function extractContentText(content: unknown): string {
-  if (!content) return '';
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => {
-        if (!item) return '';
-        if (typeof item === 'string') return item;
-        if (typeof item === 'object') {
-          const obj = item as Record<string, unknown>;
-          if (obj.content && typeof obj.content === 'object') {
-            const inner = obj.content as Record<string, unknown>;
-            if (typeof inner.text === 'string') return inner.text;
-          }
-          if (typeof obj.text === 'string') return obj.text;
-          if (obj.type === 'text' && typeof obj.text === 'string') return obj.text;
-        }
-        return '';
-      })
-      .filter(Boolean)
-      .join('\n');
-  }
-  if (typeof content === 'object') {
-    const obj = content as Record<string, unknown>;
-    if (typeof obj.text === 'string') return obj.text;
-    if (obj.content && typeof obj.content === 'object') {
-      const inner = obj.content as Record<string, unknown>;
-      if (typeof inner.text === 'string') return inner.text;
-    }
-  }
-  return '';
 }
 
 function formatToolOutput(raw: unknown): string {

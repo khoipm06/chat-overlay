@@ -111,47 +111,6 @@ export interface PermissionRequest {
   options: PermissionOption[];
 }
 
-export interface ElicitationOption {
-  const?: unknown;
-  value?: unknown;
-  title?: string;
-  label?: string;
-  description?: string;
-}
-
-export interface ElicitationProperty {
-  type?: string;
-  title?: string;
-  description?: string;
-  enum?: string[];
-  oneOf?: ElicitationOption[];
-  anyOf?: ElicitationOption[];
-  items?: {
-    type?: string;
-    anyOf?: ElicitationOption[];
-    oneOf?: ElicitationOption[];
-    enum?: string[];
-  };
-  minimum?: number;
-  maximum?: number;
-  default?: unknown;
-}
-
-export interface ElicitationSchema {
-  type?: string;
-  properties?: Record<string, ElicitationProperty>;
-  required?: string[];
-}
-
-export interface ElicitationRequest {
-  requestId: string;
-  mode: 'form' | 'url';
-  message: string;
-  requestedSchema?: ElicitationSchema | null;
-  schema?: ElicitationSchema | null;
-  toolCallId?: string;
-}
-
 export interface ChatAttachment {
   id: string;
   kind: 'file' | 'image' | 'text';
@@ -198,14 +157,10 @@ export type DesktopActionKind =
   | 'scroll'
   | 'type'
   | 'key'
-  | 'os'
-  | 'list_windows'
-  | 'list_apps'
-  | 'active_window'
-  | 'screenshot';
+  | 'os';
 
 export interface DesktopAction {
-  id?: string;
+  id: string;
   kind: DesktopActionKind;
   x?: number;
   y?: number;
@@ -300,8 +255,6 @@ export interface AppSettings {
   permissionPolicy: PermissionPolicy;
   desktopControlMode: DesktopControlMode;
   autoApprovePermissions: boolean;
-  autoApproveDesktopActions: boolean;
-  speechLanguage: string;
   followUpBehavior: FollowUpBehavior;
   soundCues: boolean;
   flashOnAttention: boolean;
@@ -342,31 +295,6 @@ export interface TurnMetrics {
   durationMs: number;
 }
 
-export type TurnSegment =
-  | {
-      kind: 'thought';
-      id?: string;
-      text: string;
-      durationMs?: number;
-    }
-  | {
-      kind: 'tool';
-      id: string;
-      toolId?: string;
-      name?: string;
-      title?: string;
-      args?: string;
-      status?: 'running' | 'completed' | 'failed';
-      output?: string;
-      durationMs?: number;
-    }
-  | {
-      kind: 'text';
-      id?: string;
-      text: string;
-      markdown?: string;
-    };
-
 export interface StoredTurn {
   id: string;
   userText: string;
@@ -384,7 +312,6 @@ export interface StoredTurn {
     durationMs?: number;
   }>;
   assistantMarkdown: string;
-  segments?: TurnSegment[];
   metrics?: TurnMetrics;
   errorMessage?: string;
 }
@@ -410,7 +337,7 @@ export type StreamPhase =
 export type StreamEvent =
   | { type: 'status'; phase: StreamPhase; label: string }
   | { type: 'catalog'; catalog: SessionCatalog }
-  | { type: 'thinking_delta'; text: string; messageId?: string }
+  | { type: 'thinking_delta'; text: string }
   | { type: 'text_delta'; text: string }
   | {
       type: 'tool_start';
@@ -430,7 +357,6 @@ export type StreamEvent =
       durationMs?: number;
     }
   | { type: 'permission_request'; request: PermissionRequest }
-  | { type: 'elicitation_request'; request: ElicitationRequest }
   | { type: 'session_title'; title: string }
   | {
       type: 'metrics';

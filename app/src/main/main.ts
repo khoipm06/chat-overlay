@@ -759,13 +759,6 @@ function registerIpcHandlers(): void {
     acpController.respondPermission(requestId, optionId);
   });
 
-  ipcMain.handle(
-    'acp:respond-elicitation',
-    (_ev, requestId: string, action: 'accept' | 'decline' | 'cancel', content?: Record<string, unknown>) => {
-      acpController.respondElicitation(requestId, action, content);
-    },
-  );
-
   ipcMain.handle('mentions:query', async (_ev, query: string) => {
     if (cacheWorkspaceDir !== settings.workspaceDir || workspaceFileCache.length === 0) {
       await refreshWorkspaceMentions();
@@ -897,54 +890,7 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('sessions:list', async () => {
-    const local = loadSessions();
-    try {
-      const remotes = await acpController.listRemoteSessions();
-      if (remotes.length > 0) {
-        const localIds = new Set(local.map((s) => s.id));
-        const merged = [...local];
-        for (const rem of remotes) {
-          if (!localIds.has(rem.id)) {
-            merged.push({
-              id: rem.id,
-              title: rem.title,
-              harness: settings.harness,
-              workspaceDir: settings.workspaceDir,
-              updatedAt: rem.updatedAt,
-              turns: [],
-            });
-          }
-        }
-        return merged.sort((a, b) => b.updatedAt - a.updatedAt);
-      }
-    } catch {
-      // ignore
-    }
-    return local;
-  });
-  ipcMain.handle('sessions:load-remote', async (_ev, sessionId: string) => {
-    const res = await acpController.loadRemoteSession(sessionId);
-    if (res.ok && res.turns && res.turns.length > 0) {
-      const local = loadSessions();
-      let existing = local.find((s) => s.id === sessionId);
-      if (!existing) {
-        existing = {
-          id: sessionId,
-          title: `ACP Session ${sessionId.slice(0, 8)}`,
-          harness: settings.harness,
-          workspaceDir: settings.workspaceDir,
-          updatedAt: Date.now(),
-          turns: res.turns,
-        };
-      } else {
-        existing.turns = res.turns;
-        existing.updatedAt = Date.now();
-      }
-      saveSessionRecord(existing);
-    }
-    return res;
-  });
+  ipcMain.handle('sessions:list', () => loadSessions());
   ipcMain.handle('sessions:save', (_ev, session: SavedSession) => saveSessionRecord(session));
   ipcMain.handle('sessions:delete', (_ev, id: string) => deleteSessionRecord(id));
 
@@ -1091,158 +1037,25 @@ if (!gotLock) {
 
       tray = new Tray(createTrayIcon());
       tray.setToolTip('Chat Overlay (ACP)');
-      const updateTrayMenu = () => {
-        if (!tray) return;
-        tray.setContextMenu(
-          Menu.buildFromTemplate([
-            { label: 'Toggle Overlay', accelerator: 'Ctrl+Alt+L', click: () => toggleOverlay() },
-            {
-              label: 'New Conversation',
-              accelerator: 'Ctrl+N',
-              click: () => {
-                showAndFocusOverlay();
-                mainWindow?.webContents.send('window:new-chat');
-              },
+      tray.setContextMenu(
+        Menu.buildFromTemplate([
+          { label: 'Toggle Overlay', click: () => toggleOverlay() },
+          {
+            label: 'New Conversation',
+            click: () => {
+              showAndFocusOverlay();
             },
-            {
-              label: 'Quick Clipboard Companion',
-              accelerator: 'Ctrl+Alt+Q',
-              click: () => triggerClipboardCompanion(),
+          },
+          { type: 'separator' },
+          {
+            label: 'Quit',
+            click: () => {
+              quitting = true;
+              app.quit();
             },
-            {
-              label: 'Ghost Mode (Click-Through)',
-              type: 'checkbox',
-              checked: ghostMode,
-              click: () => {
-                setGhostMode(!ghostMode);
-                updateTrayMenu();
-              },
-            },
-            { type: 'separator' },
-            {
-              label: 'Harness',
-              submenu: [
-                {
-                  label: 'OpenCode (ACP)',
-                  type: 'radio',
-                  checked: settings.harness === 'opencode_acp',
-                  click: async () => {
-                    settings = { ...settings, harness: 'opencode_acp' };
-                    saveSettings(settings);
-                    await acpController.warmup(settings);
-                    updateTrayMenu();
-                  },
-                },
-                {
-                  label: 'Antigravity (ACP)',
-                  type: 'radio',
-                  checked: settings.harness === 'agy_acp',
-                  click: async () => {
-                    settings = { ...settings, harness: 'agy_acp' };
-                    saveSettings(settings);
-                    await acpController.warmup(settings);
-                    updateTrayMenu();
-                  },
-                },
-                {
-                  label: 'Codex (ACP)',
-                  type: 'radio',
-                  checked: settings.harness === 'codex_acp',
-                  click: async () => {
-                    settings = { ...settings, harness: 'codex_acp' };
-                    saveSettings(settings);
-                    await acpController.warmup(settings);
-                    updateTrayMenu();
-                  },
-                },
-                {
-                  label: 'Claude Code (ACP)',
-                  type: 'radio',
-                  checked: settings.harness === 'claude_acp',
-                  click: async () => {
-                    settings = { ...settings, harness: 'claude_acp' };
-                    saveSettings(settings);
-                    await acpController.warmup(settings);
-                    updateTrayMenu();
-                  },
-                },
-                {
-                  label: 'Pi (ACP)',
-                  type: 'radio',
-                  checked: settings.harness === 'pi_acp',
-                  click: async () => {
-                    settings = { ...settings, harness: 'pi_acp' };
-                    saveSettings(settings);
-                    await acpController.warmup(settings);
-                    updateTrayMenu();
-                  },
-                },
-              ],
-            },
-            {
-              label: 'Screen Tools',
-              submenu: [
-                {
-                  label: 'Capture Screen & Attach',
-                  click: async () => {
-                    showAndFocusOverlay();
-                    mainWindow?.webContents.send('action:capture-screen');
-                  },
-                },
-                {
-                  label: 'Annotate Screen Area',
-                  click: async () => {
-                    showAndFocusOverlay();
-                    mainWindow?.webContents.send('action:annotate-screen');
-                  },
-                },
-                {
-                  label: 'Clear Screen Markups',
-                  click: () => closeMarkupWindow(),
-                },
-              ],
-            },
-            {
-              label: 'Workspace',
-              submenu: [
-                {
-                  label: 'Open in File Manager',
-                  click: () => shell.openPath(settings.workspaceDir),
-                },
-                {
-                  label: 'Change Workspace Directory...',
-                  click: () => {
-                    showAndFocusOverlay();
-                    mainWindow?.webContents.send('action:pick-workspace');
-                  },
-                },
-              ],
-            },
-            { type: 'separator' },
-            {
-              label: 'Settings...',
-              click: () => {
-                showAndFocusOverlay();
-                mainWindow?.webContents.send('window:open-settings');
-              },
-            },
-            {
-              label: 'ACP Specification & Docs',
-              click: () => shell.openExternal('https://agentclientprotocol.com'),
-            },
-            { type: 'separator' },
-            {
-              label: 'Quit',
-              accelerator: 'Ctrl+Q',
-              click: () => {
-                quitting = true;
-                app.quit();
-              },
-            },
-          ]),
-        );
-      };
-      updateTrayMenu();
+          },
+        ]),
+      );
       tray.on('click', () => toggleOverlay());
     }
   });

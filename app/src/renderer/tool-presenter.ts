@@ -38,7 +38,7 @@ function shortenPath(p: string): string {
   return `…/${parts.slice(-3).join('/')}`;
 }
 
-export function pickToolKind(name: string, title?: string): { icon: string; verb: string; category: string } {
+function pickToolKind(name: string, title?: string): { icon: string; verb: string; category: string } {
   const nameL = (name || '').toLowerCase();
   const hay = `${nameL} ${(title || '').toLowerCase()}`;
   const hasWord = (text: string, words: string[]) =>
@@ -68,57 +68,11 @@ export function pickToolKind(name: string, title?: string): { icon: string; verb
   if (hasWord(nameL, ['web', 'fetch', 'webfetch', 'websearch'])) {
     return { icon: 'codicon-globe', verb: 'Web', category: 'web' };
   }
-  if (hasWord(nameL, ['question', 'ask', 'prompt', 'elicit'])) {
-    return { icon: 'codicon-question', verb: 'Question', category: 'question' };
-  }
   // Secondary match by title words when tool name is generic
   if (hasWord(hay, ['shell', 'bash', 'exec'])) {
     return { icon: 'codicon-terminal', verb: 'Shell', category: 'shell' };
   }
   return { icon: 'codicon-tools', verb: name || title || 'Tool', category: 'other' };
-}
-
-export function extractCleanOutput(outputObj: Record<string, unknown> | null, rawOutputStr: string): string {
-  if (!outputObj) return rawOutputStr.trim();
-
-  const stdout = typeof outputObj.stdout === 'string' ? outputObj.stdout : '';
-  const stderr = typeof outputObj.stderr === 'string' ? outputObj.stderr : '';
-  if (stdout || stderr) {
-    if (stdout && stderr) return `${stdout.trim()}\n\n[stderr]\n${stderr.trim()}`;
-    return (stdout || stderr).trim();
-  }
-
-  if (typeof outputObj.output === 'string' && outputObj.output.trim()) {
-    return outputObj.output.trim();
-  }
-
-  if (Array.isArray(outputObj.content)) {
-    const textParts = outputObj.content
-      .map((item) => {
-        if (typeof item === 'string') return item;
-        if (item && typeof item === 'object') {
-          const obj = item as Record<string, unknown>;
-          if (obj.content && typeof obj.content === 'object') {
-            const inner = obj.content as Record<string, unknown>;
-            if (typeof inner.text === 'string') return inner.text;
-          }
-          if (typeof obj.text === 'string') return obj.text;
-        }
-        return '';
-      })
-      .filter(Boolean);
-    if (textParts.length > 0) return textParts.join('\n').trim();
-  } else if (typeof outputObj.content === 'string' && outputObj.content.trim()) {
-    return outputObj.content.trim();
-  }
-
-  for (const k of ['text', 'result', 'data', 'logs', 'message', 'error', 'value', 'response']) {
-    if (typeof outputObj[k] === 'string' && (outputObj[k] as string).trim()) {
-      return (outputObj[k] as string).trim();
-    }
-  }
-
-  return '';
 }
 
 /**
@@ -166,40 +120,7 @@ export function presentToolCall(tool: {
           : '';
     const cwd = typeof inputObj.cwd === 'string' ? inputObj.cwd : '';
 
-    if (category === 'question') {
-      if (Array.isArray(inputObj.questions) && inputObj.questions.length > 0) {
-        const q0 = inputObj.questions[0] as Record<string, unknown>;
-        summary = String(q0?.header || q0?.question || 'User question');
-        for (const item of inputObj.questions) {
-          if (item && typeof item === 'object') {
-            const q = item as Record<string, unknown>;
-            const h = q.header ? `### ${q.header}\n` : '';
-            const t = q.question || q.text || '';
-            sections.push({ kind: 'text', label: 'Question', text: `${h}${t}` });
-            if (Array.isArray(q.options) && q.options.length > 0) {
-              const opts = q.options.map((o: unknown) =>
-                typeof o === 'string' ? o : JSON.stringify(o),
-              );
-              sections.push({ kind: 'files', label: 'Choices', items: opts });
-            }
-          }
-        }
-      } else if (inputObj.question || inputObj.message) {
-        summary = String(inputObj.header || inputObj.question || inputObj.message);
-        sections.push({
-          kind: 'text',
-          label: 'Question',
-          text: String(inputObj.question || inputObj.message),
-        });
-        const rawOpts = inputObj.options || inputObj.choices;
-        if (Array.isArray(rawOpts) && rawOpts.length > 0) {
-          const opts = rawOpts.map((o: unknown) =>
-            typeof o === 'string' ? o : JSON.stringify(o),
-          );
-          sections.push({ kind: 'files', label: 'Choices', items: opts });
-        }
-      }
-    } else if (category === 'shell' && cmd) {
+    if (category === 'shell' && cmd) {
       summary = truncateMiddle(cmd);
       const exitCode = extractExitCode(outputObj);
       sections.push({ kind: 'command', command: cmd, exitCode });
@@ -280,13 +201,20 @@ export function presentToolCall(tool: {
 
   // 2. Inspect output cleanly (extract actual stdout/files/diff rather than metadata JSON!)
   if (tool.output.trim()) {
-    const innerOutput = extractCleanOutput(outputObj, tool.output);
-    const meta =
-      outputObj?.metadata && typeof outputObj.metadata === 'object'
-        ? (outputObj.metadata as Record<string, unknown>)
-        : outputObj;
+    if (outputObj) {
+      const innerOutput =
+        typeof outputObj.output === 'string'
+          ? outputObj.output
+          : typeof outputObj.stdout === 'string'
+            ? outputObj.stdout
+            : typeof outputObj.content === 'string'
+              ? outputObj.content
+              : '';
+      const meta =
+        outputObj.metadata && typeof outputObj.metadata === 'object'
+          ? (outputObj.metadata as Record<string, unknown>)
+          : outputObj;
 
-    if (meta) {
       if (!badges.some((b) => b.startsWith('exit ')) && typeof meta.exit === 'number') {
         badges.push(`exit ${meta.exit}`);
         if (meta.exit !== 0) isError = true;
@@ -294,25 +222,34 @@ export function presentToolCall(tool: {
       if (meta.truncated === true) {
         badges.push('truncated');
       }
-    }
 
-    if (innerOutput) {
-      if (category === 'search') {
-        const lines = innerOutput.split('\n').filter(Boolean);
-        badges.push(`${lines.length} matches`);
-        sections.push({ kind: 'files', label: 'Results', items: lines });
+      if (innerOutput.trim()) {
+        if (category === 'search') {
+          const lines = innerOutput.trim().split('\n').filter(Boolean);
+          badges.push(`${lines.length} matches`);
+          sections.push({ kind: 'files', label: 'Results', items: lines });
+        } else {
+          sections.push({ kind: 'code', label: 'Output', text: innerOutput.trim() });
+        }
       } else {
-        sections.push({ kind: 'code', label: 'Output', text: innerOutput });
-      }
-    } else if (outputObj) {
-      const readableMeta = flattenReadableKv(outputObj).filter(
-        (e) => !['truncated', 'status'].includes(e.k.toLowerCase()),
-      );
-      if (readableMeta.length > 0) {
-        sections.push({ kind: 'kv', entries: readableMeta });
+        const readableMeta = flattenReadableKv(outputObj).filter(
+          (e) => !['truncated', 'status'].includes(e.k.toLowerCase()),
+        );
+        if (readableMeta.length > 0) {
+          sections.push({ kind: 'kv', entries: readableMeta });
+        }
       }
     } else {
-      sections.push({ kind: 'code', label: 'Output', text: tool.output.trim() });
+      const trimmed = tool.output.trim();
+      if (trimmed.startsWith('Diff: ')) {
+        sections.push({ kind: 'code', label: 'File diff', text: trimmed, isDiff: true });
+      } else if (category === 'search' && trimmed.includes('\n')) {
+        const lines = trimmed.split('\n').filter(Boolean);
+        badges.push(`${lines.length} items`);
+        sections.push({ kind: 'files', label: 'Matches', items: lines });
+      } else {
+        sections.push({ kind: 'code', label: 'Output', text: trimmed });
+      }
     }
   }
 
@@ -417,13 +354,14 @@ export function renderToolDetailHtml(presented: PresentedTool): string {
         </div>`;
       }
       if (sec.kind === 'code') {
-        const maxChars = 48_000;
+        const maxChars = 16_000;
         const charTrimmed = sec.text.length > maxChars;
         const bounded = charTrimmed ? sec.text.slice(0, maxChars) : sec.text;
         const lines = bounded.split('\n');
+        const lineTrimmed = lines.length > 60;
+        const previewLines = lineTrimmed ? lines.slice(0, 60) : lines;
         const content = sec.isDiff
-          ? lines
-              .slice(0, 150)
+          ? previewLines
               .map((l) => {
                 const cls = l.startsWith('+')
                   ? 'diff-add'
@@ -433,21 +371,14 @@ export function renderToolDetailHtml(presented: PresentedTool): string {
                 return `<div class="${cls}">${escapeHtmlText(l)}</div>`;
               })
               .join('')
-          : escapeHtmlText(bounded);
-        const lineBadge = `<span class="tool-vis-count-pill">${lines.length} lines</span>`;
+          : escapeHtmlText(previewLines.join('\n'));
         const extraNote =
-          charTrimmed || (sec.isDiff && lines.length > 150)
-            ? `<div class="tool-vis-more">Truncated output view (${lines.length} lines total)</div>`
+          lineTrimmed || charTrimmed
+            ? `<div class="tool-vis-more">Truncated preview (first 60 lines / 16KB)</div>`
             : '';
         return `<div class="tool-vis-section">
-          <div class="tool-vis-sec-header">
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span class="tool-vis-sec-label">${escapeHtmlText(sec.label)}</span>
-              ${lineBadge}
-            </div>
-            <button type="button" class="tool-vis-copy-btn" onclick="navigator.clipboard.writeText(this.closest('.tool-vis-section').querySelector('.tool-vis-code').innerText).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy';},1500);})" title="Copy to clipboard">Copy</button>
-          </div>
-          <pre class="tool-vis-code scrollable">${content}</pre>
+          <div class="tool-vis-sec-label">${escapeHtmlText(sec.label)}</div>
+          <pre class="tool-vis-code">${content}</pre>
           ${extraNote}
         </div>`;
       }
