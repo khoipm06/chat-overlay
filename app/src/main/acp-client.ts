@@ -148,6 +148,23 @@ export async function loadMcpServersForSession(
   return servers;
 }
 
+export function isSessionNotFoundError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes('session not found') ||
+    msg.includes('session does not exist') ||
+    msg.includes('invalid params: session') ||
+    msg.includes('unknown session') ||
+    msg.includes('invalid session') ||
+    msg.includes('session is invalid') ||
+    msg.includes('session closed') ||
+    msg.includes('session terminated') ||
+    msg.includes('no active session') ||
+    msg.includes('session expired') ||
+    msg.includes('invalid session id')
+  );
+}
+
 export class AcpAgentController {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private rpcSeq = 1;
@@ -266,7 +283,7 @@ export class AcpAgentController {
         },
         clientInfo: {
           name: 'chat-overlay',
-          version: '3.2.6',
+          version: '3.2.7',
         },
       }, 20_000);
       if (gen !== this.warmupSeq) return this.catalog;
@@ -532,10 +549,30 @@ export class AcpAgentController {
     this.emitStatus('thinking', 'Thinking...');
 
     try {
-      const res = (await this.sendRpc('session/prompt', {
-        sessionId: this.catalog.sessionId,
-        prompt: blocks,
-      })) as Record<string, unknown> | null;
+      let res: Record<string, unknown> | null = null;
+      try {
+        res = (await this.sendRpc('session/prompt', {
+          sessionId: this.catalog.sessionId,
+          prompt: blocks,
+        })) as Record<string, unknown> | null;
+      } catch (promptErr) {
+        if (isSessionNotFoundError(promptErr)) {
+          console.warn('[acp-client] Session not found error encountered during prompt. Auto-recovering fresh session...', promptErr);
+          this.emitStatus('warming', 'Session expired, re-initializing fresh session...');
+          this.catalog.sessionId = null;
+          await this.warmup(settings);
+          if (!this.catalog.sessionId) {
+            throw new Error(`Failed to recover ACP session after session loss: ${promptErr instanceof Error ? promptErr.message : String(promptErr)}`);
+          }
+          this.emitStatus('thinking', 'Thinking...');
+          res = (await this.sendRpc('session/prompt', {
+            sessionId: this.catalog.sessionId,
+            prompt: blocks,
+          })) as Record<string, unknown> | null;
+        } else {
+          throw promptErr;
+        }
+      }
 
       const durationMs = Date.now() - this.turnStartedAt;
       const usage =
@@ -681,6 +718,7 @@ export class AcpAgentController {
       }
       return { ok: true, turns: this.replayedTurns };
     } catch (err) {
+      this.catalog.sessionId = null;
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     } finally {
       this.sessionLoading = false;

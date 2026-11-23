@@ -106,6 +106,8 @@ export interface AgentOverlayApi {
   onGhostModeChanged: (cb: (enabled: boolean) => void) => () => void;
   onClipboardCompanion: (cb: (att: ChatAttachment | null) => void) => () => void;
   onDesktopPanic: (cb: () => void) => () => void;
+  onSpeechProgress: (cb: (data: { token: string; text: string }) => void) => () => void;
+  onWorkspaceChanged: (cb: (workspaceDir: string) => void) => () => void;
 }
 
 const api: AgentOverlayApi = {
@@ -198,6 +200,16 @@ const api: AgentOverlayApi = {
     const handler = () => cb();
     ipcRenderer.on('desktop:panic', handler);
     return () => ipcRenderer.off('desktop:panic', handler);
+  },
+  onSpeechProgress: (cb) => {
+    const handler = (_ev: Electron.IpcRendererEvent, data: { token: string; text: string }) => cb(data);
+    ipcRenderer.on('speech:progress', handler);
+    return () => ipcRenderer.off('speech:progress', handler);
+  },
+  onWorkspaceChanged: (cb) => {
+    const handler = (_ev: Electron.IpcRendererEvent, dir: string) => cb(dir);
+    ipcRenderer.on('app:workspace-changed', handler);
+    return () => ipcRenderer.off('app:workspace-changed', handler);
   },
 };
 

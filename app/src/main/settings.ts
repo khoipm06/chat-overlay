@@ -52,11 +52,22 @@ export function resolveExecutable(configured: string): string {
 }
 
 export function defaultWorkspaceDir(): string {
-  const cwd = process.cwd();
-  // When launched from /app, default to parent playground if Cargo.toml / workspace is there, else cwd
+  let cwd = process.cwd();
+  try {
+    if (fs.existsSync(cwd)) {
+      cwd = fs.realpathSync(cwd);
+    }
+  } catch {}
+  // When launched from /app, default to parent playground if workspace is there, else cwd
   if (path.basename(cwd) === 'app') {
     const parent = path.dirname(cwd);
-    if (fs.existsSync(parent)) return parent;
+    if (fs.existsSync(parent)) {
+      try {
+        return fs.realpathSync(parent);
+      } catch {
+        return parent;
+      }
+    }
   }
   return cwd || os.homedir();
 }
@@ -270,6 +281,14 @@ export function loadSettings(): AppSettings {
       ...defaults.commands,
       ...(parsed.commands ?? {}),
     };
+
+    let workspaceDir = parsed.workspaceDir ?? defaults.workspaceDir;
+    try {
+      if (workspaceDir && fs.existsSync(workspaceDir)) {
+        workspaceDir = fs.realpathSync(workspaceDir);
+      }
+    } catch {}
+
     // Migrate legacy default `pi acp` (unsupported in modern `pi` CLI) to the `pi-acp` adapter
     if (
       mergedCommands.pi_acp?.command === 'pi' &&
@@ -306,10 +325,7 @@ export function loadSettings(): AppSettings {
       harnessModels: { ...(parsed.harnessModels ?? {}) },
       harnessEfforts: { ...(parsed.harnessEfforts ?? {}) },
       harnessModes: { ...(parsed.harnessModes ?? {}) },
-      workspaceDir:
-        parsed.workspaceDir && fs.existsSync(parsed.workspaceDir)
-          ? parsed.workspaceDir
-          : defaults.workspaceDir,
+      workspaceDir,
     };
   } catch {
     return defaults;

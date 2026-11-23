@@ -681,6 +681,7 @@ function registerIpcHandlers(): void {
     if (settings.workspaceDir !== prevWorkspace) {
       void refreshWorkspaceMentions();
       await acpController.warmup(settings);
+      mainWindow?.webContents.send('app:workspace-changed', settings.workspaceDir);
     } else if (settings.harness !== prevHarness) {
       await acpController.warmup(settings);
     }
@@ -711,6 +712,7 @@ function registerIpcHandlers(): void {
     saveSettings(settings);
     void refreshWorkspaceMentions();
     await acpController.warmup(settings);
+    mainWindow.webContents.send('app:workspace-changed', chosen);
     return chosen;
   });
 
@@ -950,10 +952,14 @@ function registerIpcHandlers(): void {
   ipcMain.handle('sessions:save', (_ev, session: SavedSession) => saveSessionRecord(session));
   ipcMain.handle('sessions:delete', (_ev, id: string) => deleteSessionRecord(id));
   ipcMain.handle('speech:transcribe', (_ev, audioData: any) =>
-    transcribeAudio(audioData, settings),
+    transcribeAudio(audioData, settings, (token, text) => {
+      mainWindow?.webContents.send('speech:progress', { token, text });
+    }),
   );
   ipcMain.handle('speech:transcribe-audio', (_ev, audioData: any) =>
-    transcribeAudio(audioData, settings),
+    transcribeAudio(audioData, settings, (token, text) => {
+      mainWindow?.webContents.send('speech:progress', { token, text });
+    }),
   );
   ipcMain.handle('speech:detect-backends', () => detectLocalSpeechBackend(settings));
 

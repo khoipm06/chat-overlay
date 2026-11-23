@@ -213,8 +213,9 @@ let autocompleteKind: 'mention' | 'slash' | null = null;
 let autocompleteStart = 0;
 
 function basename(p: string): string {
+  if (!p) return 'workspace';
   const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
-  return parts[parts.length - 1] || p;
+  return parts[parts.length - 1] || 'workspace';
 }
 
 function setLiveStatus(
@@ -1494,11 +1495,14 @@ async function startNewConversation(): Promise<void> {
   currentSessionId = `ses_${Date.now()}`;
   currentSessionTitle = 'New chat';
   sessionTitleChip.textContent = 'New chat';
+  currentSessionWorkspaceDir = settings?.workspaceDir || currentSessionWorkspaceDir;
   messagesView.innerHTML = '';
   messagesView.classList.add('hidden');
   welcomeView.classList.remove('hidden');
   renderAttachments();
   updateUndoRedoButtons();
+  renderHeaderAndPickers();
+  void refreshGitGlance();
   await window.agentOverlay.resetSession();
 }
 
@@ -2754,8 +2758,23 @@ gitBranchChip.addEventListener('click', () => {
   });
 });
 
-btnWorkspace.addEventListener('click', () => {
-  void window.agentOverlay.pickWorkspaceFolder();
+btnWorkspace.addEventListener('click', async () => {
+  const chosen = await window.agentOverlay.pickWorkspaceFolder();
+  if (chosen) {
+    if (settings) settings.workspaceDir = chosen;
+    currentSessionWorkspaceDir = chosen;
+    renderHeaderAndPickers();
+    void refreshGitGlance();
+    showNotice(`Workspace folder: ${basename(chosen)}`);
+  }
+});
+window.agentOverlay.onWorkspaceChanged?.((dir) => {
+  if (dir) {
+    if (settings) settings.workspaceDir = dir;
+    currentSessionWorkspaceDir = dir;
+    renderHeaderAndPickers();
+    void refreshGitGlance();
+  }
 });
 btnHarness.addEventListener('click', openHarnessMenu);
 btnRetryWarmup.addEventListener('click', () => {
@@ -3177,7 +3196,7 @@ async function runAuditFlow(): Promise<void> {
         id: 't1',
         name: 'shell',
         title: 'Explore repo status',
-        args: JSON.stringify({ command: 'git status -sb', cwd: '/var/home/khoipm/playground/pi-overlay' }),
+        args: JSON.stringify({ command: 'git status -sb', cwd: settings?.workspaceDir || '.' }),
         status: 'completed',
         output: JSON.stringify({
           metadata: { status: 'completed', truncated: false, exit: 0 },
@@ -3298,6 +3317,8 @@ let audioChunks: Blob[] = [];
 let isRecordingSpeech = false;
 let isTranscribingSpeech = false;
 let speechAutoStopTimer: ReturnType<typeof setTimeout> | null = null;
+let speechInterimInterval: ReturnType<typeof setInterval> | null = null;
+let isInterimTranscribing = false;
 let browserSpeechRecognition: any = null;
 let browserRecognizedTranscript = '';
 
@@ -3320,13 +3341,24 @@ function cancelSpeechRecording(): void {
     clearTimeout(speechAutoStopTimer);
     speechAutoStopTimer = null;
   }
+  if (speechInterimInterval) {
+    clearInterval(speechInterimInterval);
+    speechInterimInterval = null;
+  }
+  isInterimTranscribing = false;
   if (browserSpeechRecognition) {
     try {
       browserSpeechRecognition.abort();
     } catch {}
     browserSpeechRecognition = null;
   }
+  composerInput.value = speechBaseText;
+  composerInput.setSelectionRange(speechCursorStart, speechCursorStart);
+  autoResizeComposer();
+  updateSendButton();
   browserRecognizedTranscript = '';
+  speechLiveCommitted = '';
+  speechLiveInterim = '';
   isRecordingSpeech = false;
   btnMic?.classList.remove('recording');
   btnMic?.setAttribute('title', 'Voice Input (Speech-to-Text)');
@@ -3347,6 +3379,27 @@ function cancelSpeechTranscription(): void {
   btnMic?.classList.remove('transcribing');
   btnMic?.setAttribute('title', 'Voice Input (Speech-to-Text)');
   showNotice('Voice transcription cancelled.');
+}
+
+let speechBaseText = '';
+let speechCursorStart = 0;
+let speechLiveCommitted = '';
+let speechLiveInterim = '';
+
+function updateLiveSpeechDisplay(committed: string, interim: string): void {
+  const before = speechBaseText.slice(0, speechCursorStart);
+  const after = speechBaseText.slice(speechCursorStart);
+  const needsLeadingSpace = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n');
+  const leading = needsLeadingSpace ? ' ' : '';
+  const spoken = (committed + (interim ? (committed ? ' ' : '') + interim : '')).trim();
+  if (!spoken) return;
+  const fullInsertion = leading + spoken;
+  composerInput.value = before + fullInsertion + after;
+  const newCursor = before.length + fullInsertion.length;
+  composerInput.setSelectionRange(newCursor, newCursor);
+  autoResizeComposer();
+  updateSendButton();
+  composerInput.scrollTop = composerInput.scrollHeight;
 }
 
 function insertTranscribedText(text: string): void {
@@ -3395,6 +3448,12 @@ function setupSpeechToText(): void {
     }
   });
 
+  window.agentOverlay.onSpeechProgress?.((progress) => {
+    if (progress && progress.text && !progress.text.includes('[NO_SPEECH]')) {
+      updateLiveSpeechDisplay(progress.text, '');
+    }
+  });
+
   window.addEventListener('beforeunload', () => cleanupMediaStream());
 }
 
@@ -3409,6 +3468,11 @@ async function startSpeechRecording(): Promise<void> {
     mediaStream = stream;
     audioChunks = [];
 
+    speechBaseText = composerInput.value;
+    speechCursorStart = composerInput.selectionStart ?? speechBaseText.length;
+    speechLiveCommitted = '';
+    speechLiveInterim = '';
+
     let mimeType = 'audio/webm;codecs=opus';
     if (typeof MediaRecorder !== 'undefined') {
       if (!MediaRecorder.isTypeSupported(mimeType)) {
@@ -3422,6 +3486,7 @@ async function startSpeechRecording(): Promise<void> {
       }
     }
 
+    const recordedMime = mimeType || 'audio/webm';
     const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
     mediaRecorder = recorder;
 
@@ -3443,29 +3508,36 @@ async function startSpeechRecording(): Promise<void> {
     isRecordingSpeech = true;
     btnMic?.classList.add('recording');
     btnMic?.setAttribute('title', 'Listening... Click to stop and transcribe (Esc to cancel)');
-    showNotice('Listening... Speak now (click mic again to transcribe)');
+    showNotice('Listening... Speak now (real-time voice transcription active)');
 
-    // Optional in-process / browser-based speech recognition fallback
+    // 1. Optional in-process / browser-based speech recognition fallback with real-time progressive interim results
     try {
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRec) {
         browserRecognizedTranscript = '';
         browserSpeechRecognition = new SpeechRec();
         browserSpeechRecognition.continuous = true;
-        browserSpeechRecognition.interimResults = false;
+        browserSpeechRecognition.interimResults = true;
         const currentLang = settings?.speechLanguage || 'auto';
         if (currentLang && currentLang !== 'auto') {
           browserSpeechRecognition.lang = currentLang;
         }
         browserSpeechRecognition.onresult = (ev: any) => {
-          for (let i = ev.resultIndex; i < ev.results.length; ++i) {
-            if (ev.results[i].isFinal) {
-              const phrase = ev.results[i][0]?.transcript || '';
-              if (phrase) {
-                browserRecognizedTranscript += (browserRecognizedTranscript ? ' ' : '') + phrase;
-              }
+          let finalPart = '';
+          let interimPart = '';
+          for (let i = 0; i < ev.results.length; ++i) {
+            const item = ev.results[i];
+            const text = item[0]?.transcript || '';
+            if (item.isFinal) {
+              finalPart += (finalPart ? ' ' : '') + text;
+            } else {
+              interimPart += (interimPart ? ' ' : '') + text;
             }
           }
+          speechLiveCommitted = finalPart;
+          speechLiveInterim = interimPart;
+          browserRecognizedTranscript = (finalPart ? finalPart + ' ' : '') + interimPart;
+          updateLiveSpeechDisplay(speechLiveCommitted, speechLiveInterim);
         };
         browserSpeechRecognition.onerror = () => {
           // ignore browser speech recognition errors silently
@@ -3475,6 +3547,40 @@ async function startSpeechRecording(): Promise<void> {
     } catch {
       browserSpeechRecognition = null;
     }
+
+    // 2. Progressive background transcription worker for local model or cloud AI ("nói đến đâu chữ nó hiện đến đấy")
+    if (speechInterimInterval) clearInterval(speechInterimInterval);
+    speechInterimInterval = setInterval(async () => {
+      if (!isRecordingSpeech || isInterimTranscribing) return;
+      if (browserRecognizedTranscript?.trim()) return; // browser speech recognition is already providing real-time words
+      if (audioChunks.length === 0) return;
+      const interimBlob = new Blob(audioChunks, { type: recordedMime });
+      if (interimBlob.size < 2000) return;
+      isInterimTranscribing = true;
+      try {
+        const base64 = await blobToBase64(interimBlob);
+        if (!isRecordingSpeech) return;
+        const lang = settings?.speechLanguage || 'auto';
+        const mode = settings?.speechMode || 'auto';
+        const localUrl = settings?.localSpeechUrl || '';
+        const localCommand = settings?.localSpeechCommand || '';
+        const res = await window.agentOverlay.transcribeAudio({
+          data: base64,
+          mimeType: recordedMime,
+          language: lang,
+          mode,
+          localUrl,
+          localCommand,
+        });
+        if (isRecordingSpeech && res.ok && res.text) {
+          updateLiveSpeechDisplay(res.text, '');
+        }
+      } catch {
+        // ignore background interim errors
+      } finally {
+        isInterimTranscribing = false;
+      }
+    }, 1200);
 
     if (speechAutoStopTimer) clearTimeout(speechAutoStopTimer);
     speechAutoStopTimer = setTimeout(() => {
@@ -3496,6 +3602,11 @@ async function stopAndTranscribeSpeech(): Promise<void> {
     clearTimeout(speechAutoStopTimer);
     speechAutoStopTimer = null;
   }
+  if (speechInterimInterval) {
+    clearInterval(speechInterimInterval);
+    speechInterimInterval = null;
+  }
+  isInterimTranscribing = false;
 
   if (browserSpeechRecognition) {
     try {
@@ -3522,12 +3633,15 @@ async function stopAndTranscribeSpeech(): Promise<void> {
       resolve();
       return;
     }
-    const timeout = setTimeout(resolve, 2000);
+    const timeout = setTimeout(resolve, 350);
     mediaRecorder.onstop = () => {
       clearTimeout(timeout);
       resolve();
     };
     try {
+      if (mediaRecorder.state === 'recording') {
+        mediaRecorder.requestData();
+      }
       mediaRecorder.stop();
     } catch {
       clearTimeout(timeout);
@@ -3544,7 +3658,19 @@ async function stopAndTranscribeSpeech(): Promise<void> {
     audioChunks = [];
 
     if (blob.size < 200) {
-      showNotice('Voice input too short.');
+      if (browserRecognizedTranscript?.trim()) {
+        const cleaned = browserRecognizedTranscript.trim();
+        updateLiveSpeechDisplay(cleaned, '');
+        composerInput.dispatchEvent(new Event('input', { bubbles: true }));
+        composerInput.focus();
+        showNotice(`Transcribed (browser): "${cleaned.slice(0, 40)}${cleaned.length > 40 ? '...' : ''}"`);
+      } else {
+        composerInput.value = speechBaseText;
+        composerInput.setSelectionRange(speechCursorStart, speechCursorStart);
+        autoResizeComposer();
+        updateSendButton();
+        showNotice('Voice input too short.');
+      }
       return;
     }
 
@@ -3568,24 +3694,38 @@ async function stopAndTranscribeSpeech(): Promise<void> {
     }
 
     if (result.ok && result.text) {
-      insertTranscribedText(result.text);
+      updateLiveSpeechDisplay(result.text, '');
+      composerInput.dispatchEvent(new Event('input', { bubbles: true }));
+      composerInput.focus();
       const noticeLabel = lang === 'auto' ? '' : ` (${lang})`;
       const engineBadge = result.engine === 'local' ? ' [local]' : '';
       showNotice(`Transcribed${noticeLabel}${engineBadge}: "${result.text.slice(0, 40)}${result.text.length > 40 ? '...' : ''}"`);
     } else if (result.ok && !result.text) {
       if (browserRecognizedTranscript?.trim()) {
         const cleaned = browserRecognizedTranscript.trim();
-        insertTranscribedText(cleaned);
+        updateLiveSpeechDisplay(cleaned, '');
+        composerInput.dispatchEvent(new Event('input', { bubbles: true }));
+        composerInput.focus();
         showNotice(`Transcribed (browser): "${cleaned.slice(0, 40)}${cleaned.length > 40 ? '...' : ''}"`);
       } else {
+        composerInput.value = speechBaseText;
+        composerInput.setSelectionRange(speechCursorStart, speechCursorStart);
+        autoResizeComposer();
+        updateSendButton();
         showNotice('No speech detected.');
       }
     } else {
       if (browserRecognizedTranscript?.trim()) {
         const cleaned = browserRecognizedTranscript.trim();
-        insertTranscribedText(cleaned);
+        updateLiveSpeechDisplay(cleaned, '');
+        composerInput.dispatchEvent(new Event('input', { bubbles: true }));
+        composerInput.focus();
         showNotice(`Transcribed (browser): "${cleaned.slice(0, 40)}${cleaned.length > 40 ? '...' : ''}"`);
       } else {
+        composerInput.value = speechBaseText;
+        composerInput.setSelectionRange(speechCursorStart, speechCursorStart);
+        autoResizeComposer();
+        updateSendButton();
         showNotice(`Voice transcription failed: ${result.error || 'Unknown error'}`, true);
       }
     }

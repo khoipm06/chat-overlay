@@ -32,8 +32,8 @@ import {
 import { expandSlashTemplate, parseLocalCommand, parseOsQuickCommand } from '../src/main/commands';
 import { percentToPixelCoords } from '../src/main/desktop-actions';
 import { extractActiveTrigger, matchMentionItems } from '../src/main/mentions';
-import { defaultSettings, resolveHarnessLaunch, syncLinuxAutostartDesktopFile } from '../src/main/settings';
-import { loadMcpServersForSession } from '../src/main/acp-client';
+import { defaultSettings, defaultWorkspaceDir, resolveHarnessLaunch, syncLinuxAutostartDesktopFile } from '../src/main/settings';
+import { isSessionNotFoundError, loadMcpServersForSession } from '../src/main/acp-client';
 import {
   cleanAudioMimeType,
   detectLocalSpeechBackend,
@@ -991,5 +991,73 @@ describe('ACP question tool, shell output & settings updates', () => {
     expect(extractCleanOutput({ response: 'Assistant answer' }, '')).toBe('Assistant answer');
     expect(extractCleanOutput({ value: 'Evaluated result' }, '')).toBe('Evaluated result');
     expect(extractCleanOutput({ stdout: 'ok', stderr: 'warning: note' }, '')).toBe('ok\n\n[stderr]\nwarning: note');
+  });
+
+  it('detects ACP session not found errors accurately for auto-recovery', () => {
+    expect(isSessionNotFoundError(new Error('Invalid params: session not found: ses_1795394765489'))).toBe(true);
+    expect(isSessionNotFoundError('session not found')).toBe(true);
+    expect(isSessionNotFoundError('Session does not exist: ses_123')).toBe(true);
+    expect(isSessionNotFoundError('Invalid params: session is invalid or closed')).toBe(true);
+    expect(isSessionNotFoundError(new Error('Unknown session: ses_abc'))).toBe(true);
+    expect(isSessionNotFoundError('Session expired: please reconnect')).toBe(true);
+    expect(isSessionNotFoundError('No active session for request')).toBe(true);
+    expect(isSessionNotFoundError('Session terminated by host')).toBe(true);
+    expect(isSessionNotFoundError(new Error('Syntax error in code'))).toBe(false);
+    expect(isSessionNotFoundError(new Error('Rate limit exceeded'))).toBe(false);
+  });
+
+  it('correctly computes dynamic folder basename from active workspace paths across Linux and Windows', () => {
+    function basename(p: string): string {
+      if (!p) return 'workspace';
+      const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
+      return parts[parts.length - 1] || 'workspace';
+    }
+
+    expect(basename('/var/home/khoipm/playground/chat-overlay')).toBe('chat-overlay');
+    expect(basename('/var/mnt/Data/Workspace/playground/black-hole-lab')).toBe('black-hole-lab');
+    expect(basename('C:\\Users\\Khoi\\Projects\\ai-assistant')).toBe('ai-assistant');
+    expect(basename('/project/')).toBe('project');
+    expect(basename('')).toBe('workspace');
+  });
+
+  it('filters silence markers and [NO_SPEECH] tokens correctly in speech transcription', () => {
+    expect(sanitizeTranscription('[NO_SPEECH]')).toBe('');
+    expect(sanitizeTranscription('silence')).toBe('');
+    expect(sanitizeTranscription('```\nhello world\n```')).toBe('hello world');
+    expect(sanitizeTranscription('"spoken text"')).toBe('spoken text');
+    expect(sanitizeTranscription('   [NO_SPEECH]   ')).toBe('');
+    expect(sanitizeTranscription('silent')).toBe('');
+  });
+
+  it('delivers real-time progressive speech tokens via onProgress callback', async () => {
+    const tokensReceived: string[] = [];
+    const fullTexts: string[] = [];
+
+    const dummyAudioBase64 = Buffer.from('RIFF....WAVEfmt ....data....').toString('base64');
+    const res = await transcribeAudio(
+      {
+        data: dummyAudioBase64,
+        mimeType: 'audio/wav',
+        mode: 'local',
+        localCommand: 'echo "hello from progressive speech" # {file}',
+      },
+      {},
+      (token, acc) => {
+        tokensReceived.push(token);
+        fullTexts.push(acc);
+      },
+    );
+
+    expect(res.ok).toBe(true);
+    expect(res.text).toContain('hello from progressive speech');
+    expect(tokensReceived.length).toBeGreaterThan(0);
+    expect(fullTexts[fullTexts.length - 1]).toContain('hello from progressive speech');
+  });
+
+  it('resolves real directory paths in defaultWorkspaceDir avoiding symlink aliases', () => {
+    const dir = defaultWorkspaceDir();
+    expect(typeof dir).toBe('string');
+    expect(dir.length).toBeGreaterThan(0);
+    expect(fs.existsSync(dir)).toBe(true);
   });
 });

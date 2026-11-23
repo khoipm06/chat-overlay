@@ -14,6 +14,11 @@ import type {
 } from '../shared/types';
 import { escapeHtmlText } from './tool-presenter';
 
+function basename(p: string): string {
+  const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
+  return parts[parts.length - 1] || p;
+}
+
 type SettingsTab = 'overlay' | 'safety' | 'vision' | 'harnesses';
 
 export function renderTabbedSettingsDrawer(opts: {
@@ -60,6 +65,14 @@ export function renderTabbedSettingsDrawer(opts: {
 
     if (activeTab === 'overlay') {
       body.innerHTML = `
+        <div class="field-group">
+          <label>Active Workspace Directory</label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input id="set-workspace-dir" type="text" class="field-input" readonly value="${current.workspaceDir || ''}" style="flex:1;cursor:default;" />
+            <button id="btn-browse-workspace" type="button" class="mini-action-btn" style="white-space:nowrap;padding:4px 10px;font-size:12px;">Browse...</button>
+          </div>
+          <div class="field-hint" style="font-size:11px;opacity:0.8;margin-top:3px;">Top-left chip displays: <strong>${basename(current.workspaceDir || 'workspace')}</strong></div>
+        </div>
         <div class="field-group">
           <label>Screen Dock Edge</label>
           <select id="set-edge" class="field-select">
@@ -420,6 +433,18 @@ export function renderTabbedSettingsDrawer(opts: {
 
     footer.append(snapBtn, saveBtn);
     opts.container.append(tabsBar, body, footer);
+
+    const browseBtn = body.querySelector('#btn-browse-workspace');
+    browseBtn?.addEventListener('click', async () => {
+      const chosen = await window.agentOverlay.pickWorkspaceFolder();
+      if (chosen) {
+        current.workspaceDir = chosen;
+        const input = body.querySelector('#set-workspace-dir') as HTMLInputElement;
+        if (input) input.value = chosen;
+        current = await opts.onUpdateSettings({ workspaceDir: chosen });
+        render();
+      }
+    });
 
     if (activeTab === 'vision' && window.agentOverlay?.detectSpeechBackends) {
       window.agentOverlay
