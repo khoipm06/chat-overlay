@@ -25,7 +25,7 @@ import { hydrateRenderedMarkdown, renderMarkdownHtml } from './markdown';
 import { PopoverController, type PopoverEntry } from './popovers';
 import { renderTabbedSettingsDrawer } from './settings-drawer';
 import { playAttentionChime, playDoneChime } from './sound';
-import { presentToolCall, renderToolDetailHtml } from './tool-presenter';
+import { escapeHtmlText, presentToolCall, renderToolDetailHtml } from './tool-presenter';
 
 // DOM refs
 const appShell = document.getElementById('app-shell')!;
@@ -142,6 +142,7 @@ interface QueuedPrompt {
 }
 
 let currentSessionId = `ses_${Date.now()}`;
+let currentSessionIsRemote = false;
 let currentSessionTitle = 'New chat';
 let currentSessionWorkspaceDir = '';
 let gitGlance: GitGlance = {
@@ -1493,6 +1494,7 @@ async function startNewConversation(): Promise<void> {
   redoStack = [];
   pendingAttachments = [];
   currentSessionId = `ses_${Date.now()}`;
+  currentSessionIsRemote = false;
   currentSessionTitle = 'New chat';
   sessionTitleChip.textContent = 'New chat';
   currentSessionWorkspaceDir = settings?.workspaceDir || currentSessionWorkspaceDir;
@@ -2423,89 +2425,104 @@ function openSettingsModal(): void {
   modalBackdrop.classList.remove('hidden');
 }
 
-async function openHistoryModal(): Promise<void> {
-  modalTitle.textContent = 'Conversation History & ACP Sessions';
-  const sessions = await window.agentOverlay.listSessions();
-  modalBody.innerHTML = '';
+function getConnectedServerLabel(harnessId?: string): string {
+  const hId = harnessId || catalog?.harness || settings?.harness;
+  const match = HARNESS_LIST.find((h) => h.id === hId);
+  return match ? match.label.replace(/\s*\(ACP\)$/i, '') : 'ACP Server';
+}
 
-  const syncBar = document.createElement('div');
-  syncBar.style.cssText =
-    'display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);';
-  const syncBtn = document.createElement('button');
-  syncBtn.type = 'button';
-  syncBtn.className = 'mini-action-btn primary';
-  syncBtn.innerHTML = '<i class="codicon codicon-sync"></i> <span>Sync from OpenCode</span>';
-  syncBtn.addEventListener('click', async () => {
-    syncBtn.disabled = true;
-    syncBtn.innerHTML =
-      '<i class="codicon codicon-loading codicon-modifier-spin"></i> <span>Syncing...</span>';
-    await openHistoryModal();
-    showNotice('Sessions refreshed from OpenCode');
-  });
-  syncBar.appendChild(syncBtn);
-  modalBody.appendChild(syncBar);
+async function renderHistoryList(container: HTMLElement): Promise<void> {
+  const sessions = await window.agentOverlay.listSessions();
+  container.innerHTML = '';
 
   if (sessions.length === 0) {
     const emptyNotice = document.createElement('div');
-    emptyNotice.style.cssText = 'color:var(--text-muted);text-align:center;padding:18px;';
+    emptyNotice.style.cssText = 'color:var(--text-muted);text-align:center;padding:24px 18px;';
     emptyNotice.textContent = 'No saved conversations yet.';
-    modalBody.appendChild(emptyNotice);
-  } else {
-    for (const s of sessions) {
-      const row = document.createElement('div');
-      row.className = 'history-item';
-      const info = document.createElement('div');
-      const hTitle = document.createElement('div');
-      hTitle.style.cssText = 'font-weight:500;color:var(--text-strong);display:flex;align-items:center;gap:6px;';
-      const badge = (s as any).isRemote
-        ? '<span style="font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(0,120,212,0.2);color:#7cc4fa;">OpenCode ACP</span>'
-        : '';
-      hTitle.innerHTML = `<span>${s.title}</span>${badge}`;
-      const hMeta = document.createElement('div');
-      hMeta.style.cssText = 'font-size:11px;color:var(--text-muted);';
-      hMeta.textContent = `${s.harness} · ${s.turns.length} turns · ${new Date(s.updatedAt).toLocaleString()}`;
-      info.append(hTitle, hMeta);
-      const delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'icon-btn';
-      delBtn.innerHTML = '<i class="codicon codicon-trash"></i>';
-      delBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        await window.agentOverlay.deleteSession(s.id);
-        void openHistoryModal();
-      });
-
-      row.addEventListener('click', async () => {
-        if (isStreaming) return;
-        if ((s as any).isRemote) {
-          showNotice(`Syncing remote session ${s.id.slice(0, 8)}...`);
-          const res = await window.agentOverlay.loadRemoteSession(s.id);
-          if (!res.ok) {
-            showNotice(`Failed to load remote ACP session: ${res.error || 'unknown'}`, true);
-            return;
-          }
-          if (res.turns) {
-            s.turns = res.turns;
-          }
-        }
-        currentSessionId = s.id;
-        currentSessionTitle = s.title;
-        currentSessionWorkspaceDir = s.workspaceDir || settings.workspaceDir;
-        sessionTitleChip.textContent = s.title;
-        turns = structuredClone(s.turns);
-        needsContextReplay = turns.length > 0;
-        undoStack = [];
-        redoStack = [];
-        rebuildMessagesList();
-        renderHeaderAndPickers();
-        void refreshGitGlance();
-        closeModal();
-      });
-
-      row.append(info, delBtn);
-      modalBody.appendChild(row);
-    }
+    container.appendChild(emptyNotice);
+    return;
   }
+
+  for (const s of sessions) {
+    const row = document.createElement('div');
+    row.className = 'history-item';
+    const info = document.createElement('div');
+    const hTitle = document.createElement('div');
+    hTitle.style.cssText =
+      'font-weight:500;color:var(--text-strong);display:flex;align-items:center;gap:6px;';
+    const serverName = getConnectedServerLabel(s.harness);
+    const badge = s.isRemote
+      ? `<span style="font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(0,120,212,0.2);color:#7cc4fa;">${escapeHtmlText(serverName)} ACP</span>`
+      : '';
+    hTitle.innerHTML = `<span>${escapeHtmlText(s.title || 'Untitled Session')}</span>${badge}`;
+    const hMeta = document.createElement('div');
+    hMeta.style.cssText = 'font-size:11px;color:var(--text-muted);';
+    const turnCount = s.turns?.length ?? 0;
+    hMeta.textContent = `${escapeHtmlText(serverName)} · ${turnCount} turn${turnCount === 1 ? '' : 's'} · ${new Date(s.updatedAt).toLocaleString()}`;
+    info.append(hTitle, hMeta);
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'icon-btn';
+    delBtn.title = 'Delete conversation';
+    delBtn.innerHTML = '<i class="codicon codicon-trash"></i>';
+    delBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const wasCurrent = s.id === currentSessionId;
+      await window.agentOverlay.deleteSession(s.id);
+      if (wasCurrent) {
+        await startNewConversation();
+      }
+      await refreshHistoryModalList();
+      showNotice('Session deleted');
+    });
+
+    row.addEventListener('click', async () => {
+      if (isStreaming) return;
+      if (s.isRemote) {
+        showNotice(`Syncing remote session from ${serverName}...`);
+        const res = await window.agentOverlay.loadRemoteSession(s.id);
+        if (!res.ok) {
+          showNotice(`Failed to load remote ACP session: ${res.error || 'unknown'}`, true);
+          return;
+        }
+        if (res.turns) {
+          s.turns = res.turns;
+        }
+      }
+      currentSessionId = s.id;
+      currentSessionIsRemote = Boolean(s.isRemote);
+      currentSessionTitle = s.title;
+      currentSessionWorkspaceDir = s.workspaceDir || settings.workspaceDir;
+      sessionTitleChip.textContent = s.title;
+      turns = structuredClone(s.turns || []);
+      needsContextReplay = turns.length > 0;
+      undoStack = [];
+      redoStack = [];
+      rebuildMessagesList();
+      renderHeaderAndPickers();
+      void refreshGitGlance();
+      closeModal();
+    });
+
+    row.append(info, delBtn);
+    container.appendChild(row);
+  }
+}
+
+async function refreshHistoryModalList(): Promise<void> {
+  const isHistoryOpen =
+    !modalBackdrop.classList.contains('hidden') &&
+    modalTitle.textContent?.includes('Conversation History');
+  if (!isHistoryOpen) return;
+  const prevScroll = modalBody.scrollTop;
+  await renderHistoryList(modalBody);
+  modalBody.scrollTop = prevScroll;
+}
+
+async function openHistoryModal(): Promise<void> {
+  modalTitle.textContent = 'Conversation History & ACP Sessions';
+  modalBody.innerHTML = '';
+  await renderHistoryList(modalBody);
   modalBackdrop.classList.remove('hidden');
 }
 
@@ -2588,7 +2605,7 @@ document.getElementById('btn-app-menu')?.addEventListener('click', (e) => {
       {
         id: 'sync_sessions',
         title: 'Sync ACP Sessions',
-        detail: 'Fetch OpenCode / external sessions',
+        detail: 'Fetch ACP server / external sessions',
         icon: 'codicon-sync',
         onSelect: () => {
           void openHistoryModal();
@@ -2596,7 +2613,7 @@ document.getElementById('btn-app-menu')?.addEventListener('click', (e) => {
       },
       {
         id: 'sync_current_session',
-        title: 'Sync Active Session with OpenCode',
+        title: `Sync Active Session with ${getConnectedServerLabel()}`,
         detail: 'Pull latest turns & reasoning blocks',
         icon: 'codicon-refresh',
         onSelect: async () => {
@@ -2608,12 +2625,17 @@ document.getElementById('btn-app-menu')?.addEventListener('click', (e) => {
             showNotice('No active session to sync', true);
             return;
           }
+          if (!currentSessionIsRemote) {
+            showNotice('Current session is local, not a remote ACP session', true);
+            return;
+          }
+          const serverName = getConnectedServerLabel();
           showNotice(`Syncing session ${currentSessionId.slice(0, 8)}...`);
           const res = await window.agentOverlay.loadRemoteSession(currentSessionId);
           if (res.ok && res.turns) {
             turns = structuredClone(res.turns);
             rebuildMessagesList();
-            showNotice(`Synced ${turns.length} turn(s) from OpenCode`);
+            showNotice(`Synced ${turns.length} turn(s) from ${serverName}`);
           } else {
             showNotice(res.error ? `Sync error: ${res.error}` : 'Session loaded');
           }
@@ -3765,9 +3787,46 @@ async function bootstrap(): Promise<void> {
     showNotice('Desktop automation stopped (Panic Stop).', true);
   });
 
-  let lastFocusSync = 0;
+let acpSyncTimer: ReturnType<typeof setInterval> | null = null;
+let isSyncingAcp = false;
+
+function startPeriodicAcpSync(): void {
+  if (acpSyncTimer) clearInterval(acpSyncTimer);
+  acpSyncTimer = setInterval(async () => {
+    if (isStreaming || isSyncingAcp) return;
+    const isHistoryOpen =
+      !modalBackdrop.classList.contains('hidden') &&
+      modalTitle.textContent?.includes('Conversation History');
+
+    // Skip background polling when idle to save resources unless history is actively being viewed
+    if (!isHistoryOpen && (document.visibilityState === 'hidden' || !document.hasFocus())) {
+      return;
+    }
+
+    isSyncingAcp = true;
+    try {
+      if (isHistoryOpen) {
+        await refreshHistoryModalList();
+      } else if (currentSessionId && currentSessionIsRemote) {
+        const res = await window.agentOverlay.loadRemoteSession(currentSessionId);
+        if (res.ok && res.turns && res.turns.length > turns.length) {
+          turns = structuredClone(res.turns);
+          rebuildMessagesList();
+          const serverName = getConnectedServerLabel();
+          showNotice(`Synced ${turns.length} turn(s) from ${serverName}`);
+        }
+      }
+    } catch {
+      // ignore periodic sync errors
+    } finally {
+      isSyncingAcp = false;
+    }
+  }, 7500); // Periodic sync interval between 5-10s (7.5s)
+}
+
+let lastFocusSync = 0;
   window.addEventListener('focus', async () => {
-    if (isStreaming || !currentSessionId) return;
+    if (isStreaming || !currentSessionId || !currentSessionIsRemote) return;
     const now = Date.now();
     if (now - lastFocusSync < 10_000) return;
     lastFocusSync = now;
@@ -3776,13 +3835,15 @@ async function bootstrap(): Promise<void> {
       if (res.ok && res.turns && res.turns.length > turns.length) {
         turns = structuredClone(res.turns);
         rebuildMessagesList();
-        showNotice(`Synced ${turns.length} turn(s) from OpenCode`);
+        const serverName = getConnectedServerLabel();
+        showNotice(`Synced ${turns.length} turn(s) from ${serverName}`);
       }
     } catch {
       // ignore
     }
   });
 
+  startPeriodicAcpSync();
   composerInput.focus();
 
   if (window.location.search.includes('audit=1')) {

@@ -283,7 +283,7 @@ export class AcpAgentController {
         },
         clientInfo: {
           name: 'chat-overlay',
-          version: '3.2.7',
+          version: '3.2.8',
         },
       }, 20_000);
       if (gen !== this.warmupSeq) return this.catalog;
@@ -697,6 +697,7 @@ export class AcpAgentController {
     sessionId: string,
   ): Promise<{ ok: boolean; turns?: StoredTurn[]; error?: string }> {
     if (!this.proc) return { ok: false, error: 'No ACP process running' };
+    const prevSessionId = this.catalog.sessionId;
     try {
       this.sessionLoading = true;
       this.replayedTurns = [];
@@ -718,11 +719,34 @@ export class AcpAgentController {
       }
       return { ok: true, turns: this.replayedTurns };
     } catch (err) {
-      this.catalog.sessionId = null;
+      this.catalog.sessionId = prevSessionId;
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     } finally {
       this.sessionLoading = false;
       this.currentReplayedTurn = null;
+    }
+  }
+
+  async deleteRemoteSession(sessionId: string): Promise<boolean> {
+    if (this.catalog.sessionId === sessionId) {
+      this.catalog.sessionId = null;
+    }
+    if (!this.proc) return false;
+    try {
+      await this.sendRpc('session/delete', { sessionId, cwd: this.currentWorkspace }, 3000);
+      return true;
+    } catch {
+      try {
+        await this.sendRpc('session/delete', { sessionId }, 3000);
+        return true;
+      } catch {
+        try {
+          await this.sendRpc('session/remove', { sessionId, cwd: this.currentWorkspace }, 3000);
+          return true;
+        } catch {
+          return false;
+        }
+      }
     }
   }
 

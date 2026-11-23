@@ -44,6 +44,7 @@ import {
   deleteSessionRecord,
   inspectHarnesses,
   installHarnessPackage,
+  loadDeletedSessionIds,
   loadSessions,
   loadSettings,
   saveSessionRecord,
@@ -902,14 +903,15 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('sessions:list', async () => {
-    const local = loadSessions();
+    const deletedIds = loadDeletedSessionIds();
+    const local = loadSessions().filter((s) => !deletedIds.has(s.id));
     try {
       const remotes = await acpController.listRemoteSessions();
       if (remotes.length > 0) {
         const localIds = new Set(local.map((s) => s.id));
         const merged = [...local];
         for (const rem of remotes) {
-          if (!localIds.has(rem.id)) {
+          if (!localIds.has(rem.id) && !deletedIds.has(rem.id)) {
             merged.push({
               id: rem.id,
               title: rem.title,
@@ -917,6 +919,7 @@ function registerIpcHandlers(): void {
               workspaceDir: settings.workspaceDir,
               updatedAt: rem.updatedAt,
               turns: [],
+              isRemote: true,
             });
           }
         }
@@ -950,7 +953,18 @@ function registerIpcHandlers(): void {
     return res;
   });
   ipcMain.handle('sessions:save', (_ev, session: SavedSession) => saveSessionRecord(session));
-  ipcMain.handle('sessions:delete', (_ev, id: string) => deleteSessionRecord(id));
+  ipcMain.handle('sessions:delete', async (_ev, id: string) => {
+    const wasActive = acpController.getCatalog().sessionId === id;
+    try {
+      await acpController.deleteRemoteSession(id);
+    } catch {
+      // ignore
+    }
+    if (wasActive) {
+      await acpController.warmup(settings);
+    }
+    return deleteSessionRecord(id);
+  });
   ipcMain.handle('speech:transcribe', (_ev, audioData: any) =>
     transcribeAudio(audioData, settings, (token, text) => {
       mainWindow?.webContents.send('speech:progress', { token, text });
