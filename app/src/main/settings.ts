@@ -3,7 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { AppSettings, HarnessDiagnostic, HarnessKind, SavedSession } from '../shared/types';
+import type {
+  AppSettings,
+  HarnessDiagnostic,
+  HarnessKind,
+  SavedSession,
+  SessionCatalog,
+} from '../shared/types';
 import { HARNESS_LIST } from '../shared/types';
 
 const execFileAsync = promisify(execFile);
@@ -438,4 +444,94 @@ export function deleteSessionRecord(sessionId: string): SavedSession[] {
   fs.mkdirSync(configDir(), { recursive: true });
   fs.writeFileSync(sessionsFilePath(), JSON.stringify(next, null, 2), 'utf8');
   return next;
+}
+
+export function renameSessionRecord(sessionId: string, newTitle: string): SavedSession[] {
+  const clean = newTitle.trim();
+  if (!clean) return loadSessions();
+  saveSessionTitleOverride(sessionId, clean);
+  const sessions = loadSessions();
+  let changed = false;
+  const next = sessions.map((s) => {
+    if (s.id === sessionId) {
+      changed = true;
+      return { ...s, title: clean };
+    }
+    return s;
+  });
+  if (changed) {
+    fs.mkdirSync(configDir(), { recursive: true });
+    fs.writeFileSync(sessionsFilePath(), JSON.stringify(next, null, 2), 'utf8');
+  }
+  return next;
+}
+
+export function sessionTitleOverridesFilePath(): string {
+  return path.join(configDir(), 'session_titles.json');
+}
+
+export function loadSessionTitleOverrides(): Record<string, string> {
+  try {
+    const raw = readWithMigration('session_titles.json');
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveSessionTitleOverride(sessionId: string, title: string): void {
+  try {
+    const map = loadSessionTitleOverrides();
+    map[sessionId] = title.trim();
+    fs.mkdirSync(configDir(), { recursive: true });
+    fs.writeFileSync(sessionTitleOverridesFilePath(), JSON.stringify(map, null, 2), 'utf8');
+  } catch {
+    // ignore
+  }
+}
+
+export function catalogCacheFilePath(): string {
+  return path.join(configDir(), 'catalog_cache.json');
+}
+
+export function loadCachedCatalog(harness: HarnessKind): Partial<SessionCatalog> | null {
+  try {
+    const raw = readWithMigration('catalog_cache.json');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, Partial<SessionCatalog>>;
+    const entry = parsed?.[harness];
+    if (entry && Array.isArray(entry.models) && entry.models.length > 0) {
+      return entry;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCachedCatalog(harness: HarnessKind, catalog: SessionCatalog): void {
+  try {
+    if (!catalog.models || catalog.models.length === 0) return;
+    let map: Record<string, Partial<SessionCatalog>> = {};
+    try {
+      const raw = readWithMigration('catalog_cache.json');
+      if (raw) map = JSON.parse(raw);
+    } catch {
+      map = {};
+    }
+    map[harness] = {
+      models: catalog.models,
+      currentModel: catalog.currentModel,
+      thinking: catalog.thinking,
+      modes: catalog.modes,
+      currentMode: catalog.currentMode,
+      commands: catalog.commands,
+    };
+    fs.mkdirSync(configDir(), { recursive: true });
+    fs.writeFileSync(catalogCacheFilePath(), JSON.stringify(map, null, 2), 'utf8');
+  } catch {
+    // ignore
+  }
 }

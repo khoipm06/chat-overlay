@@ -36,10 +36,14 @@ import {
   defaultSettings,
   defaultWorkspaceDir,
   deleteSessionRecord,
+  loadCachedCatalog,
   loadDeletedSessionIds,
+  loadSessionTitleOverrides,
   loadSessions,
   recordDeletedSessionId,
+  renameSessionRecord,
   resolveHarnessLaunch,
+  saveCachedCatalog,
   saveSessionRecord,
   syncLinuxAutostartDesktopFile,
   unmarkDeletedSessionId,
@@ -1168,5 +1172,119 @@ describe('ACP question tool, shell output & settings updates', () => {
     // Confirm .tool-vis-code div styling
     expect(cssContent).toContain('.tool-vis-code div {');
     expect(cssContent).toMatch(/\.tool-vis-code div\s*\{[^}]*line-height:\s*1\.5;/);
+
+    // Confirm .preview-image zoom & drag CSS rules avoid size jumps and transition lag
+    expect(cssContent).not.toMatch(/\.preview-image\.is-zoomed\s*\{[^}]*max-width:\s*none/);
+    expect(cssContent).toMatch(/\.preview-image\.is-zoomed\.is-dragging\s*\{[^}]*transition:\s*none/);
+  });
+
+  it('detaches active ACP session lazily without killing controller state', async () => {
+    const controller = new AcpAgentController(
+      defaultSettings(),
+      () => {},
+      () => {},
+    );
+    (controller as any).catalog.status = 'ready';
+    (controller as any).catalog.sessionId = 'ses_detach_test';
+    (controller as any).sessionAllowedTools.add('read_file');
+
+    const next = await controller.detachActiveSession();
+    expect(next.sessionId).toBeNull();
+    expect(next.status).toBe('ready');
+    expect((controller as any).sessionAllowedTools.size).toBe(0);
+  });
+
+  it('coalesces consecutive user_message_chunk updates for the same messageId during session replay', () => {
+    const controller = new AcpAgentController(
+      defaultSettings(),
+      () => {},
+      () => {},
+    );
+    (controller as any).sessionLoading = true;
+    (controller as any).catalog.sessionId = 'ses_replay_test';
+
+    (controller as any).handleNotification('session/update', {
+      sessionId: 'ses_replay_test',
+      update: {
+        sessionUpdate: 'user_message_chunk',
+        messageId: 'msg_1',
+        content: { type: 'text', text: 'Hello ' },
+      },
+    });
+    (controller as any).handleNotification('session/update', {
+      sessionId: 'ses_replay_test',
+      update: {
+        sessionUpdate: 'user_message_chunk',
+        messageId: 'msg_1',
+        content: { type: 'text', text: 'world!' },
+      },
+    });
+    (controller as any).handleNotification('session/update', {
+      sessionId: 'ses_replay_test',
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'Hi there.' },
+      },
+    });
+
+    const turns = (controller as any).replayedTurns;
+    const current = (controller as any).currentReplayedTurn;
+    expect(turns.length).toBe(0);
+    expect(current.userText).toBe('Hello world!');
+    expect(current.assistantMarkdown).toBe('Hi there.');
+  });
+
+  it('persists session renames, title overrides, and cached model catalogs', () => {
+    const tmpCfg = fs.mkdtempSync(path.join(os.tmpdir(), 'co-cfg-'));
+    const prevXdg = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = tmpCfg;
+    try {
+      const id = `ses_rename_${Date.now()}`;
+      saveSessionRecord({
+        id,
+        title: 'Original Title',
+        harness: 'opencode_acp',
+        workspaceDir: '/tmp',
+        updatedAt: Date.now(),
+        turns: [
+          {
+            id: 't1',
+            userText: 'hi',
+            attachments: [],
+            thinkingText: '',
+            thinkingDurationMs: 0,
+            tools: [],
+            assistantMarkdown: 'hello',
+          },
+        ],
+      });
+      renameSessionRecord(id, 'Renamed Conversation');
+      const overrides = loadSessionTitleOverrides();
+      expect(overrides[id]).toBe('Renamed Conversation');
+      const loaded = loadSessions().find((s) => s.id === id);
+      expect(loaded?.title).toBe('Renamed Conversation');
+      deleteSessionRecord(id);
+
+      const sampleCatalog = {
+        harness: 'opencode_acp' as const,
+        status: 'ready' as const,
+        statusMessage: 'Ready',
+        sessionId: 'ses_tmp',
+        models: [{ id: 'model-a', name: 'Model A' }],
+        currentModel: 'model-a',
+        thinking: { configId: null, supported: false, currentValue: '', options: [] },
+        modes: [{ id: 'build', name: 'Build' }],
+        currentMode: 'build',
+        commands: [],
+      };
+      saveCachedCatalog('opencode_acp', sampleCatalog);
+      const cached = loadCachedCatalog('opencode_acp');
+      expect(cached?.models?.length).toBeGreaterThan(0);
+      expect(cached?.currentModel).toBe('model-a');
+    } finally {
+      if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = prevXdg;
+      fs.rmSync(tmpCfg, { recursive: true, force: true });
+    }
   });
 });

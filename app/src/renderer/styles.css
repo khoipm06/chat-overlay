@@ -2208,6 +2208,30 @@ body {
   background: var(--hover);
 }
 
+.history-item.active {
+  border-color: var(--accent);
+  background: rgba(0, 120, 212, 0.12);
+}
+
+.history-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.history-rename-input {
+  width: 100%;
+  min-width: 120px;
+  padding: 2px 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-strong);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}
+
 /* Clipboard Companion Quick Action Bar */
 .clipboard-actions-bar {
   display: flex;
@@ -2623,20 +2647,21 @@ body {
   max-width: 100%;
   max-height: 62vh;
   object-fit: contain;
-  transition: transform 0.06s ease-out;
+  transition: transform 0.08s ease-out;
   pointer-events: auto;
   cursor: zoom-in;
   transform-origin: center center;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .preview-image.is-zoomed {
   cursor: grab;
-  max-width: none;
-  max-height: none;
 }
 
 .preview-image.is-zoomed.is-dragging {
   cursor: grabbing;
+  transition: none !important;
   user-select: none;
 }
 

@@ -141,8 +141,9 @@ interface QueuedPrompt {
   steer: boolean;
 }
 
-let currentSessionId = `ses_${Date.now()}`;
+let currentSessionId: string | null = null;
 let currentSessionIsRemote = false;
+let currentSessionUpdatedAt = 0;
 let currentSessionTitle = 'New chat';
 let currentSessionWorkspaceDir = '';
 let gitGlance: GitGlance = {
@@ -184,6 +185,7 @@ interface ActiveSegmentDom {
   element: HTMLElement;
   triggerText?: HTMLElement;
   body?: HTMLElement;
+  scrollToBottomIfFollowing?: () => void;
   thoughtStartedAt?: number;
   durationMs?: number;
   markdownRaw?: string;
@@ -526,76 +528,128 @@ async function openContextPreview(target: PreviewTarget): Promise<void> {
     img.src = target.dataUrl;
     img.className = 'preview-image';
     img.alt = target.name;
+    img.draggable = false;
+    img.addEventListener('dragstart', (e) => e.preventDefault());
     viewport.appendChild(img);
     previewDialogBody.appendChild(viewport);
 
-    let isZoomed = false;
+    let zoom = 1;
     let panX = 0;
     let panY = 0;
     let isDragging = false;
-    let startX = 0;
-    let startY = 0;
+    let didDrag = false;
+    let pointerDownX = 0;
+    let pointerDownY = 0;
+    let startPanX = 0;
+    let startPanY = 0;
 
-    const updateTransform = () => {
-      if (isZoomed) {
-        img.style.transform = `scale(2.5) translate(${panX / 2.5}px, ${panY / 2.5}px)`;
+    const clampPan = () => {
+      if (zoom <= 1) {
+        panX = 0;
+        panY = 0;
+        return;
+      }
+      const vw = viewport.clientWidth;
+      const vh = viewport.clientHeight;
+      const bw = img.offsetWidth;
+      const bh = img.offsetHeight;
+      const maxPanX = Math.max(0, (bw * zoom - vw) / 2 + 40);
+      const maxPanY = Math.max(0, (bh * zoom - vh) / 2 + 40);
+      panX = Math.min(maxPanX, Math.max(-maxPanX, panX));
+      panY = Math.min(maxPanY, Math.max(-maxPanY, panY));
+    };
+
+    const updateZoomUi = () => {
+      const zoomed = zoom > 1.01;
+      img.classList.toggle('is-zoomed', zoomed);
+      if (zoomed) {
+        clampPan();
+        img.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+        previewZoomLabel.textContent = 'Fit (1x)';
+        if (zoomIcon) zoomIcon.className = 'codicon codicon-zoom-out';
       } else {
+        zoom = 1;
+        panX = 0;
+        panY = 0;
+        img.classList.remove('is-zoomed', 'is-dragging');
         img.style.transform = 'none';
+        previewZoomLabel.textContent = 'Zoom 2.5x';
+        if (zoomIcon) zoomIcon.className = 'codicon codicon-zoom-in';
       }
     };
 
     const toggleZoom = () => {
-      isZoomed = !isZoomed;
-      if (isZoomed) {
-        img.classList.add('is-zoomed');
-        previewZoomLabel.textContent = 'Fit (1x)';
-        if (zoomIcon) zoomIcon.className = 'codicon codicon-zoom-out';
-      } else {
-        isZoomed = false;
+      zoom = zoom > 1.01 ? 1 : 2.5;
+      if (zoom === 1) {
         panX = 0;
         panY = 0;
-        img.classList.remove('is-zoomed', 'is-dragging');
-        previewZoomLabel.textContent = 'Zoom 2.5x';
-        if (zoomIcon) zoomIcon.className = 'codicon codicon-zoom-in';
       }
-      updateTransform();
+      updateZoomUi();
     };
 
     activePreviewZoomToggle = toggleZoom;
 
-    // Pointer events for 2D Panning (Modern Web Guidance compliant)
-    img.addEventListener('pointerdown', (e: PointerEvent) => {
-      if (!isZoomed) {
-        toggleZoom();
-        return;
+    viewport.addEventListener('pointerdown', (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      didDrag = false;
+      pointerDownX = e.clientX;
+      pointerDownY = e.clientY;
+      startPanX = panX;
+      startPanY = panY;
+      if (zoom > 1.01) {
+        isDragging = true;
+        img.classList.add('is-dragging');
+        try {
+          viewport.setPointerCapture(e.pointerId);
+        } catch {
+          // ignore
+        }
       }
-      isDragging = true;
-      startX = e.clientX - panX;
-      startY = e.clientY - panY;
-      img.setPointerCapture(e.pointerId);
-      img.classList.add('is-dragging');
     });
 
-    img.addEventListener('pointermove', (e: PointerEvent) => {
-      if (!isDragging || !isZoomed) return;
-      panX = e.clientX - startX;
-      panY = e.clientY - startY;
-      updateTransform();
+    viewport.addEventListener('pointermove', (e: PointerEvent) => {
+      if (!isDragging || zoom <= 1.01) return;
+      const dx = e.clientX - pointerDownX;
+      const dy = e.clientY - pointerDownY;
+      if (Math.hypot(dx, dy) > 4) {
+        didDrag = true;
+      }
+      panX = startPanX + dx;
+      panY = startPanY + dy;
+      updateZoomUi();
     });
 
     const stopDrag = (e: PointerEvent) => {
-      if (!isDragging) return;
-      isDragging = false;
-      img.classList.remove('is-dragging');
-      try {
-        img.releasePointerCapture(e.pointerId);
-      } catch {
-        // pointer capture release fallback
+      const wasDragging = isDragging;
+      if (isDragging) {
+        isDragging = false;
+        img.classList.remove('is-dragging');
+        try {
+          viewport.releasePointerCapture(e.pointerId);
+        } catch {
+          // ignore
+        }
+      }
+      if (e.type === 'pointerup' && !didDrag) {
+        if (!wasDragging || zoom > 1.01) {
+          toggleZoom();
+        }
       }
     };
 
-    img.addEventListener('pointerup', stopDrag);
-    img.addEventListener('pointercancel', stopDrag);
+    viewport.addEventListener('pointerup', stopDrag);
+    viewport.addEventListener('pointercancel', stopDrag);
+    viewport.addEventListener(
+      'wheel',
+      (e: WheelEvent) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+        zoom = Math.min(5, Math.max(1, Number((zoom * factor).toFixed(2))));
+        updateZoomUi();
+      },
+      { passive: false },
+    );
 
     activePreviewCopyHandler = async () => {
       await window.agentOverlay.copyImageToClipboard(target.dataUrl!);
@@ -909,12 +963,15 @@ function rebuildMessagesList(): void {
 }
 
 async function persistCurrentSession(): Promise<void> {
+  if (!currentSessionId || turns.length === 0) return;
+  const now = Date.now();
+  currentSessionUpdatedAt = now;
   await window.agentOverlay.saveSession({
     id: currentSessionId,
     title: currentSessionTitle,
     harness: catalog.harness,
-    workspaceDir: settings.workspaceDir,
-    updatedAt: Date.now(),
+    workspaceDir: currentSessionWorkspaceDir || settings.workspaceDir,
+    updatedAt: now,
     turns,
   });
 }
@@ -925,6 +982,7 @@ function createThinkingDisclosureDom(initialTriggerText: string, bodyText = ''):
   chevron: HTMLElement;
   triggerText: HTMLElement;
   body: HTMLElement;
+  scrollToBottomIfFollowing: () => void;
 } {
   const disclosure = document.createElement('div');
   disclosure.className = 'disclosure';
@@ -939,14 +997,31 @@ function createThinkingDisclosureDom(initialTriggerText: string, bodyText = ''):
   const body = document.createElement('div');
   body.className = 'disclosure-body hidden';
   body.textContent = bodyText;
+
+  let autoFollow = true;
+  body.addEventListener('scroll', () => {
+    const nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight <= 24;
+    autoFollow = nearBottom;
+  });
+
+  const scrollToBottomIfFollowing = () => {
+    if (!body.classList.contains('hidden') && autoFollow) {
+      body.scrollTop = body.scrollHeight;
+    }
+  };
+
   trigger.addEventListener('click', () => {
-    const open = body.classList.toggle('hidden');
-    chevron.className = open
-      ? 'codicon codicon-chevron-down'
-      : 'codicon codicon-chevron-right';
+    const isHidden = body.classList.toggle('hidden');
+    chevron.className = isHidden
+      ? 'codicon codicon-chevron-right'
+      : 'codicon codicon-chevron-down';
+    if (!isHidden) {
+      autoFollow = true;
+      body.scrollTop = body.scrollHeight;
+    }
   });
   disclosure.append(trigger, body);
-  return { root: disclosure, trigger, chevron, triggerText, body };
+  return { root: disclosure, trigger, chevron, triggerText, body, scrollToBottomIfFollowing };
 }
 
 function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
@@ -1493,8 +1568,9 @@ async function startNewConversation(): Promise<void> {
   undoStack = [];
   redoStack = [];
   pendingAttachments = [];
-  currentSessionId = `ses_${Date.now()}`;
+  currentSessionId = null;
   currentSessionIsRemote = false;
+  currentSessionUpdatedAt = 0;
   currentSessionTitle = 'New chat';
   sessionTitleChip.textContent = 'New chat';
   currentSessionWorkspaceDir = settings?.workspaceDir || currentSessionWorkspaceDir;
@@ -1597,6 +1673,10 @@ function handleStreamEvent(ev: StreamEvent): void {
   switch (ev.type) {
     case 'catalog':
       catalog = ev.catalog;
+      if (ev.catalog.sessionId && (!currentSessionId || isStreaming)) {
+        currentSessionId = ev.catalog.sessionId;
+        currentSessionIsRemote = true;
+      }
       renderHeaderAndPickers();
       break;
     case 'status':
@@ -1645,10 +1725,12 @@ function handleStreamEvent(ev: StreamEvent): void {
           element: disc.root,
           triggerText: disc.triggerText,
           body: disc.body,
+          scrollToBottomIfFollowing: disc.scrollToBottomIfFollowing,
           thoughtStartedAt: Date.now(),
           markdownRaw: ev.text,
         };
         disc.body.textContent = ev.text;
+        disc.scrollToBottomIfFollowing();
         activeTurn.activeSegments.push(segDom);
         activeTurn.currentThinkingSegment = segDom;
         activeTurn.currentTextSegment = null;
@@ -1659,6 +1741,7 @@ function handleStreamEvent(ev: StreamEvent): void {
           (activeTurn.currentThinkingSegment.markdownRaw || '') + ev.text;
         activeTurn.currentThinkingSegment.body!.textContent =
           activeTurn.currentThinkingSegment.markdownRaw;
+        activeTurn.currentThinkingSegment.scrollToBottomIfFollowing?.();
         const lastSeg = activeTurn.turn.segments?.[activeTurn.turn.segments.length - 1];
         if (lastSeg && lastSeg.kind === 'thought') {
           lastSeg.text = activeTurn.currentThinkingSegment.markdownRaw;
@@ -2113,14 +2196,22 @@ function handleStreamEvent(ev: StreamEvent): void {
           'hidden',
           !/\[\[markup:/i.test(activeTurn.turn.assistantMarkdown),
         );
-        void window.agentOverlay.saveSession({
-          id: currentSessionId,
-          title: currentSessionTitle,
-          harness: catalog.harness,
-          workspaceDir: currentSessionWorkspaceDir || settings.workspaceDir,
-          updatedAt: Date.now(),
-          turns,
-        });
+        if (!currentSessionId && catalog.sessionId) {
+          currentSessionId = catalog.sessionId;
+          currentSessionIsRemote = true;
+        }
+        if (currentSessionId && turns.length > 0) {
+          const now = Date.now();
+          currentSessionUpdatedAt = now;
+          void window.agentOverlay.saveSession({
+            id: currentSessionId,
+            title: currentSessionTitle,
+            harness: catalog.harness,
+            workspaceDir: currentSessionWorkspaceDir || settings.workspaceDir,
+            updatedAt: now,
+            turns,
+          });
+        }
         activeTurn = null;
       }
       if (settings.soundCues && !window.location.search.includes('audit=1')) {
@@ -2431,7 +2522,10 @@ function getConnectedServerLabel(harnessId?: string): string {
   return match ? match.label.replace(/\s*\(ACP\)$/i, '') : 'ACP Server';
 }
 
+let isRenamingHistorySession = false;
+
 async function renderHistoryList(container: HTMLElement): Promise<void> {
+  if (isRenamingHistorySession) return;
   const sessions = await window.agentOverlay.listSessions();
   container.innerHTML = '';
 
@@ -2445,8 +2539,9 @@ async function renderHistoryList(container: HTMLElement): Promise<void> {
 
   for (const s of sessions) {
     const row = document.createElement('div');
-    row.className = 'history-item';
+    row.className = `history-item${s.id === currentSessionId ? ' active' : ''}`;
     const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0;';
     const hTitle = document.createElement('div');
     hTitle.style.cssText =
       'font-weight:500;color:var(--text-strong);display:flex;align-items:center;gap:6px;';
@@ -2454,12 +2549,80 @@ async function renderHistoryList(container: HTMLElement): Promise<void> {
     const badge = s.isRemote
       ? `<span style="font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(0,120,212,0.2);color:#7cc4fa;">${escapeHtmlText(serverName)} ACP</span>`
       : '';
-    hTitle.innerHTML = `<span>${escapeHtmlText(s.title || 'Untitled Session')}</span>${badge}`;
+    const titleSpan = document.createElement('span');
+    titleSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    titleSpan.textContent = s.title || 'Untitled Session';
+    hTitle.appendChild(titleSpan);
+    if (badge) {
+      const badgeWrap = document.createElement('span');
+      badgeWrap.innerHTML = badge;
+      hTitle.appendChild(badgeWrap.firstElementChild!);
+    }
+
     const hMeta = document.createElement('div');
     hMeta.style.cssText = 'font-size:11px;color:var(--text-muted);';
     const turnCount = s.turns?.length ?? 0;
-    hMeta.textContent = `${escapeHtmlText(serverName)} · ${turnCount} turn${turnCount === 1 ? '' : 's'} · ${new Date(s.updatedAt).toLocaleString()}`;
+    const countLabel =
+      turnCount > 0
+        ? `${turnCount} turn${turnCount === 1 ? '' : 's'}`
+        : s.isRemote
+          ? 'ACP session'
+          : '0 turns';
+    hMeta.textContent = `${serverName} · ${countLabel} · ${new Date(s.updatedAt).toLocaleString()}`;
     info.append(hTitle, hMeta);
+
+    const actions = document.createElement('div');
+    actions.className = 'history-item-actions';
+
+    const renameBtn = document.createElement('button');
+    renameBtn.type = 'button';
+    renameBtn.className = 'icon-btn';
+    renameBtn.title = 'Rename conversation';
+    renameBtn.innerHTML = '<i class="codicon codicon-edit"></i>';
+    renameBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isRenamingHistorySession) return;
+      isRenamingHistorySession = true;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'history-rename-input';
+      input.value = s.title || 'Untitled Session';
+      hTitle.innerHTML = '';
+      hTitle.appendChild(input);
+      input.focus();
+      input.select();
+
+      let finished = false;
+      const finish = async (save: boolean) => {
+        if (finished) return;
+        finished = true;
+        isRenamingHistorySession = false;
+        const nextTitle = input.value.trim();
+        if (save && nextTitle && nextTitle !== s.title) {
+          await window.agentOverlay.renameSession(s.id, nextTitle);
+          if (s.id === currentSessionId) {
+            currentSessionTitle = nextTitle;
+            sessionTitleChip.textContent = nextTitle;
+          }
+          showNotice('Session renamed');
+        }
+        await refreshHistoryModalList();
+      };
+
+      input.addEventListener('click', (ev) => ev.stopPropagation());
+      input.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          void finish(true);
+        } else if (ev.key === 'Escape') {
+          ev.preventDefault();
+          void finish(false);
+        }
+      });
+      input.addEventListener('blur', () => void finish(true));
+    });
+
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'icon-btn';
@@ -2476,8 +2639,10 @@ async function renderHistoryList(container: HTMLElement): Promise<void> {
       showNotice('Session deleted');
     });
 
+    actions.append(renameBtn, delBtn);
+
     row.addEventListener('click', async () => {
-      if (isStreaming) return;
+      if (isStreaming || isRenamingHistorySession) return;
       if (s.isRemote) {
         showNotice(`Syncing remote session from ${serverName}...`);
         const res = await window.agentOverlay.loadRemoteSession(s.id);
@@ -2488,14 +2653,17 @@ async function renderHistoryList(container: HTMLElement): Promise<void> {
         if (res.turns) {
           s.turns = res.turns;
         }
+        needsContextReplay = false;
+      } else {
+        needsContextReplay = (s.turns?.length ?? 0) > 0;
       }
       currentSessionId = s.id;
       currentSessionIsRemote = Boolean(s.isRemote);
+      currentSessionUpdatedAt = s.updatedAt;
       currentSessionTitle = s.title;
       currentSessionWorkspaceDir = s.workspaceDir || settings.workspaceDir;
       sessionTitleChip.textContent = s.title;
       turns = structuredClone(s.turns || []);
-      needsContextReplay = turns.length > 0;
       undoStack = [];
       redoStack = [];
       rebuildMessagesList();
@@ -2504,7 +2672,7 @@ async function renderHistoryList(container: HTMLElement): Promise<void> {
       closeModal();
     });
 
-    row.append(info, delBtn);
+    row.append(info, actions);
     container.appendChild(row);
   }
 }
@@ -3793,7 +3961,7 @@ let isSyncingAcp = false;
 function startPeriodicAcpSync(): void {
   if (acpSyncTimer) clearInterval(acpSyncTimer);
   acpSyncTimer = setInterval(async () => {
-    if (isStreaming || isSyncingAcp) return;
+    if (isStreaming || isSyncingAcp || isRenamingHistorySession) return;
     const isHistoryOpen =
       !modalBackdrop.classList.contains('hidden') &&
       modalTitle.textContent?.includes('Conversation History');
@@ -3808,12 +3976,22 @@ function startPeriodicAcpSync(): void {
       if (isHistoryOpen) {
         await refreshHistoryModalList();
       } else if (currentSessionId && currentSessionIsRemote) {
-        const res = await window.agentOverlay.loadRemoteSession(currentSessionId);
-        if (res.ok && res.turns && res.turns.length > turns.length) {
-          turns = structuredClone(res.turns);
-          rebuildMessagesList();
-          const serverName = getConnectedServerLabel();
-          showNotice(`Synced ${turns.length} turn(s) from ${serverName}`);
+        // Lightweight session/list check first; only run heavy session/load replay when timestamp advances
+        const list = await window.agentOverlay.listSessions();
+        const remoteMeta = list.find((item) => item.id === currentSessionId);
+        if (remoteMeta && remoteMeta.updatedAt > currentSessionUpdatedAt) {
+          const res = await window.agentOverlay.loadRemoteSession(currentSessionId);
+          currentSessionUpdatedAt = remoteMeta.updatedAt;
+          if (res.ok && res.turns && res.turns.length >= turns.length) {
+            turns = structuredClone(res.turns);
+            if (remoteMeta.title && remoteMeta.title !== currentSessionTitle) {
+              currentSessionTitle = remoteMeta.title;
+              sessionTitleChip.textContent = remoteMeta.title;
+            }
+            rebuildMessagesList();
+            const serverName = getConnectedServerLabel();
+            showNotice(`Synced ${turns.length} turn(s) from ${serverName}`);
+          }
         }
       }
     } catch {
@@ -3831,12 +4009,17 @@ let lastFocusSync = 0;
     if (now - lastFocusSync < 10_000) return;
     lastFocusSync = now;
     try {
-      const res = await window.agentOverlay.loadRemoteSession(currentSessionId);
-      if (res.ok && res.turns && res.turns.length > turns.length) {
-        turns = structuredClone(res.turns);
-        rebuildMessagesList();
-        const serverName = getConnectedServerLabel();
-        showNotice(`Synced ${turns.length} turn(s) from ${serverName}`);
+      const list = await window.agentOverlay.listSessions();
+      const remoteMeta = list.find((item) => item.id === currentSessionId);
+      if (remoteMeta && remoteMeta.updatedAt > currentSessionUpdatedAt) {
+        const res = await window.agentOverlay.loadRemoteSession(currentSessionId);
+        currentSessionUpdatedAt = remoteMeta.updatedAt;
+        if (res.ok && res.turns && res.turns.length >= turns.length) {
+          turns = structuredClone(res.turns);
+          rebuildMessagesList();
+          const serverName = getConnectedServerLabel();
+          showNotice(`Synced ${turns.length} turn(s) from ${serverName}`);
+        }
       }
     } catch {
       // ignore
