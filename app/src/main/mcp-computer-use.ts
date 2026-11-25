@@ -1785,7 +1785,7 @@ function startStdioMcpServer(): void {
           },
           serverInfo: {
             name: 'computer-use',
-            version: '4.0.0',
+            version: '4.0.1',
           },
         },
       });

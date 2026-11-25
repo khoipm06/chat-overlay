@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AppSettings, SpeechMode } from '../shared/types';
-import { bundledBinDir } from './app-paths';
 import { configDir } from './settings';
 import {
   ensureManagedWhisperServer,
@@ -102,6 +101,75 @@ export function resolveOpenAiKey(): string | null {
   return null;
 }
 
+export function voiceConfigFilePath(): string {
+  return path.join(configDir(), 'voice.json');
+}
+
+export function saveCloudSpeechKey(
+  provider: 'gemini' | 'openai',
+  apiKey: string,
+): { ok: boolean; error?: string } {
+  const cleaned = apiKey.trim();
+  if (!cleaned) {
+    return { ok: false, error: 'API key cannot be empty.' };
+  }
+  const target = voiceConfigFilePath();
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(target)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+      if (parsed && typeof parsed === 'object') {
+        existing = parsed as Record<string, unknown>;
+      }
+    } catch {
+      existing = {};
+    }
+  }
+  if (provider === 'gemini') {
+    existing.geminiApiKey = cleaned;
+  } else {
+    existing.openaiApiKey = cleaned;
+  }
+  fs.mkdirSync(configDir(), { recursive: true });
+  const tmpTarget = `${target}.tmp`;
+  fs.writeFileSync(tmpTarget, JSON.stringify(existing, null, 2), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  fs.renameSync(tmpTarget, target);
+  if (process.platform !== 'win32') {
+    try {
+      fs.chmodSync(target, 0o600);
+    } catch {
+      // ignore on filesystems without POSIX perms
+    }
+  }
+  return { ok: true };
+}
+
+export function clearCloudSpeechKey(provider: 'gemini' | 'openai'): boolean {
+  const target = voiceConfigFilePath();
+  if (!fs.existsSync(target)) return false;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return false;
+    const obj = parsed as Record<string, unknown>;
+    if (provider === 'gemini') {
+      delete obj.apiKey;
+      delete obj.geminiApiKey;
+    } else {
+      delete obj.openaiApiKey;
+      delete obj.openaiKey;
+    }
+    const tmpTarget = `${target}.tmp`;
+    fs.writeFileSync(tmpTarget, JSON.stringify(obj, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmpTarget, target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function cleanAudioMimeType(rawMime: string): string {
   if (!rawMime) return 'audio/webm';
   const base = rawMime.split(';')[0].trim().toLowerCase();
@@ -162,9 +230,8 @@ export function findExecutableInPath(names: string[]): string | null {
     path.join(os.homedir(), 'anaconda3', 'bin'),
     '/home/linuxbrew/.linuxbrew/bin',
   ];
-  const bundled = bundledBinDir();
   const searchDirs = Array.from(
-    new Set([...(bundled ? [bundled] : []), speechBinDir(), ...pathEnv.split(delimiter).filter(Boolean), ...standardDirs]),
+    new Set([speechBinDir(), ...pathEnv.split(delimiter).filter(Boolean), ...standardDirs]),
   );
 
   for (const name of names) {
@@ -705,7 +772,7 @@ export async function detectLocalSpeechBackend(
   }
 
   const whisperCpp = findExecutableInPath(['whisper-server', 'whisper-cli', 'whisper-cpp', 'whisper.cpp']);
-  if (whisperCpp) {
+  if (whisperCpp && !whisperCpp.includes('/tmp/.mount_')) {
     return { available: true, engine: path.basename(whisperCpp), target: whisperCpp };
   }
 

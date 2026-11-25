@@ -20,6 +20,7 @@ import path from 'node:path';
 import type {
   AppSettings,
   ChatAttachment,
+  CustomSpeechModelInput,
   DesktopAction,
   FilePreviewResult,
   HarnessKind,
@@ -56,13 +57,21 @@ import {
   saveSettings,
   syncLinuxAutostartDesktopFile,
 } from './settings';
-import { detectLocalSpeechBackend, transcribeAudio } from './speech';
 import {
+  clearCloudSpeechKey,
+  detectLocalSpeechBackend,
+  saveCloudSpeechKey,
+  transcribeAudio,
+} from './speech';
+import {
+  addCustomSpeechModel,
   cancelLocalWhisperInstall,
   deleteLocalWhisperModel,
   getSpeechStatus,
   installLocalWhisper,
   shutdownManagedWhisperServer,
+  uninstallLocalWhisperRuntime,
+  updateCustomSpeechModel,
 } from './speech-manager';
 
 let mainWindow: BrowserWindow | null = null;
@@ -1040,12 +1049,12 @@ function registerIpcHandlers(): void {
   );
   ipcMain.handle('speech:detect-backends', () => detectLocalSpeechBackend(settings));
   ipcMain.handle('speech:status', () => getSpeechStatus(settings));
-  ipcMain.handle('speech:install-model', async (_ev, modelId: 'large-v3-turbo-q5_0' | 'small-q5_1') => {
+  ipcMain.handle('speech:install-model', async (_ev, modelId: string) => {
     const res = await installLocalWhisper(modelId, (progress) => {
       mainWindow?.webContents.send('speech:install-progress', progress);
     });
     if (res.ok) {
-      settings = { ...settings, speechModel: modelId };
+      settings = { ...settings, speechModel: modelId, speechConfigured: true };
       saveSettings(settings);
     }
     return res;
@@ -1053,8 +1062,56 @@ function registerIpcHandlers(): void {
   ipcMain.handle('speech:cancel-install', () => {
     cancelLocalWhisperInstall();
   });
-  ipcMain.handle('speech:delete-model', (_ev, modelId: string) => {
-    return deleteLocalWhisperModel(modelId);
+  ipcMain.handle('speech:select-model', (_ev, modelId: string) => {
+    if (settings.speechModel !== modelId) {
+      shutdownManagedWhisperServer();
+    }
+    settings = { ...settings, speechModel: modelId, speechConfigured: true };
+    saveSettings(settings);
+    return getSpeechStatus(settings);
+  });
+  ipcMain.handle('speech:add-model', (_ev, input: CustomSpeechModelInput) => {
+    return addCustomSpeechModel(input);
+  });
+  ipcMain.handle(
+    'speech:update-model',
+    (_ev, id: string, patch: Partial<CustomSpeechModelInput>) => {
+      return updateCustomSpeechModel(id, patch);
+    },
+  );
+  ipcMain.handle('speech:delete-model', (_ev, modelId: string, removeEntry = false) => {
+    const deleted = deleteLocalWhisperModel(modelId, Boolean(removeEntry));
+    if (settings.speechModel === modelId) {
+      const nextStatus = getSpeechStatus({ ...settings, speechModel: '' });
+      settings = { ...settings, speechModel: nextStatus.activeModelId || '' };
+      saveSettings(settings);
+    }
+    return deleted;
+  });
+  ipcMain.handle('speech:pick-model-file', async (): Promise<string | null> => {
+    if (!mainWindow || mainWindow.isDestroyed()) return null;
+    const res = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select Whisper GGML / .bin Model File',
+      defaultPath: settings.workspaceDir,
+      properties: ['openFile'],
+      filters: [{ name: 'Whisper Model Files', extensions: ['bin', 'gguf', 'ggml'] }],
+    });
+    if (res.canceled || res.filePaths.length === 0) return null;
+    return res.filePaths[0];
+  });
+  ipcMain.handle('speech:uninstall-runtime', () => {
+    return uninstallLocalWhisperRuntime();
+  });
+  ipcMain.handle('speech:save-cloud-key', (_ev, provider: 'gemini' | 'openai', apiKey: string) => {
+    const res = saveCloudSpeechKey(provider, apiKey);
+    if (res.ok) {
+      settings = { ...settings, speechConfigured: true };
+      saveSettings(settings);
+    }
+    return res;
+  });
+  ipcMain.handle('speech:clear-cloud-key', (_ev, provider: 'gemini' | 'openai') => {
+    return clearCloudSpeechKey(provider);
   });
 
   ipcMain.handle('git:glance', (_ev, workspaceDir?: string) =>

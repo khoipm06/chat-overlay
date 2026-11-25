@@ -1,8 +1,12 @@
 {
   "name": "chat-overlay",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "Universal cross-platform ACP chat & live screen overlay",
-  "author": "khoipm06",
+  "author": {
+    "name": "khoipm06",
+    "email": "khoipm06@users.noreply.github.com"
+  },
+  "desktopName": "chat-overlay.desktop",
   "homepage": "https://github.com/khoipm06/chat-overlay",
   "repository": "https://github.com/khoipm06/chat-overlay.git",
   "main": "dist/main/main.js",
@@ -16,7 +20,7 @@
     "dist:appimage": "npm run build:prod && electron-builder --linux AppImage --publish never",
     "dist:linux": "npm run build:prod && electron-builder --linux AppImage deb rpm --publish never",
     "dist:win": "npm run build:prod && electron-builder --win nsis --publish never",
-    "dist:mac": "npm run build:prod && electron-builder --mac dmg zip --publish never"
+    "dist:mac": "npm run build:prod && electron-builder --mac dmg zip --arm64 --x64 --publish never"
   },
   "keywords": [
     "acp",

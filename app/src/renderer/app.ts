@@ -8,11 +8,11 @@ import type {
   HarnessKind,
   SavedSession,
   SessionCatalog,
+  SpeechModelEntry,
   SpeechStatus,
   StoredTurn,
   StreamEvent,
   TurnMetrics,
-  WhisperModelId,
 } from '../shared/types';
 import {
   expandSlashTemplate,
@@ -3710,169 +3710,626 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-function openVoiceSetupModal(st: SpeechStatus, autoRecordAfterInstall = false): void {
-  modalTitle.textContent = 'Offline Speech-to-Text Setup';
+function openVoiceMethodPickerModal(st: SpeechStatus, autoRecordAfterSetup = false): void {
+  modalTitle.textContent = 'Choose Voice Input Method';
   modalBody.innerHTML = '';
 
   const desc = document.createElement('div');
   desc.className = 'voice-setup-desc';
   desc.textContent =
-    'Download an offline Whisper model for accurate, multilingual & mixed-language voice input without requiring cloud API keys:';
-
-  let selectedModelId: WhisperModelId =
-    (settings?.speechModel as WhisperModelId) || 'large-v3-turbo-q5_0';
-  if (!st.catalog.some((m) => m.id === selectedModelId)) {
-    selectedModelId = 'large-v3-turbo-q5_0';
-  }
+    'Select how speech-to-text is processed. Cloud APIs require zero local storage; the built-in offline Whisper runtime is completely optional.';
 
   const list = document.createElement('div');
   list.className = 'voice-model-list';
-  const cards: Array<{ id: WhisperModelId; el: HTMLLabelElement; radio: HTMLInputElement }> = [];
 
-  for (const spec of st.catalog) {
-    const installed = st.installedModels.includes(spec.id);
-    const label = document.createElement('label');
-    label.className = `voice-model-option${spec.id === selectedModelId ? ' selected' : ''}`;
-    const radio = document.createElement('input');
-    radio.type = 'radio';
-    radio.name = 'voice-model-choice';
-    radio.value = spec.id;
-    radio.checked = spec.id === selectedModelId;
+  // Option 1: Cloud API (primary lightweight choice)
+  const cloudCard = document.createElement('div');
+  cloudCard.className = 'voice-method-card';
+  const cloudTitle = document.createElement('div');
+  cloudTitle.className = 'voice-method-header';
+  cloudTitle.innerHTML =
+    '<strong>Cloud Speech API</strong><span class="voice-badge">Zero Local Setup</span>';
+  const cloudSub = document.createElement('div');
+  cloudSub.className = 'voice-method-sub';
+  cloudSub.textContent = st.hasCloudKey
+    ? `Configured: ${[st.cloudProviders?.gemini ? 'Gemini' : '', st.cloudProviders?.openai ? 'OpenAI' : ''].filter(Boolean).join(', ')}`
+    : 'Fast multilingual transcription via Gemini or OpenAI Whisper API.';
 
-    const info = document.createElement('div');
-    info.style.cssText = 'flex:1;min-width:0;';
-    const titleRow = document.createElement('div');
-    titleRow.style.cssText = 'font-weight:600;font-size:12.5px;color:var(--text-strong);display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
-    titleRow.textContent = spec.label;
-    if (installed) {
-      const badge = document.createElement('span');
-      badge.style.cssText = 'font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(78,201,176,0.2);color:#4ec9b0;';
-      badge.textContent = 'Installed';
-      titleRow.appendChild(badge);
-    }
-    const sub = document.createElement('div');
-    sub.style.cssText = 'font-size:11.5px;color:var(--text-muted);margin-top:2px;';
-    sub.textContent = spec.description;
+  const cloudForm = document.createElement('div');
+  cloudForm.className = 'voice-inline-form';
+  const providerSelect = document.createElement('select');
+  providerSelect.className = 'field-select';
+  providerSelect.innerHTML =
+    '<option value="gemini">Google Gemini API</option><option value="openai">OpenAI Whisper API</option>';
+  const keyInput = document.createElement('input');
+  keyInput.type = 'password';
+  keyInput.className = 'field-input';
+  keyInput.placeholder = 'Paste API key (stored in voice.json)';
+  const cloudMsg = document.createElement('div');
+  cloudMsg.className = 'field-hint';
+  cloudMsg.style.cssText = 'font-size:11px;min-height:14px;';
 
-    info.append(titleRow, sub);
-    label.append(radio, info);
-    radio.addEventListener('change', () => {
-      selectedModelId = spec.id;
-      for (const c of cards) {
-        c.el.classList.toggle('selected', c.id === selectedModelId);
-      }
+  const cloudBtns = document.createElement('div');
+  cloudBtns.className = 'voice-crud-actions';
+  const saveCloudBtn = document.createElement('button');
+  saveCloudBtn.type = 'button';
+  saveCloudBtn.className = 'mini-action-btn primary';
+  saveCloudBtn.textContent = 'Save & Use Cloud';
+  cloudBtns.appendChild(saveCloudBtn);
+
+  if (st.hasCloudKey) {
+    const useCloudBtn = document.createElement('button');
+    useCloudBtn.type = 'button';
+    useCloudBtn.className = 'mini-action-btn';
+    useCloudBtn.textContent = 'Use Existing Key';
+    useCloudBtn.addEventListener('click', async () => {
+      settings = await window.agentOverlay.updateSettings({ speechMode: 'cloud', speechConfigured: true });
+      closeModal();
+      showNotice('Voice input set to Cloud API.');
+      if (autoRecordAfterSetup) await startSpeechRecording();
     });
-    cards.push({ id: spec.id, el: label, radio });
-    list.appendChild(label);
+
+    const clearCloudBtn = document.createElement('button');
+    clearCloudBtn.type = 'button';
+    clearCloudBtn.className = 'mini-action-btn danger';
+    clearCloudBtn.textContent = 'Clear Key';
+    clearCloudBtn.addEventListener('click', async () => {
+      await window.agentOverlay.clearCloudSpeechKey(providerSelect.value as 'gemini' | 'openai');
+      const nextSt = await window.agentOverlay.getSpeechStatus();
+      openVoiceMethodPickerModal(nextSt, autoRecordAfterSetup);
+    });
+    cloudBtns.append(useCloudBtn, clearCloudBtn);
   }
 
-  const progWrap = document.createElement('div');
-  progWrap.className = 'voice-progress-wrap hidden';
-  const progLabel = document.createElement('div');
-  progLabel.style.cssText = 'font-size:11.5px;color:var(--text);';
-  const progBar = document.createElement('div');
-  progBar.className = 'voice-progress-bar';
-  const progFill = document.createElement('div');
-  progFill.className = 'voice-progress-fill';
-  progBar.appendChild(progFill);
-  progWrap.append(progLabel, progBar);
-
-  const actions = document.createElement('div');
-  actions.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:6px;';
-
-  const leftBtns = document.createElement('div');
-  leftBtns.style.cssText = 'display:flex;align-items:center;gap:6px;';
-
-  const installBtn = document.createElement('button');
-  installBtn.type = 'button';
-  installBtn.className = 'perm-btn primary';
-  installBtn.textContent = 'Download & Enable';
-
-  const cancelBtn = document.createElement('button');
-  cancelBtn.type = 'button';
-  cancelBtn.className = 'mini-action-btn hidden';
-  cancelBtn.textContent = 'Cancel Download';
-
-  const settingsLinkBtn = document.createElement('button');
-  settingsLinkBtn.type = 'button';
-  settingsLinkBtn.className = 'mini-action-btn';
-  settingsLinkBtn.textContent = 'Settings';
-  settingsLinkBtn.addEventListener('click', () => {
+  saveCloudBtn.addEventListener('click', async () => {
+    const res = await window.agentOverlay.saveCloudSpeechKey(
+      providerSelect.value as 'gemini' | 'openai',
+      keyInput.value,
+    );
+    if (!res.ok) {
+      cloudMsg.textContent = res.error || 'Failed to save API key.';
+      cloudMsg.style.color = '#f87171';
+      return;
+    }
+    settings = await window.agentOverlay.updateSettings({ speechMode: 'cloud', speechConfigured: true });
     closeModal();
-    openSettingsModal();
+    showNotice('Cloud speech API key saved.');
+    if (autoRecordAfterSetup) await startSpeechRecording();
   });
 
-  leftBtns.append(installBtn, cancelBtn);
-  actions.append(leftBtns, settingsLinkBtn);
-  modalBody.append(desc, list, progWrap, actions);
+  cloudForm.append(providerSelect, keyInput, cloudBtns, cloudMsg);
+  cloudCard.append(cloudTitle, cloudSub, cloudForm);
+
+  // Option 2: External Local Server or CLI
+  const extCard = document.createElement('div');
+  extCard.className = 'voice-method-card';
+  const extTitle = document.createElement('div');
+  extTitle.className = 'voice-method-header';
+  extTitle.innerHTML =
+    '<strong>External Local Server or CLI</strong><span class="voice-badge">Bring Your Own</span>';
+  const extSub = document.createElement('div');
+  extSub.className = 'voice-method-sub';
+  extSub.textContent = 'Connect your own local HTTP transcription server or CLI tool.';
+
+  const extForm = document.createElement('div');
+  extForm.className = 'voice-inline-form';
+  const urlInput = document.createElement('input');
+  urlInput.type = 'text';
+  urlInput.className = 'field-input';
+  urlInput.placeholder = 'HTTP URL, e.g. http://127.0.0.1:8080/inference';
+  urlInput.value = settings?.localSpeechUrl || '';
+  const cmdInput = document.createElement('input');
+  cmdInput.type = 'text';
+  cmdInput.className = 'field-input';
+  cmdInput.placeholder = 'Or CLI command, e.g. whisper-cli {file}';
+  cmdInput.value = settings?.localSpeechCommand || '';
+  const extMsg = document.createElement('div');
+  extMsg.className = 'field-hint';
+  extMsg.style.cssText = 'font-size:11px;min-height:14px;';
+  const extBtns = document.createElement('div');
+  extBtns.className = 'voice-crud-actions';
+  const saveExtBtn = document.createElement('button');
+  saveExtBtn.type = 'button';
+  saveExtBtn.className = 'mini-action-btn primary';
+  saveExtBtn.textContent = 'Save & Use External';
+  saveExtBtn.addEventListener('click', async () => {
+    const localUrl = urlInput.value.trim();
+    const localCmd = cmdInput.value.trim();
+    if (!localUrl && !localCmd) {
+      extMsg.textContent = 'Enter a server URL or a CLI command.';
+      extMsg.style.color = '#f87171';
+      return;
+    }
+    settings = await window.agentOverlay.updateSettings({
+      speechMode: 'local',
+      localSpeechUrl: localUrl,
+      localSpeechCommand: localCmd,
+      speechConfigured: true,
+    });
+    closeModal();
+    showNotice('External local STT backend configured.');
+    if (autoRecordAfterSetup) await startSpeechRecording();
+  });
+  extBtns.appendChild(saveExtBtn);
+  extForm.append(urlInput, cmdInput, extBtns, extMsg);
+  extCard.append(extTitle, extSub, extForm);
+
+  // Option 3: Optional Built-in Offline Runtime (last card)
+  const offlineCard = document.createElement('div');
+  offlineCard.className = 'voice-method-card';
+  const offlineTitle = document.createElement('div');
+  offlineTitle.className = 'voice-method-header';
+  offlineTitle.innerHTML =
+    '<strong>Built-in Offline Whisper Runtime</strong><span class="voice-badge">Optional</span>';
+  const offlineSub = document.createElement('div');
+  offlineSub.className = 'voice-method-sub';
+  offlineSub.textContent = st.hasLocalModel
+    ? `Active model ready (${st.activeModelId || 'installed'}). Manage models or runtime.`
+    : 'Optionally download whisper-server runtime & Whisper models to user data (~190–574 MB).';
+  const offlineBtnRow = document.createElement('div');
+  offlineBtnRow.className = 'voice-crud-actions';
+  const manageOfflineBtn = document.createElement('button');
+  manageOfflineBtn.type = 'button';
+  manageOfflineBtn.className = 'mini-action-btn';
+  manageOfflineBtn.textContent = 'Manage Models & Optional Runtime...';
+  manageOfflineBtn.addEventListener('click', async () => {
+    const latest = await window.agentOverlay.getSpeechStatus();
+    openOfflineModelManagerModal(latest, autoRecordAfterSetup);
+  });
+  offlineBtnRow.appendChild(manageOfflineBtn);
+  offlineCard.append(offlineTitle, offlineSub, offlineBtnRow);
+
+  list.append(cloudCard, extCard, offlineCard);
+
+  const footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:8px;';
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'mini-action-btn';
+  closeBtn.textContent = 'Cancel';
+  closeBtn.addEventListener('click', closeModal);
+  footer.appendChild(closeBtn);
+
+  modalBody.append(desc, list, footer);
   modalBackdrop.classList.remove('hidden');
+}
 
+function openOfflineModelManagerModal(initialStatus: SpeechStatus, autoRecordAfterSetup = false): void {
+  modalTitle.textContent = 'Offline Speech Models & Runtime (Optional)';
+  modalBody.innerHTML = '';
+
+  let st = initialStatus;
+  let installingModelId: string | null = null;
+  let editingModelId: string | null = null;
+  let showAddForm = false;
   let unsub: (() => void) | null = null;
-  let installing = false;
 
-  cancelBtn.addEventListener('click', async () => {
-    await window.agentOverlay.cancelSpeechInstall();
-    cancelBtn.disabled = true;
-    progLabel.textContent = 'Cancelling...';
-  });
+  const renderManager = () => {
+    modalBody.innerHTML = '';
 
-  installBtn.addEventListener('click', async () => {
-    if (installing) return;
-    installing = true;
-    installBtn.disabled = true;
-    settingsLinkBtn.disabled = true;
-    cancelBtn.classList.remove('hidden');
-    cancelBtn.disabled = false;
-    for (const c of cards) c.radio.disabled = true;
-    progWrap.classList.remove('hidden');
-    progLabel.textContent = 'Preparing Whisper engine & model download...';
-    progFill.style.width = '5%';
+    // 1. Optional runtime bar
+    const runtimeCard = document.createElement('div');
+    runtimeCard.className = 'voice-method-card';
+    const rtHead = document.createElement('div');
+    rtHead.className = 'voice-method-header';
+    rtHead.innerHTML = '<strong>Optional Offline Runtime (whisper.cpp)</strong>';
+    const rtSub = document.createElement('div');
+    rtSub.className = 'voice-method-sub';
+    rtSub.textContent = st.managedRuntimeInstalled
+      ? `Installed at ${st.managedRuntimePath}`
+      : 'Not installed yet — downloaded automatically on demand when you download a model.';
+    runtimeCard.append(rtHead, rtSub);
+    if (st.managedRuntimeInstalled) {
+      const rtBtns = document.createElement('div');
+      rtBtns.className = 'voice-crud-actions';
+      const rmRtBtn = document.createElement('button');
+      rmRtBtn.type = 'button';
+      rmRtBtn.className = 'mini-action-btn danger';
+      rmRtBtn.textContent = 'Remove Optional Runtime';
+      rmRtBtn.disabled = Boolean(installingModelId);
+      rmRtBtn.addEventListener('click', async () => {
+        await window.agentOverlay.uninstallSpeechRuntime();
+        st = await window.agentOverlay.getSpeechStatus();
+        renderManager();
+      });
+      rtBtns.appendChild(rmRtBtn);
+      runtimeCard.appendChild(rtBtns);
+    }
 
-    unsub = window.agentOverlay.onSpeechInstallProgress((p) => {
-      if (p.modelId !== selectedModelId) return;
-      progLabel.textContent = p.detail;
-      progFill.style.width = `${Math.max(4, p.percent)}%`;
+    // 2. Progress bar (only active while downloading)
+    const progWrap = document.createElement('div');
+    progWrap.className = `voice-progress-wrap${installingModelId ? '' : ' hidden'}`;
+    const progLabel = document.createElement('div');
+    progLabel.style.cssText = 'font-size:11.5px;color:var(--text);';
+    const progBar = document.createElement('div');
+    progBar.className = 'voice-progress-bar';
+    const progFill = document.createElement('div');
+    progFill.className = 'voice-progress-fill';
+    progBar.appendChild(progFill);
+    const cancelDlBtn = document.createElement('button');
+    cancelDlBtn.type = 'button';
+    cancelDlBtn.className = 'mini-action-btn';
+    cancelDlBtn.style.alignSelf = 'flex-start';
+    cancelDlBtn.textContent = 'Cancel Download';
+    cancelDlBtn.addEventListener('click', async () => {
+      await window.agentOverlay.cancelSpeechInstall();
+      cancelDlBtn.disabled = true;
+      progLabel.textContent = 'Cancelling download...';
+    });
+    progWrap.append(progLabel, progBar, cancelDlBtn);
+
+    // 3. Model CRUD List
+    const list = document.createElement('div');
+    list.className = 'voice-model-list';
+    for (const m of st.models) {
+      const card = document.createElement('div');
+      card.className = `voice-model-card${m.active ? ' selected' : ''}`;
+
+      const topRow = document.createElement('div');
+      topRow.className = 'voice-method-header';
+      const titleSpan = document.createElement('strong');
+      titleSpan.textContent = m.label;
+      topRow.appendChild(titleSpan);
+
+      const badges = document.createElement('div');
+      badges.style.cssText = 'display:inline-flex;gap:4px;flex-wrap:wrap;';
+      if (m.active) {
+        const b = document.createElement('span');
+        b.className = 'voice-badge active';
+        b.textContent = 'Active';
+        badges.appendChild(b);
+      }
+      if (m.installed) {
+        const b = document.createElement('span');
+        b.className = 'voice-badge installed';
+        b.textContent = 'Ready';
+        badges.appendChild(b);
+      }
+      const srcBadge = document.createElement('span');
+      srcBadge.className = 'voice-badge';
+      srcBadge.textContent =
+        m.source === 'builtin' ? 'Built-in' : m.source === 'custom_url' ? 'Custom URL' : 'Local File';
+      badges.appendChild(srcBadge);
+      topRow.appendChild(badges);
+
+      const sub = document.createElement('div');
+      sub.className = 'voice-method-sub';
+      const sizeStr = m.sizeBytes ? ` · ${(m.sizeBytes / (1024 * 1024)).toFixed(0)} MB` : '';
+      sub.textContent = `${m.description}${sizeStr}`;
+
+      card.append(topRow, sub);
+
+      if (editingModelId === m.id) {
+        const editForm = document.createElement('div');
+        editForm.className = 'voice-inline-form';
+        const eLabel = document.createElement('input');
+        eLabel.type = 'text';
+        eLabel.className = 'field-input';
+        eLabel.value = m.label;
+        const eDesc = document.createElement('input');
+        eDesc.type = 'text';
+        eDesc.className = 'field-input';
+        eDesc.value = m.description;
+        const eLoc = document.createElement('input');
+        eLoc.type = 'text';
+        eLoc.className = 'field-input';
+        eLoc.value = m.source === 'custom_url' ? m.url || '' : m.localPath || '';
+        const eErr = document.createElement('div');
+        eErr.className = 'field-hint';
+        eErr.style.cssText = 'font-size:11px;color:#f87171;';
+
+        const eBtns = document.createElement('div');
+        eBtns.className = 'voice-crud-actions';
+        if (m.source === 'custom_local') {
+          const brBtn = document.createElement('button');
+          brBtn.type = 'button';
+          brBtn.className = 'mini-action-btn';
+          brBtn.textContent = 'Browse...';
+          brBtn.addEventListener('click', async () => {
+            const p = await window.agentOverlay.pickSpeechModelFile();
+            if (p) eLoc.value = p;
+          });
+          eBtns.appendChild(brBtn);
+        }
+        const saveEditBtn = document.createElement('button');
+        saveEditBtn.type = 'button';
+        saveEditBtn.className = 'mini-action-btn primary';
+        saveEditBtn.textContent = 'Save';
+        saveEditBtn.addEventListener('click', async () => {
+          const res = await window.agentOverlay.updateSpeechModel(m.id, {
+            label: eLabel.value,
+            description: eDesc.value,
+            ...(m.source === 'custom_url' ? { url: eLoc.value } : { localPath: eLoc.value }),
+          });
+          if (!res.ok) {
+            eErr.textContent = res.error || 'Update failed.';
+            return;
+          }
+          editingModelId = null;
+          st = await window.agentOverlay.getSpeechStatus();
+          renderManager();
+        });
+        const cancelEditBtn = document.createElement('button');
+        cancelEditBtn.type = 'button';
+        cancelEditBtn.className = 'mini-action-btn';
+        cancelEditBtn.textContent = 'Cancel';
+        cancelEditBtn.addEventListener('click', () => {
+          editingModelId = null;
+          renderManager();
+        });
+        eBtns.append(saveEditBtn, cancelEditBtn);
+        editForm.append(eLabel, eDesc, eLoc, eBtns, eErr);
+        card.appendChild(editForm);
+      } else {
+        const actions = document.createElement('div');
+        actions.className = 'voice-crud-actions';
+
+        if (m.installed && !m.active) {
+          const useBtn = document.createElement('button');
+          useBtn.type = 'button';
+          useBtn.className = 'mini-action-btn primary';
+          useBtn.textContent = 'Use';
+          useBtn.disabled = Boolean(installingModelId);
+          useBtn.addEventListener('click', async () => {
+            st = await window.agentOverlay.selectSpeechModel(m.id);
+            settings = await window.agentOverlay.getSettings();
+            renderManager();
+          });
+          actions.appendChild(useBtn);
+        }
+
+        if (!m.installed && m.url) {
+          const dlBtn = document.createElement('button');
+          dlBtn.type = 'button';
+          dlBtn.className = 'mini-action-btn primary';
+          dlBtn.textContent = 'Download';
+          dlBtn.disabled = Boolean(installingModelId);
+          dlBtn.addEventListener('click', async () => {
+            installingModelId = m.id;
+            renderManager();
+            progLabel.textContent = `Preparing ${m.label}...`;
+            progFill.style.width = '5%';
+            unsub = window.agentOverlay.onSpeechInstallProgress((p) => {
+              if (p.modelId !== m.id) return;
+              progLabel.textContent = p.detail;
+              progFill.style.width = `${Math.max(4, p.percent)}%`;
+            });
+            try {
+              const res = await window.agentOverlay.installSpeechModel(m.id);
+              unsub?.();
+              unsub = null;
+              installingModelId = null;
+              if (res.ok) {
+                settings = await window.agentOverlay.updateSettings({
+                  speechMode: 'local',
+                  speechModel: m.id,
+                  speechConfigured: true,
+                });
+                st = await window.agentOverlay.getSpeechStatus();
+                showNotice(`Offline speech model ready (${m.label})`);
+                if (autoRecordAfterSetup) {
+                  closeModal();
+                  await startSpeechRecording();
+                  return;
+                }
+              } else {
+                showNotice(`Model download failed: ${res.error || 'Unknown error'}`, true);
+              }
+              renderManager();
+            } catch (err: any) {
+              unsub?.();
+              unsub = null;
+              installingModelId = null;
+              showNotice(`Model download failed: ${err?.message || 'Error'}`, true);
+              renderManager();
+            }
+          });
+          actions.appendChild(dlBtn);
+        }
+
+        const isEditableCustom = m.source !== 'builtin' && !m.id.startsWith('local:');
+        if (isEditableCustom) {
+          const editBtn = document.createElement('button');
+          editBtn.type = 'button';
+          editBtn.className = 'mini-action-btn';
+          editBtn.textContent = 'Edit';
+          editBtn.disabled = Boolean(installingModelId);
+          editBtn.addEventListener('click', () => {
+            editingModelId = m.id;
+            renderManager();
+          });
+          actions.appendChild(editBtn);
+        }
+
+        if (m.installed || isEditableCustom) {
+          const delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'mini-action-btn danger';
+          delBtn.textContent = m.source === 'custom_local' && m.installed ? 'Remove' : 'Delete';
+          delBtn.disabled = Boolean(installingModelId);
+          delBtn.addEventListener('click', async () => {
+            await window.agentOverlay.deleteSpeechModel(m.id, m.source !== 'builtin');
+            settings = await window.agentOverlay.getSettings();
+            st = await window.agentOverlay.getSpeechStatus();
+            renderManager();
+          });
+          actions.appendChild(delBtn);
+        }
+
+        card.appendChild(actions);
+      }
+
+      list.appendChild(card);
+    }
+
+    // 4. "+ Add Custom Model" collapsible form
+    const addSection = document.createElement('div');
+    if (showAddForm) {
+      const form = document.createElement('div');
+      form.className = 'voice-method-card';
+      const fTitle = document.createElement('div');
+      fTitle.className = 'voice-method-header';
+      fTitle.innerHTML = '<strong>Add Custom Whisper Model</strong>';
+
+      const srcSelect = document.createElement('select');
+      srcSelect.className = 'field-select';
+      srcSelect.innerHTML =
+        '<option value="custom_url">Download from URL (.bin)</option><option value="custom_local">Existing Local File (.bin / .ggml)</option>';
+
+      const fLabel = document.createElement('input');
+      fLabel.type = 'text';
+      fLabel.className = 'field-input';
+      fLabel.placeholder = 'Model Name (e.g. Whisper Medium q5_0)';
+
+      const fLocRow = document.createElement('div');
+      fLocRow.style.cssText = 'display:flex;gap:6px;align-items:center;';
+      const fLoc = document.createElement('input');
+      fLoc.type = 'text';
+      fLoc.className = 'field-input';
+      fLoc.style.flex = '1';
+      fLoc.placeholder = 'https://huggingface.co/.../ggml-model.bin';
+      const fBrowse = document.createElement('button');
+      fBrowse.type = 'button';
+      fBrowse.className = 'mini-action-btn hidden';
+      fBrowse.textContent = 'Browse...';
+      fBrowse.addEventListener('click', async () => {
+        const picked = await window.agentOverlay.pickSpeechModelFile();
+        if (picked) {
+          fLoc.value = picked;
+          if (!fLabel.value.trim()) {
+            const parts = picked.split(/[\\/]/);
+            fLabel.value = parts[parts.length - 1] || 'Custom Local Model';
+          }
+        }
+      });
+      fLocRow.append(fLoc, fBrowse);
+
+      srcSelect.addEventListener('change', () => {
+        const isLocal = srcSelect.value === 'custom_local';
+        fBrowse.classList.toggle('hidden', !isLocal);
+        fLoc.placeholder = isLocal
+          ? '/path/to/ggml-model.bin'
+          : 'https://huggingface.co/.../ggml-model.bin';
+      });
+
+      const fDesc = document.createElement('input');
+      fDesc.type = 'text';
+      fDesc.className = 'field-input';
+      fDesc.placeholder = 'Description (optional)';
+      const fErr = document.createElement('div');
+      fErr.className = 'field-hint';
+      fErr.style.cssText = 'font-size:11px;color:#f87171;';
+
+      const fBtns = document.createElement('div');
+      fBtns.className = 'voice-crud-actions';
+      const submitBtn = document.createElement('button');
+      submitBtn.type = 'button';
+      submitBtn.className = 'mini-action-btn primary';
+      submitBtn.textContent = 'Add Model';
+      submitBtn.addEventListener('click', async () => {
+        const isLocal = srcSelect.value === 'custom_local';
+        const res = await window.agentOverlay.addSpeechModel({
+          label: fLabel.value,
+          description: fDesc.value,
+          source: isLocal ? 'custom_local' : 'custom_url',
+          ...(isLocal ? { localPath: fLoc.value } : { url: fLoc.value }),
+        });
+        if (!res.ok) {
+          fErr.textContent = res.error || 'Could not add model.';
+          return;
+        }
+        showAddForm = false;
+        st = await window.agentOverlay.getSpeechStatus();
+        renderManager();
+      });
+      const cancelAddBtn = document.createElement('button');
+      cancelAddBtn.type = 'button';
+      cancelAddBtn.className = 'mini-action-btn';
+      cancelAddBtn.textContent = 'Cancel';
+      cancelAddBtn.addEventListener('click', () => {
+        showAddForm = false;
+        renderManager();
+      });
+      fBtns.append(submitBtn, cancelAddBtn);
+
+      const inner = document.createElement('div');
+      inner.className = 'voice-inline-form';
+      inner.append(srcSelect, fLabel, fLocRow, fDesc, fBtns, fErr);
+      form.append(fTitle, inner);
+      addSection.appendChild(form);
+    } else {
+      const addToggleBtn = document.createElement('button');
+      addToggleBtn.type = 'button';
+      addToggleBtn.className = 'mini-action-btn';
+      addToggleBtn.textContent = '+ Add Custom Model (URL or Local File)';
+      addToggleBtn.disabled = Boolean(installingModelId);
+      addToggleBtn.addEventListener('click', () => {
+        showAddForm = true;
+        renderManager();
+      });
+      addSection.appendChild(addToggleBtn);
+    }
+
+    // 5. Footer navigation
+    const footer = document.createElement('div');
+    footer.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;flex-wrap:wrap;';
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'mini-action-btn';
+    backBtn.textContent = '← Back to Voice Methods';
+    backBtn.disabled = Boolean(installingModelId);
+    backBtn.addEventListener('click', async () => {
+      const latest = await window.agentOverlay.getSpeechStatus();
+      openVoiceMethodPickerModal(latest, autoRecordAfterSetup);
     });
 
-    try {
-      const res = await window.agentOverlay.installSpeechModel(selectedModelId);
-      unsub?.();
-      unsub = null;
-      if (res.ok) {
-        settings = await window.agentOverlay.getSettings();
+    const rightBtns = document.createElement('div');
+    rightBtns.style.cssText = 'display:flex;gap:6px;';
+    if (st.hasLocalEngine && st.hasLocalModel) {
+      const recBtn = document.createElement('button');
+      recBtn.type = 'button';
+      recBtn.className = 'perm-btn primary';
+      recBtn.textContent = autoRecordAfterSetup ? 'Use Offline STT & Record' : 'Done';
+      recBtn.addEventListener('click', async () => {
+        settings = await window.agentOverlay.updateSettings({
+          speechMode: 'local',
+          speechConfigured: true,
+        });
         closeModal();
-        showNotice(`Offline speech model ready (${selectedModelId})`);
-        if (autoRecordAfterInstall) {
+        if (autoRecordAfterSetup) {
           await startSpeechRecording();
         }
-      } else {
-        progLabel.textContent = `Install failed: ${res.error || 'Unknown error'}`;
-        installBtn.disabled = false;
-        installBtn.textContent = 'Retry';
-        settingsLinkBtn.disabled = false;
-        cancelBtn.classList.add('hidden');
-        for (const c of cards) c.radio.disabled = false;
-      }
-    } catch (err: any) {
-      unsub?.();
-      unsub = null;
-      progLabel.textContent = `Install failed: ${err?.message || 'Error'}`;
-      installBtn.disabled = false;
-      settingsLinkBtn.disabled = false;
-      cancelBtn.classList.add('hidden');
-      for (const c of cards) c.radio.disabled = false;
-    } finally {
-      installing = false;
+      });
+      rightBtns.appendChild(recBtn);
+    } else {
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'mini-action-btn';
+      closeBtn.textContent = 'Close';
+      closeBtn.disabled = Boolean(installingModelId);
+      closeBtn.addEventListener('click', closeModal);
+      rightBtns.appendChild(closeBtn);
     }
-  });
+    footer.append(backBtn, rightBtns);
+
+    modalBody.append(runtimeCard, progWrap, list, addSection, footer);
+  };
+
+  renderManager();
+  modalBackdrop.classList.remove('hidden');
 }
 
 function setupSpeechToText(): void {
   if (!btnMic) return;
 
+  window.addEventListener('chat-overlay:open-voice-picker', async () => {
+    const st = await window.agentOverlay.getSpeechStatus();
+    openVoiceMethodPickerModal(st, false);
+  });
+
   window.addEventListener('chat-overlay:open-voice-setup', async () => {
     const st = await window.agentOverlay.getSpeechStatus();
-    openVoiceSetupModal(st, false);
+    openOfflineModelManagerModal(st, false);
   });
 
   btnMic.addEventListener('click', async () => {
@@ -3883,11 +4340,13 @@ function setupSpeechToText(): void {
       const mode = settings?.speechMode || 'auto';
       try {
         const st = await window.agentOverlay.getSpeechStatus();
-        const needsLocalSetup =
-          (mode === 'local' && (!st.hasLocalEngine || !st.hasLocalModel)) ||
-          (mode === 'auto' && !st.hasCloudKey && (!st.hasLocalEngine || !st.hasLocalModel));
-        if (needsLocalSetup) {
-          openVoiceSetupModal(st, true);
+        const isReady =
+          (mode === 'cloud' && st.hasCloudKey) ||
+          (mode === 'local' && (st.hasCustomLocalBackend || (st.hasLocalEngine && st.hasLocalModel))) ||
+          (mode === 'auto' &&
+            (st.hasCloudKey || st.hasCustomLocalBackend || (st.hasLocalEngine && st.hasLocalModel)));
+        if (!isReady) {
+          openVoiceMethodPickerModal(st, true);
           return;
         }
       } catch {
@@ -4200,7 +4659,9 @@ async function stopAndTranscribeSpeech(): Promise<void> {
         autoResizeComposer();
         updateSendButton();
         if (result.error?.includes('No local speech-to-text engine responded')) {
-          void window.agentOverlay.getSpeechStatus().then((st) => openVoiceSetupModal(st, true));
+          void window.agentOverlay
+            .getSpeechStatus()
+            .then((st) => openVoiceMethodPickerModal(st, true));
         } else {
           showNotice(`Voice transcription failed: ${result.error || 'Unknown error'}`, true);
         }
