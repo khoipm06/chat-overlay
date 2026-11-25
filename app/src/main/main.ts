@@ -30,7 +30,10 @@ import type {
   WidthPreset,
 } from '../shared/types';
 import { AcpAgentController, testHarnessConnection } from './acp-client';
-import { captureScreenDataUrl, encodeNativeImage, type CaptureKind } from './capture';
+import { captureScreenDataUrl, captureScreenNativeImage, encodeNativeImage, type CaptureKind } from './capture';
+import { startComputerUseBridge, type ComputerUseBridgeHandle } from './computer-use-bridge';
+import { resolveLinuxLaunchExecutable, syncLinuxAppImageDesktopEntry } from './desktop-integration';
+import { checkForUpdates, downloadUpdate, getUpdateStatus, initAutoUpdater, installUpdateNow } from './updater';
 import {
   captureWorkspaceCheckpoint,
   getGitDiffReport,
@@ -69,6 +72,7 @@ let settings: AppSettings = loadSettings();
 let workspaceFileCache: string[] = [];
 let cacheWorkspaceDir = '';
 let acpController: AcpAgentController;
+let computerUseBridge: ComputerUseBridgeHandle | null = null;
 let ipcSocketServer: net.Server | null = null;
 let markupAutoClearTimer: NodeJS.Timeout | null = null;
 let idleSleepTimer: NodeJS.Timeout | null = null;
@@ -228,12 +232,17 @@ function wakeAcpIfSleeping(): void {
 function applyLaunchAtLoginSetting(enabled: boolean): void {
   if (AUDIT_DIR) return;
   if (process.platform === 'linux') {
-    const localLauncher = path.join(os.homedir(), '.local', 'bin', 'chat-overlay');
-    const execLine = fs.existsSync(localLauncher)
-      ? `${localLauncher} --daemon`
-      : app.isPackaged
-        ? `"${process.execPath}" --daemon`
+    let execLine: string;
+    if (process.env.APPIMAGE) {
+      execLine = `"${process.env.APPIMAGE}" --daemon`;
+    } else if (app.isPackaged) {
+      execLine = `"${process.execPath}" --daemon`;
+    } else {
+      const localLauncher = path.join(os.homedir(), '.local', 'bin', 'chat-overlay');
+      execLine = fs.existsSync(localLauncher)
+        ? `${localLauncher} --daemon`
         : `"${process.execPath}" "${app.getAppPath()}" --daemon`;
+    }
     syncLinuxAutostartDesktopFile(enabled, execLine);
     return;
   }
@@ -1162,6 +1171,15 @@ function registerIpcHandlers(): void {
     }
     return Promise.resolve();
   });
+
+  ipcMain.handle('app:get-version', () => app.getVersion());
+  ipcMain.handle('updater:get-status', () => getUpdateStatus());
+  ipcMain.handle('updater:check', () => checkForUpdates());
+  ipcMain.handle('updater:download', () => downloadUpdate());
+  ipcMain.handle('updater:install', () => {
+    quitting = true;
+    installUpdateNow();
+  });
 }
 
 const gotLock = AUDIT_DIR ? true : app.requestSingleInstanceLock();
@@ -1169,12 +1187,13 @@ if (!gotLock) {
   app.quit();
 } else {
   if (!AUDIT_DIR) {
-    app.on('second-instance', () => {
+    app.on('second-instance', (_ev, argv) => {
+      if (argv.includes('--daemon')) return;
       toggleOverlay();
     });
   }
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
       if (permission === 'media') {
         callback(true);
@@ -1186,9 +1205,101 @@ if (!gotLock) {
       return true;
     });
 
-    acpController = new AcpAgentController(settings, sendStreamEvent, (annotations) => {
-      openAgentMarkupOverlay(annotations);
+    try {
+      computerUseBridge = await startComputerUseBridge({
+        getScreenInfo: () => {
+          const primary = screen.getPrimaryDisplay();
+          return {
+            width: primary.size.width,
+            height: primary.size.height,
+            scaleFactor: primary.scaleFactor || 1,
+            pixelWidth: Math.round(primary.size.width * (primary.scaleFactor || 1)),
+            pixelHeight: Math.round(primary.size.height * (primary.scaleFactor || 1)),
+          };
+        },
+        captureScreenshot: async (opts) => {
+          const primary = screen.getPrimaryDisplay();
+          let img = await captureScreenNativeImage(
+            'fullscreen',
+            mainWindow,
+            settings.opacity ?? 1,
+          );
+          let size = img.getSize();
+          const screenWidth = size.width;
+          const screenHeight = size.height;
+          if (opts.region) {
+            const x = Math.max(0, Math.min(screenWidth - 1, Math.round(opts.region.x)));
+            const y = Math.max(0, Math.min(screenHeight - 1, Math.round(opts.region.y)));
+            const width = Math.max(1, Math.min(screenWidth - x, Math.round(opts.region.width)));
+            const height = Math.max(1, Math.min(screenHeight - y, Math.round(opts.region.height)));
+            img = img.crop({ x, y, width, height });
+            size = img.getSize();
+          }
+          const maxWidth =
+            typeof opts.maxWidth === 'number'
+              ? Math.max(320, Math.min(2560, Math.round(opts.maxWidth)))
+              : 1440;
+          if (size.width > maxWidth) {
+            img = img.resize({ width: maxWidth, quality: 'good' });
+            size = img.getSize();
+          }
+          const jpeg = img.toJPEG(82);
+          return {
+            ok: true,
+            screenWidth,
+            screenHeight,
+            logicalScreenWidth: primary.size.width,
+            logicalScreenHeight: primary.size.height,
+            imageWidth: size.width,
+            imageHeight: size.height,
+            mimeType: 'image/jpeg',
+            data: jpeg.toString('base64'),
+          };
+        },
+        readClipboard: () => clipboard.readText(),
+        writeClipboard: (text) => clipboard.writeText(text),
+        openUrl: async (url) => {
+          await shell.openExternal(url);
+        },
+        notify: (title, body) => {
+          if (Notification.isSupported()) {
+            new Notification({ title, body }).show();
+          }
+        },
+      });
+    } catch {
+      computerUseBridge = null;
+    }
+
+    acpController = new AcpAgentController(
+      settings,
+      sendStreamEvent,
+      (annotations) => {
+        openAgentMarkupOverlay(annotations);
+      },
+      () => (computerUseBridge ? { url: computerUseBridge.url, token: computerUseBridge.token } : null),
+    );
+
+    if (!AUDIT_DIR && process.platform === 'linux' && process.env.APPIMAGE) {
+      syncLinuxAppImageDesktopEntry({
+        execPath: resolveLinuxLaunchExecutable(),
+        iconSourcePath: getAppIconPath(),
+      });
+    }
+    if (!AUDIT_DIR && process.platform === 'linux' && settings.launchAtLogin) {
+      applyLaunchAtLoginSetting(true);
+    }
+
+    initAutoUpdater((status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('updater:status', status);
+      }
     });
+    if (!AUDIT_DIR && app.isPackaged) {
+      setTimeout(() => {
+        void checkForUpdates();
+      }, 15_000);
+    }
 
     registerIpcHandlers();
     if (!START_HIDDEN || AUDIT_DIR) {
@@ -1338,6 +1449,14 @@ if (!gotLock) {
               },
             },
             {
+              label: 'Check for Updates...',
+              click: async () => {
+                showAndFocusOverlay();
+                await checkForUpdates();
+                mainWindow?.webContents.send('window:open-settings');
+              },
+            },
+            {
               label: 'ACP Specification & Docs',
               click: () => shell.openExternal('https://agentclientprotocol.com'),
             },
@@ -1362,6 +1481,7 @@ if (!gotLock) {
     quitting = true;
     clearIdleSleepTimer();
     shutdownManagedWhisperServer();
+    void computerUseBridge?.close();
     acpController?.dispose();
     globalShortcut.unregisterAll();
     ipcSocketServer?.close();

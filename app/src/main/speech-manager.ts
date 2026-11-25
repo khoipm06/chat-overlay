@@ -10,6 +10,8 @@ import type {
   WhisperModelId,
   WhisperModelSpec,
 } from '../shared/types';
+import { appDataDir, bundledBinDir } from './app-paths';
+import { extractArchive, findFileRecursive } from './archive-utils';
 import { findExecutableInPath, resolveOpenAiKey, resolveSpeechApiKey } from './speech';
 
 export const WHISPER_MODELS: WhisperModelSpec[] = [
@@ -34,8 +36,7 @@ export const WHISPER_MODELS: WhisperModelSpec[] = [
 ];
 
 export function speechDataDir(): string {
-  const dataHome = process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share');
-  return path.join(dataHome, 'chat-overlay', 'speech');
+  return path.join(appDataDir(), 'speech');
 }
 
 export function speechModelsDir(): string {
@@ -46,19 +47,54 @@ export function speechBinDir(): string {
   return path.join(speechDataDir(), 'bin');
 }
 
+export interface WhisperBinaryAsset {
+  fileName: string;
+  url: string;
+  binaryName: string;
+}
+
+export function resolveWhisperBinaryAsset(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): WhisperBinaryAsset | null {
+  let fileName = '';
+  let binaryName = 'whisper-server';
+
+  if (platform === 'linux') {
+    fileName = arch === 'arm64' ? 'whisper-server-linux-arm64.tar.gz' : 'whisper-server-linux-x64.tar.gz';
+  } else if (platform === 'darwin') {
+    fileName = arch === 'arm64' ? 'whisper-server-darwin-arm64.tar.gz' : 'whisper-server-darwin-x64.tar.gz';
+  } else if (platform === 'win32') {
+    binaryName = 'whisper-server.exe';
+    if (arch !== 'x64') return null;
+    fileName = 'whisper-server-win32-x64.zip';
+  } else {
+    return null;
+  }
+
+  return {
+    fileName,
+    binaryName,
+    url: `https://github.com/khoipm06/chat-overlay/releases/latest/download/${fileName}`,
+  };
+}
+
 export function findManagedWhisperBinary(
   names: string[] = ['whisper-server', 'whisper-cli', 'whisper-cpp', 'whisper.cpp'],
 ): string | null {
-  const binDir = speechBinDir();
-  for (const name of names) {
-    const ext = process.platform === 'win32' && !name.endsWith('.exe') ? '.exe' : '';
-    const candidate = path.join(binDir, name + ext);
-    if (fs.existsSync(candidate)) {
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
-      } catch {
-        // ignore
+  const dirs = [bundledBinDir(), speechBinDir()].filter(Boolean) as string[];
+  for (const dir of dirs) {
+    for (const name of names) {
+      const ext = process.platform === 'win32' && !name.endsWith('.exe') ? '.exe' : '';
+      const candidate = path.join(dir, name + ext);
+      if (fs.existsSync(candidate)) {
+        if (process.platform === 'win32') return candidate;
+        try {
+          fs.accessSync(candidate, fs.constants.X_OK);
+          return candidate;
+        } catch {
+          // ignore
+        }
       }
     }
   }
@@ -272,6 +308,59 @@ async function ensureWhisperEngineBinary(
 ): Promise<string | null> {
   const existing = findManagedWhisperBinary(['whisper-server', 'whisper-cli']);
   if (existing) return existing;
+
+  const asset = resolveWhisperBinaryAsset();
+  if (asset) {
+    const tmpPrebuilt = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-bin-'));
+    try {
+      const archivePath = path.join(tmpPrebuilt, asset.fileName);
+      const extractDir = path.join(tmpPrebuilt, 'out');
+      onProgress({
+        modelId,
+        stage: 'installing_engine',
+        percent: 10,
+        detail: `Downloading prebuilt ${asset.binaryName}...`,
+      });
+      await downloadModelFile(
+        asset.url,
+        archivePath,
+        ({ percent }) => {
+          onProgress({
+            modelId,
+            stage: 'installing_engine',
+            percent: Math.min(75, Math.max(10, Math.round(percent * 0.75))),
+            detail: `Downloading offline speech engine (${percent}%)...`,
+          });
+        },
+        signal,
+      );
+      onProgress({
+        modelId,
+        stage: 'installing_engine',
+        percent: 85,
+        detail: 'Extracting offline speech engine...',
+      });
+      await extractArchive(archivePath, extractDir);
+      const extractedBin = findFileRecursive(extractDir, asset.binaryName);
+      if (extractedBin) {
+        fs.mkdirSync(speechBinDir(), { recursive: true });
+        const destBin = path.join(speechBinDir(), asset.binaryName);
+        fs.copyFileSync(extractedBin, destBin);
+        if (process.platform !== 'win32') {
+          fs.chmodSync(destBin, 0o755);
+        }
+        const verified = findManagedWhisperBinary(['whisper-server', 'whisper-cli']);
+        if (verified) return verified;
+      }
+    } catch (err) {
+      if (signal.aborted) throw err;
+      // Fall back to Homebrew or source build below if release asset isn't reachable
+    } finally {
+      try {
+        fs.rmSync(tmpPrebuilt, { recursive: true, force: true });
+      } catch {}
+    }
+  }
 
   const brew = findExecutableInPath(['brew']);
   if (brew) {
@@ -534,6 +623,7 @@ export async function ensureManagedWhisperServer(modelPath: string): Promise<str
         {
           stdio: 'ignore',
           detached: false,
+          windowsHide: true,
         },
       );
       managedServerProc = child;

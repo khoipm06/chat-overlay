@@ -111,25 +111,56 @@ const LINUX_KEYCODES: Record<string, number> = {
   super: 125,
   meta: 125,
   win: 125,
+  cmd: 125,
 };
+
+async function callBridge<T = Record<string, unknown>>(
+  method: 'GET' | 'POST',
+  pathname: string,
+  body?: Record<string, unknown>,
+  timeoutMs = 8000,
+): Promise<T | null> {
+  const baseUrl = process.env.CHAT_OVERLAY_BRIDGE_URL?.trim();
+  const token = process.env.CHAT_OVERLAY_BRIDGE_TOKEN?.trim();
+  if (!baseUrl || !token) return null;
+  try {
+    const res = await fetch(`${baseUrl}${pathname}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
 
 async function commandExists(cmd: string): Promise<boolean> {
   const extraDirs = [
     '/usr/local/bin',
     '/usr/bin',
     '/bin',
+    '/opt/homebrew/bin',
     path.join(os.homedir(), '.local', 'bin'),
     '/home/linuxbrew/.linuxbrew/bin',
   ];
   const pathDirs = Array.from(
     new Set([...(process.env.PATH ?? '').split(path.delimiter).filter(Boolean), ...extraDirs]),
   );
+  const exts = process.platform === 'win32' && !cmd.endsWith('.exe') ? [cmd, `${cmd}.exe`] : [cmd];
   for (const dir of pathDirs) {
-    try {
-      const stat = await fs.stat(path.join(dir, cmd));
-      if (stat.isFile()) return true;
-    } catch {
-      // continue
+    for (const c of exts) {
+      try {
+        const stat = await fs.stat(path.join(dir, c));
+        if (stat.isFile()) return true;
+      } catch {
+        // continue
+      }
     }
   }
   return false;
@@ -190,7 +221,7 @@ export async function ensureYdotoolSocket(): Promise<string | null> {
 async function runYdotool(args: string[], timeout = 4000): Promise<void> {
   const sock = await ensureYdotoolSocket();
   if (!sock) {
-    throw new Error('ydotool daemon unavailable (ensure ydotoold installed and /dev/uinput writable).');
+    throw new Error('ydotool daemon unavailable.');
   }
   await execFileAsync('ydotool', args, {
     timeout,
@@ -216,7 +247,22 @@ function toYdotoolKeySequence(combo: string): string[] | null {
   return [...press, ...release];
 }
 
+async function runPowerShell(script: string, timeout = 8000): Promise<string> {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  const { stdout } = await execFileAsync(
+    'powershell',
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+    { timeout, windowsHide: true, maxBuffer: 16 * 1024 * 1024 },
+  );
+  return stdout;
+}
+
 async function getLogicalScreenSize(): Promise<{ width: number; height: number }> {
+  const bridgeInfo = await callBridge<{ width?: number; height?: number }>('GET', '/screen-info');
+  if (bridgeInfo && typeof bridgeInfo.width === 'number' && typeof bridgeInfo.height === 'number') {
+    return { width: bridgeInfo.width, height: bridgeInfo.height };
+  }
+
   if (process.platform === 'linux') {
     try {
       const { stdout } = await execFileAsync('kscreen-doctor', ['-o'], { timeout: 2000 });
@@ -225,28 +271,54 @@ async function getLogicalScreenSize(): Promise<{ width: number; height: number }
       if (geoMatch) {
         return { width: Number(geoMatch[1]), height: Number(geoMatch[2]) };
       }
-    } catch {
-      // try xrandr
-    }
+    } catch {}
+    try {
+      const { stdout } = await execFileAsync('hyprctl', ['monitors', '-j'], { timeout: 2000 });
+      const mons = JSON.parse(stdout) as Array<{ width?: number; height?: number; scale?: number; focused?: boolean }>;
+      const m = mons.find((x) => x.focused) || mons[0];
+      if (m?.width && m?.height) {
+        const s = m.scale || 1;
+        return { width: Math.round(m.width / s), height: Math.round(m.height / s) };
+      }
+    } catch {}
     try {
       const { stdout } = await execFileAsync('xrandr', ['--current'], { timeout: 2000 });
       const curMatch = stdout.match(/current\s+(\d+)\s+x\s+(\d+)/i);
       if (curMatch) {
         return { width: Number(curMatch[1]), height: Number(curMatch[2]) };
       }
-    } catch {
-      // default
-    }
+    } catch {}
+  } else if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execFileAsync(
+        'osascript',
+        ['-e', 'tell application "Finder" to get bounds of window of desktop'],
+        { timeout: 2000 },
+      );
+      const parts = stdout.trim().split(',').map((s) => Number(s.trim()));
+      if (parts.length === 4 && Number.isFinite(parts[2]) && Number.isFinite(parts[3])) {
+        return { width: parts[2], height: parts[3] };
+      }
+    } catch {}
+  } else if (process.platform === 'win32') {
+    try {
+      const out = await runPowerShell(
+        'Add-Type -AssemblyName System.Windows.Forms; $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; Write-Output "$($b.Width)x$($b.Height)"',
+        3500,
+      );
+      const m = out.trim().match(/^(\d+)x(\d+)$/);
+      if (m) return { width: Number(m[1]), height: Number(m[2]) };
+    } catch {}
   }
+
   return { width: 1920, height: 1080 };
 }
 
 const KWIN_CAPTURE_PY = `
-import sys, os, struct, io, json, base64, subprocess
+import sys, os, struct, io, json, base64
 import gi
 gi.require_version('Gio', '2.0')
 from gi.repository import Gio, GLib
-from PIL import Image
 
 max_width = int(sys.argv[1]) if len(sys.argv) > 1 else 1440
 region_json = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -282,41 +354,76 @@ while got < expected:
 os.close(r_fd)
 raw = b"".join(chunks)
 
-# Qt QImage formats: 16=RGBX8888, 17=RGBA8888, 18=RGBA8888_Premultiplied; else BGRA/BGRX
-if fmt in (16, 17, 18):
-    img = Image.frombytes("RGBA", (w, h), raw, "raw", "RGBA", stride, 1).convert("RGB")
-else:
-    img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA", stride, 1).convert("RGB")
-
-if region_json:
-    reg = json.loads(region_json)
-    rx, ry, rw, rh = int(reg["x"]), int(reg["y"]), int(reg["width"]), int(reg["height"])
-    img = img.crop((max(0, rx), max(0, ry), min(w, rx + rw), min(h, ry + rh)))
-
-orig_w, orig_h = img.size
-if max_width > 0 and orig_w > max_width:
-    new_h = int(orig_h * (max_width / float(orig_w)))
-    img = img.resize((max_width, new_h), Image.Resampling.LANCZOS)
-
-out_w, out_h = img.size
-buf = io.BytesIO()
-img.save(buf, format="JPEG", quality=82, optimize=True)
-print(json.dumps({
-    "ok": True,
-    "screenWidth": w,
-    "screenHeight": h,
-    "imageWidth": out_w,
-    "imageHeight": out_h,
-    "mimeType": "image/jpeg",
-    "data": base64.b64encode(buf.getvalue()).decode("ascii")
-}))
+try:
+    from PIL import Image
+    if fmt in (16, 17, 18):
+        img = Image.frombytes("RGBA", (w, h), raw, "raw", "RGBA", stride, 1).convert("RGB")
+    else:
+        img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA", stride, 1).convert("RGB")
+    if region_json:
+        reg = json.loads(region_json)
+        rx, ry, rw, rh = int(reg["x"]), int(reg["y"]), int(reg["width"]), int(reg["height"])
+        img = img.crop((max(0, rx), max(0, ry), min(w, rx + rw), min(h, ry + rh)))
+    orig_w, orig_h = img.size
+    if max_width > 0 and orig_w > max_width:
+        new_h = int(orig_h * (max_width / float(orig_w)))
+        img = img.resize((max_width, new_h), Image.Resampling.LANCZOS)
+    out_w, out_h = img.size
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=82, optimize=True)
+    print(json.dumps({
+        "ok": True, "screenWidth": w, "screenHeight": h,
+        "imageWidth": out_w, "imageHeight": out_h,
+        "mimeType": "image/jpeg", "data": base64.b64encode(buf.getvalue()).decode("ascii")
+    }))
+except ImportError:
+    print(json.dumps({"ok": False}))
 `;
 
 async function handleScreenshot(args: Record<string, unknown>) {
   const maxWidth = typeof args.maxWidth === 'number' ? Math.max(320, Math.min(2560, args.maxWidth)) : 1440;
-  const regionJson = args.region && typeof args.region === 'object' ? JSON.stringify(args.region) : '';
+  const region =
+    args.region && typeof args.region === 'object'
+      ? (args.region as { x: number; y: number; width: number; height: number })
+      : undefined;
 
+  // 1. Primary universal path: Electron main bridge (zero external Python/PIL dependencies on Linux, Windows, macOS)
+  const bridgedShot = await callBridge<{
+    ok: boolean;
+    screenWidth: number;
+    screenHeight: number;
+    logicalScreenWidth: number;
+    logicalScreenHeight: number;
+    imageWidth: number;
+    imageHeight: number;
+    mimeType: string;
+    data: string;
+  }>('POST', '/screenshot', { maxWidth, ...(region ? { region } : {}) }, 10_000);
+
+  if (bridgedShot?.ok && bridgedShot.data) {
+    return {
+      content: [
+        { type: 'image', data: bridgedShot.data, mimeType: bridgedShot.mimeType },
+        {
+          type: 'text',
+          text: JSON.stringify({
+            logicalScreenWidth: bridgedShot.logicalScreenWidth,
+            logicalScreenHeight: bridgedShot.logicalScreenHeight,
+            pixelWidth: bridgedShot.screenWidth,
+            pixelHeight: bridgedShot.screenHeight,
+            imageWidth: bridgedShot.imageWidth,
+            imageHeight: bridgedShot.imageHeight,
+            coordinateSystem:
+              'Use normalized 0..1000 (x, y) in desktop_mouse; (0,0)=top-left, (1000,1000)=bottom-right.',
+          }),
+        },
+      ],
+    };
+  }
+
+  // 2. Standalone OS fallbacks (when MCP server runs outside Electron host)
   if (process.platform === 'linux') {
+    const regionJson = region ? JSON.stringify(region) : '';
     const py = getSystemPythonWithGi();
     if (py) {
       try {
@@ -347,15 +454,14 @@ async function handleScreenshot(args: Record<string, unknown>) {
                   pixelHeight: parsed.screenHeight,
                   imageWidth: parsed.imageWidth,
                   imageHeight: parsed.imageHeight,
-                  coordinateSystem: 'Use normalized 0..1000 (x, y) in desktop_mouse; (0,0)=top-left, (1000,1000)=bottom-right.',
+                  coordinateSystem:
+                    'Use normalized 0..1000 (x, y) in desktop_mouse; (0,0)=top-left, (1000,1000)=bottom-right.',
                 }),
               },
             ],
           };
         }
-      } catch {
-        // Fallback below
-      }
+      } catch {}
     }
 
     const tmpFile = path.join(os.tmpdir(), `co-mcp-shot-${Date.now()}.png`);
@@ -364,6 +470,8 @@ async function handleScreenshot(args: Record<string, unknown>) {
         await execFileAsync('grim', [tmpFile], { timeout: 5000 });
       } else if (await commandExists('spectacle')) {
         await execFileAsync('spectacle', ['-b', '-n', '-o', tmpFile], { timeout: 5000 });
+      } else if (await commandExists('gnome-screenshot')) {
+        await execFileAsync('gnome-screenshot', ['-f', tmpFile], { timeout: 5000 });
       } else if (await commandExists('scrot')) {
         await execFileAsync('scrot', [tmpFile], { timeout: 5000 });
       }
@@ -378,7 +486,67 @@ async function handleScreenshot(args: Record<string, unknown>) {
               text: JSON.stringify({
                 logicalScreenWidth: logical.width,
                 logicalScreenHeight: logical.height,
-                coordinateSystem: 'Use normalized 0..1000 (x, y) in desktop_mouse; (0,0)=top-left, (1000,1000)=bottom-right.',
+                coordinateSystem:
+                  'Use normalized 0..1000 (x, y) in desktop_mouse; (0,0)=top-left, (1000,1000)=bottom-right.',
+              }),
+            },
+          ],
+        };
+      }
+    } finally {
+      await fs.rm(tmpFile, { force: true }).catch(() => {});
+    }
+  } else if (process.platform === 'darwin') {
+    const tmpFile = path.join(os.tmpdir(), `co-mcp-shot-${Date.now()}.jpg`);
+    try {
+      await execFileAsync('screencapture', ['-x', '-t', 'jpg', tmpFile], { timeout: 5000 });
+      if (fsSync.existsSync(tmpFile)) {
+        const buf = await fs.readFile(tmpFile);
+        const logical = await getLogicalScreenSize();
+        return {
+          content: [
+            { type: 'image', data: buf.toString('base64'), mimeType: 'image/jpeg' },
+            {
+              type: 'text',
+              text: JSON.stringify({
+                logicalScreenWidth: logical.width,
+                logicalScreenHeight: logical.height,
+                coordinateSystem:
+                  'Use normalized 0..1000 (x, y) in desktop_mouse; (0,0)=top-left, (1000,1000)=bottom-right.',
+              }),
+            },
+          ],
+        };
+      }
+    } finally {
+      await fs.rm(tmpFile, { force: true }).catch(() => {});
+    }
+  } else if (process.platform === 'win32') {
+    const tmpFile = path.join(os.tmpdir(), `co-mcp-shot-${Date.now()}.jpg`);
+    try {
+      await runPowerShell(
+        `Add-Type -AssemblyName System.Windows.Forms,System.Drawing; ` +
+          `$b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; ` +
+          `$bmp=New-Object System.Drawing.Bitmap($b.Width,$b.Height); ` +
+          `$g=[System.Drawing.Graphics]::FromImage($bmp); ` +
+          `$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); ` +
+          `$bmp.Save('${tmpFile.replace(/'/g, "''")}',[System.Drawing.Imaging.ImageFormat]::Jpeg); ` +
+          `$g.Dispose(); $bmp.Dispose()`,
+        6000,
+      );
+      if (fsSync.existsSync(tmpFile)) {
+        const buf = await fs.readFile(tmpFile);
+        const logical = await getLogicalScreenSize();
+        return {
+          content: [
+            { type: 'image', data: buf.toString('base64'), mimeType: 'image/jpeg' },
+            {
+              type: 'text',
+              text: JSON.stringify({
+                logicalScreenWidth: logical.width,
+                logicalScreenHeight: logical.height,
+                coordinateSystem:
+                  'Use normalized 0..1000 (x, y) in desktop_mouse; (0,0)=top-left, (1000,1000)=bottom-right.',
               }),
             },
           ],
@@ -465,9 +633,27 @@ async function handleListWindows() {
         return {
           content: [{ type: 'text', text: JSON.stringify({ count: windows.length, windows }, null, 2) }],
         };
-      } catch {
-        // fallback below
-      }
+      } catch {}
+    }
+    if (await commandExists('hyprctl')) {
+      try {
+        const { stdout } = await execFileAsync('hyprctl', ['clients', '-j'], { timeout: 3000 });
+        const raw = JSON.parse(stdout) as Array<Record<string, any>>;
+        const windows = raw.map((c) => ({
+          id: String(c.address || ''),
+          caption: String(c.title || ''),
+          resourceClass: String(c.class || ''),
+          active: false,
+          minimized: false,
+          x: Number(c.at?.[0] ?? 0),
+          y: Number(c.at?.[1] ?? 0),
+          width: Number(c.size?.[0] ?? 0),
+          height: Number(c.size?.[1] ?? 0),
+        }));
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ count: windows.length, windows }, null, 2) }],
+        };
+      } catch {}
     }
     if (await commandExists('wmctrl')) {
       const { stdout } = await execFileAsync('wmctrl', ['-l', '-p'], { timeout: 3000 });
@@ -477,7 +663,70 @@ async function handleListWindows() {
       const { stdout } = await execFileAsync('kdotool', ['search', '--onlyvisible', '.*'], { timeout: 3000 });
       return { content: [{ type: 'text', text: stdout.trim() }] };
     }
+  } else if (process.platform === 'win32') {
+    const ps = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class WinEnum {
+  public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L,T,R,B; }
+}
+"@
+$fg = [WinEnum]::GetForegroundWindow()
+$list = New-Object System.Collections.Generic.List[object]
+[WinEnum]::EnumWindows({ param($h,$p)
+  if ([WinEnum]::IsWindowVisible($h)) {
+    $sb = New-Object System.Text.StringBuilder 256
+    [void][WinEnum]::GetWindowText($h, $sb, 256)
+    $t = $sb.ToString()
+    if ($t) {
+      $r = New-Object WinEnum+RECT
+      [void][WinEnum]::GetWindowRect($h, [ref]$r)
+      $list.Add([PSCustomObject]@{
+        id = "$h"; caption = $t; active = ($h -eq $fg); minimized = [WinEnum]::IsIconic($h);
+        x = $r.L; y = $r.T; width = ($r.R - $r.L); height = ($r.B - $r.T)
+      })
+    }
   }
+  return $true
+}, [IntPtr]::Zero) | Out-Null
+$list | ConvertTo-Json -Compress
+`;
+    const out = await runPowerShell(ps, 5000);
+    const parsed = out.trim() ? JSON.parse(out.trim()) : [];
+    const windows = Array.isArray(parsed) ? parsed : [parsed];
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ count: windows.length, windows }, null, 2) }],
+    };
+  } else if (process.platform === 'darwin') {
+    const jxa = `
+const se = Application("System Events");
+const out = [];
+for (const p of se.processes.whose({ backgroundOnly: false })()) {
+  const name = p.name();
+  const active = p.frontmost();
+  try {
+    for (const w of p.windows()) {
+      const pos = w.position();
+      const sz = w.size();
+      out.push({ caption: String(w.name() || name), resourceClass: name, active, minimized: false, x: pos[0], y: pos[1], width: sz[0], height: sz[1] });
+    }
+  } catch {}
+}
+JSON.stringify({ count: out.length, windows: out }, null, 2);
+`;
+    const { stdout } = await execFileAsync('osascript', ['-l', 'JavaScript', '-e', jxa], { timeout: 4000 });
+    return { content: [{ type: 'text', text: stdout.trim() }] };
+  }
+
   return { content: [{ type: 'text', text: 'No window listing backend available.' }], isError: true };
 }
 
@@ -585,18 +834,153 @@ async function handleWindowControl(args: Record<string, unknown>) {
   if (!match) {
     return { content: [{ type: 'text', text: 'match parameter is required.' }], isError: true };
   }
-  const py = getSystemPythonWithGi();
-  if (process.platform === 'linux' && py) {
-    const { stdout } = await execFileAsync(py, ['-c', KWIN_CONTROL_WINDOW_PY, action, match], {
-      timeout: 4500,
-    });
-    const parsed = JSON.parse(stdout.trim());
-    return {
-      content: [{ type: 'text', text: JSON.stringify(parsed) }],
-      isError: !parsed.ok,
-    };
+
+  if (process.platform === 'linux') {
+    const py = getSystemPythonWithGi();
+    if (py) {
+      try {
+        const { stdout } = await execFileAsync(py, ['-c', KWIN_CONTROL_WINDOW_PY, action, match], {
+          timeout: 4500,
+        });
+        const parsed = JSON.parse(stdout.trim());
+        return {
+          content: [{ type: 'text', text: JSON.stringify(parsed) }],
+          isError: !parsed.ok,
+        };
+      } catch {}
+    }
+    if (await commandExists('hyprctl')) {
+      const { stdout } = await execFileAsync('hyprctl', ['clients', '-j'], { timeout: 3000 });
+      const clients = JSON.parse(stdout) as Array<{ address?: string; title?: string; class?: string }>;
+      const needle = match.toLowerCase();
+      const target = clients.find(
+        (c) =>
+          (c.title || '').toLowerCase().includes(needle) ||
+          (c.class || '').toLowerCase().includes(needle),
+      );
+      if (!target?.address) {
+        return { content: [{ type: 'text', text: `No window matched: ${match}` }], isError: true };
+      }
+      if (action === 'focus') {
+        await execFileAsync('hyprctl', ['dispatch', 'focuswindow', `address:${target.address}`], { timeout: 3000 });
+      } else if (action === 'maximize' || action === 'unmaximize') {
+        await execFileAsync('hyprctl', ['dispatch', 'fullscreen', '1'], { timeout: 3000 });
+      } else if (action === 'close') {
+        await execFileAsync('hyprctl', ['dispatch', 'closewindow', `address:${target.address}`], { timeout: 3000 });
+      }
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: true, action, matchedWindow: target.title || target.class }) }] };
+    }
+    if (await commandExists('wmctrl')) {
+      if (action === 'focus') {
+        await execFileAsync('wmctrl', ['-a', match], { timeout: 3000 });
+        return { content: [{ type: 'text', text: `Focused window matching "${match}"` }] };
+      }
+      if (action === 'close') {
+        await execFileAsync('wmctrl', ['-c', match], { timeout: 3000 });
+        return { content: [{ type: 'text', text: `Closed window matching "${match}"` }] };
+      }
+    }
+    return { content: [{ type: 'text', text: 'Window control requires KWin, Hyprland, or wmctrl on Linux.' }], isError: true };
   }
-  return { content: [{ type: 'text', text: 'Window control requires KDE KWin on Linux.' }], isError: true };
+
+  if (process.platform === 'win32') {
+    const ps = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class WinCtrl {
+  public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc lpEnumFunc, IntPtr lParam);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int max);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+}
+"@
+Add-Type -AssemblyName System.Windows.Forms
+$needle = '${match.replace(/'/g, "''").toLowerCase()}'
+$act = '${action.replace(/'/g, "''")}'
+$target = [IntPtr]::Zero
+$title = ""
+[WinCtrl]::EnumWindows({ param($h,$p)
+  if ([WinCtrl]::IsWindowVisible($h)) {
+    $sb = New-Object System.Text.StringBuilder 256
+    [void][WinCtrl]::GetWindowText($h, $sb, 256)
+    $t = $sb.ToString()
+    if ($t -and $t.ToLower().Contains($needle)) {
+      $script:target = $h; $script:title = $t; return $false
+    }
+  }
+  return $true
+}, [IntPtr]::Zero) | Out-Null
+if ($target -eq [IntPtr]::Zero) { Write-Output '{"ok":false,"message":"No matching window"}'; exit }
+$wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+if ($act -eq 'focus') { [void][WinCtrl]::ShowWindow($target, 9); [void][WinCtrl]::SetForegroundWindow($target) }
+elseif ($act -eq 'minimize') { [void][WinCtrl]::ShowWindow($target, 6) }
+elseif ($act -eq 'maximize') { [void][WinCtrl]::ShowWindow($target, 3); [void][WinCtrl]::SetForegroundWindow($target) }
+elseif ($act -eq 'unmaximize') { [void][WinCtrl]::ShowWindow($target, 9) }
+elseif ($act -eq 'snap_left') { [void][WinCtrl]::ShowWindow($target, 9); [void][WinCtrl]::MoveWindow($target, $wa.X, $wa.Y, [int]($wa.Width/2), $wa.Height, $true) }
+elseif ($act -eq 'snap_right') { [void][WinCtrl]::ShowWindow($target, 9); [void][WinCtrl]::MoveWindow($target, $wa.X + [int]($wa.Width/2), $wa.Y, [int]($wa.Width/2), $wa.Height, $true) }
+elseif ($act -eq 'close') { [void][WinCtrl]::PostMessage($target, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }
+@{ ok = $true; action = $act; matchedWindow = $title } | ConvertTo-Json -Compress
+`;
+    const out = await runPowerShell(ps, 5000);
+    const parsed = JSON.parse(out.trim());
+    return { content: [{ type: 'text', text: JSON.stringify(parsed) }], isError: !parsed.ok };
+  }
+
+  if (process.platform === 'darwin') {
+    const jxa = `
+const se = Application("System Events");
+const finder = Application("Finder");
+const deskBounds = finder.desktop.window().bounds();
+const needle = ${JSON.stringify(match.toLowerCase())};
+const act = ${JSON.stringify(action)};
+let found = null;
+for (const p of se.processes.whose({ backgroundOnly: false })()) {
+  const pName = String(p.name() || "");
+  if (pName.toLowerCase().includes(needle)) {
+    found = { p, name: pName }; break;
+  }
+  try {
+    for (const w of p.windows()) {
+      const wName = String(w.name() || "");
+      if (wName.toLowerCase().includes(needle)) {
+        found = { p, w, name: wName || pName }; break;
+      }
+    }
+  } catch {}
+  if (found) break;
+}
+if (!found) {
+  JSON.stringify({ ok: false, message: "No matching window" });
+} else {
+  if (act === "focus") found.p.frontmost = true;
+  else if (act === "minimize") { try { found.p.visible = false; } catch {} }
+  else if (act === "maximize") {
+    found.p.frontmost = true;
+    try { const w = found.w || found.p.windows[0]; w.position = [0, 25]; w.size = [deskBounds[2], deskBounds[3] - 25]; } catch {}
+  } else if (act === "snap_left") {
+    found.p.frontmost = true;
+    try { const w = found.w || found.p.windows[0]; w.position = [0, 25]; w.size = [Math.floor(deskBounds[2]/2), deskBounds[3] - 25]; } catch {}
+  } else if (act === "snap_right") {
+    found.p.frontmost = true;
+    try { const w = found.w || found.p.windows[0]; w.position = [Math.floor(deskBounds[2]/2), 25]; w.size = [Math.ceil(deskBounds[2]/2), deskBounds[3] - 25]; } catch {}
+  } else if (act === "close") {
+    try { (found.w || found.p.windows[0]).buttons.whose({ subrole: "AXCloseButton" })[0].click(); } catch {}
+  }
+  JSON.stringify({ ok: true, action: act, matchedWindow: found.name });
+}
+`;
+    const { stdout } = await execFileAsync('osascript', ['-l', 'JavaScript', '-e', jxa], { timeout: 4500 });
+    const parsed = JSON.parse(stdout.trim());
+    return { content: [{ type: 'text', text: JSON.stringify(parsed) }], isError: !parsed.ok };
+  }
+
+  return { content: [{ type: 'text', text: 'Window control unsupported on this platform.' }], isError: true };
 }
 
 async function resolvePixelCoords(x: number, y: number, normalized = true): Promise<{ px: number; py: number }> {
@@ -618,64 +1002,218 @@ async function handleMouse(args: Record<string, unknown>) {
   const y = typeof args.y === 'number' ? args.y : 500;
   const normalized = args.normalized !== false;
   const { px, py } = await resolvePixelCoords(x, y, normalized);
+  const steps = Math.max(-25, Math.min(25, Math.round(typeof args.delta === 'number' ? args.delta : -3)));
 
-  if (process.platform !== 'linux') {
-    return { content: [{ type: 'text', text: 'Mouse automation is currently implemented for Linux.' }], isError: true };
+  if (process.platform === 'linux') {
+    const ydoSock = await ensureYdotoolSocket();
+    if (ydoSock) {
+      if (action === 'drag') {
+        const endX = typeof args.endX === 'number' ? args.endX : x;
+        const endY = typeof args.endY === 'number' ? args.endY : y;
+        const endPt = await resolvePixelCoords(endX, endY, normalized);
+        await runYdotool(['mousemove', '--absolute', '-x', String(px), '-y', String(py)]);
+        await runYdotool(['click', '0x40']);
+        await new Promise((r) => setTimeout(r, 80));
+        await runYdotool(['mousemove', '--absolute', '-x', String(endPt.px), '-y', String(endPt.py)]);
+        await new Promise((r) => setTimeout(r, 80));
+        await runYdotool(['click', '0x80']);
+        return { content: [{ type: 'text', text: `Dragged from (${px}, ${py}) to (${endPt.px}, ${endPt.py})` }] };
+      }
+
+      await runYdotool(['mousemove', '--absolute', '-x', String(px), '-y', String(py)]);
+      if (action === 'move') return { content: [{ type: 'text', text: `Moved pointer to (${px}, ${py})` }] };
+      if (action === 'click') {
+        await runYdotool(['click', '0xC0']);
+        return { content: [{ type: 'text', text: `Left-clicked at (${px}, ${py})` }] };
+      }
+      if (action === 'double_click') {
+        await runYdotool(['click', '--repeat', '2', '--next-delay', '60', '0xC0']);
+        return { content: [{ type: 'text', text: `Double-clicked at (${px}, ${py})` }] };
+      }
+      if (action === 'right_click') {
+        await runYdotool(['click', '0xC1']);
+        return { content: [{ type: 'text', text: `Right-clicked at (${px}, ${py})` }] };
+      }
+      if (action === 'middle_click') {
+        await runYdotool(['click', '0xC2']);
+        return { content: [{ type: 'text', text: `Middle-clicked at (${px}, ${py})` }] };
+      }
+      if (action === 'scroll') {
+        await runYdotool(['mousemove', '-w', '--', '0', String(steps)]);
+        return { content: [{ type: 'text', text: `Scrolled ${steps} clicks at (${px}, ${py})` }] };
+      }
+      return { content: [{ type: 'text', text: `Unknown mouse action: ${action}` }], isError: true };
+    }
+
+    if (await commandExists('xdotool')) {
+      if (action === 'drag') {
+        const endX = typeof args.endX === 'number' ? args.endX : x;
+        const endY = typeof args.endY === 'number' ? args.endY : y;
+        const endPt = await resolvePixelCoords(endX, endY, normalized);
+        await execFileAsync('xdotool', ['mousemove', '--sync', String(px), String(py), 'mousedown', '1', 'mousemove', '--sync', String(endPt.px), String(endPt.py), 'mouseup', '1'], { timeout: 4000 });
+        return { content: [{ type: 'text', text: `Dragged from (${px}, ${py}) to (${endPt.px}, ${endPt.py})` }] };
+      }
+      await execFileAsync('xdotool', ['mousemove', '--sync', String(px), String(py)], { timeout: 3000 });
+      if (action === 'move') return { content: [{ type: 'text', text: `Moved pointer to (${px}, ${py})` }] };
+      if (action === 'click') {
+        await execFileAsync('xdotool', ['click', '1'], { timeout: 3000 });
+        return { content: [{ type: 'text', text: `Left-clicked at (${px}, ${py})` }] };
+      }
+      if (action === 'double_click') {
+        await execFileAsync('xdotool', ['click', '--repeat', '2', '1'], { timeout: 3000 });
+        return { content: [{ type: 'text', text: `Double-clicked at (${px}, ${py})` }] };
+      }
+      if (action === 'right_click') {
+        await execFileAsync('xdotool', ['click', '3'], { timeout: 3000 });
+        return { content: [{ type: 'text', text: `Right-clicked at (${px}, ${py})` }] };
+      }
+      if (action === 'middle_click') {
+        await execFileAsync('xdotool', ['click', '2'], { timeout: 3000 });
+        return { content: [{ type: 'text', text: `Middle-clicked at (${px}, ${py})` }] };
+      }
+      if (action === 'scroll') {
+        const btn = steps < 0 ? '5' : '4';
+        await execFileAsync('xdotool', ['click', '--repeat', String(Math.max(1, Math.abs(steps))), btn], { timeout: 3000 });
+        return { content: [{ type: 'text', text: `Scrolled ${steps} clicks at (${px}, ${py})` }] };
+      }
+    }
+
+    throw new Error('Mouse automation requires ydotool/ydotoold (Wayland) or xdotool (X11).');
   }
 
-  if (action === 'drag') {
+  if (process.platform === 'win32') {
     const endX = typeof args.endX === 'number' ? args.endX : x;
     const endY = typeof args.endY === 'number' ? args.endY : y;
-    const endPt = await resolvePixelCoords(endX, endY, normalized);
-    await runYdotool(['mousemove', '--absolute', '-x', String(px), '-y', String(py)]);
-    await runYdotool(['click', '0x40']);
-    await new Promise((r) => setTimeout(r, 80));
-    await runYdotool(['mousemove', '--absolute', '-x', String(endPt.px), '-y', String(endPt.py)]);
-    await new Promise((r) => setTimeout(r, 80));
-    await runYdotool(['click', '0x80']);
-    return {
-      content: [{ type: 'text', text: `Dragged from (${px}, ${py}) to (${endPt.px}, ${endPt.py})` }],
-    };
+    const endPt = action === 'drag' ? await resolvePixelCoords(endX, endY, normalized) : { px, py };
+    const ps = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class MouseApi {
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")] public static extern void mouse_event(int flags, int dx, int dy, int data, UIntPtr extra);
+}
+"@
+[void][MouseApi]::SetCursorPos(${px}, ${py})
+Start-Sleep -Milliseconds 30
+if ('${action}' -eq 'click') {
+  [MouseApi]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero); [MouseApi]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero)
+} elseif ('${action}' -eq 'double_click') {
+  [MouseApi]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero); [MouseApi]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 60
+  [MouseApi]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero); [MouseApi]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero)
+} elseif ('${action}' -eq 'right_click') {
+  [MouseApi]::mouse_event(0x08, 0, 0, 0, [UIntPtr]::Zero); [MouseApi]::mouse_event(0x10, 0, 0, 0, [UIntPtr]::Zero)
+} elseif ('${action}' -eq 'middle_click') {
+  [MouseApi]::mouse_event(0x20, 0, 0, 0, [UIntPtr]::Zero); [MouseApi]::mouse_event(0x40, 0, 0, 0, [UIntPtr]::Zero)
+} elseif ('${action}' -eq 'scroll') {
+  [MouseApi]::mouse_event(0x0800, 0, 0, ${steps * 120}, [UIntPtr]::Zero)
+} elseif ('${action}' -eq 'drag') {
+  [MouseApi]::mouse_event(0x02, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 80
+  [void][MouseApi]::SetCursorPos(${endPt.px}, ${endPt.py})
+  Start-Sleep -Milliseconds 80
+  [MouseApi]::mouse_event(0x04, 0, 0, 0, [UIntPtr]::Zero)
+}
+`;
+    await runPowerShell(ps, 5000);
+    return { content: [{ type: 'text', text: `Executed mouse ${action} at (${px}, ${py})` }] };
   }
 
-  await runYdotool(['mousemove', '--absolute', '-x', String(px), '-y', String(py)]);
+  if (process.platform === 'darwin') {
+    if (await commandExists('cliclick')) {
+      if (action === 'move') await execFileAsync('cliclick', [`m:${px},${py}`]);
+      else if (action === 'click') await execFileAsync('cliclick', [`c:${px},${py}`]);
+      else if (action === 'double_click') await execFileAsync('cliclick', [`dc:${px},${py}`]);
+      else if (action === 'right_click') await execFileAsync('cliclick', [`rc:${px},${py}`]);
+      else if (action === 'drag') {
+        const endPt = await resolvePixelCoords(
+          typeof args.endX === 'number' ? args.endX : x,
+          typeof args.endY === 'number' ? args.endY : y,
+          normalized,
+        );
+        await execFileAsync('cliclick', [`dd:${px},${py}`, `du:${endPt.px},${endPt.py}`]);
+      } else if (action === 'scroll') {
+        await execFileAsync('cliclick', [`m:${px},${py}`]);
+      }
+      if (action !== 'scroll') {
+        return { content: [{ type: 'text', text: `Executed mouse ${action} at (${px}, ${py})` }] };
+      }
+    }
 
-  if (action === 'move') {
-    return { content: [{ type: 'text', text: `Moved pointer to (${px}, ${py})` }] };
-  }
-  if (action === 'click') {
-    await runYdotool(['click', '0xC0']);
-    return { content: [{ type: 'text', text: `Left-clicked at (${px}, ${py})` }] };
-  }
-  if (action === 'double_click') {
-    await runYdotool(['click', '--repeat', '2', '--next-delay', '60', '0xC0']);
-    return { content: [{ type: 'text', text: `Double-clicked at (${px}, ${py})` }] };
-  }
-  if (action === 'right_click') {
-    await runYdotool(['click', '0xC1']);
-    return { content: [{ type: 'text', text: `Right-clicked at (${px}, ${py})` }] };
-  }
-  if (action === 'middle_click') {
-    await runYdotool(['click', '0xC2']);
-    return { content: [{ type: 'text', text: `Middle-clicked at (${px}, ${py})` }] };
-  }
-  if (action === 'scroll') {
-    const steps = Math.max(-25, Math.min(25, Math.round(typeof args.delta === 'number' ? args.delta : -3)));
-    await runYdotool(['mousemove', '-w', '--', '0', String(steps)]);
-    return { content: [{ type: 'text', text: `Scrolled ${steps} clicks at (${px}, ${py})` }] };
+    const endPt =
+      action === 'drag'
+        ? await resolvePixelCoords(
+            typeof args.endX === 'number' ? args.endX : x,
+            typeof args.endY === 'number' ? args.endY : y,
+            normalized,
+          )
+        : { px, py };
+    const jxa = `
+ObjC.import("CoreGraphics");
+const pt = $.CGPointMake(${px}, ${py});
+const post = (t, p, btn) => {
+  const e = $.CGEventCreateMouseEvent(null, t, p, btn);
+  $.CGEventPost($.kCGHIDEventTap, e);
+};
+if (${JSON.stringify(action)} === "move") {
+  post($.kCGEventMouseMoved, pt, $.kCGMouseButtonLeft);
+} else if (${JSON.stringify(action)} === "click") {
+  post($.kCGEventLeftMouseDown, pt, $.kCGMouseButtonLeft);
+  post($.kCGEventLeftMouseUp, pt, $.kCGMouseButtonLeft);
+} else if (${JSON.stringify(action)} === "double_click") {
+  post($.kCGEventLeftMouseDown, pt, $.kCGMouseButtonLeft);
+  post($.kCGEventLeftMouseUp, pt, $.kCGMouseButtonLeft);
+  delay(0.06);
+  post($.kCGEventLeftMouseDown, pt, $.kCGMouseButtonLeft);
+  post($.kCGEventLeftMouseUp, pt, $.kCGMouseButtonLeft);
+} else if (${JSON.stringify(action)} === "right_click") {
+  post($.kCGEventRightMouseDown, pt, $.kCGMouseButtonRight);
+  post($.kCGEventRightMouseUp, pt, $.kCGMouseButtonRight);
+} else if (${JSON.stringify(action)} === "middle_click") {
+  post($.kCGEventOtherMouseDown, pt, $.kCGMouseButtonCenter);
+  post($.kCGEventOtherMouseUp, pt, $.kCGMouseButtonCenter);
+} else if (${JSON.stringify(action)} === "drag") {
+  const endPt = $.CGPointMake(${endPt.px}, ${endPt.py});
+  post($.kCGEventLeftMouseDown, pt, $.kCGMouseButtonLeft);
+  delay(0.08);
+  post($.kCGEventLeftMouseDragged, endPt, $.kCGMouseButtonLeft);
+  delay(0.08);
+  post($.kCGEventLeftMouseUp, endPt, $.kCGMouseButtonLeft);
+} else if (${JSON.stringify(action)} === "scroll") {
+  post($.kCGEventMouseMoved, pt, $.kCGMouseButtonLeft);
+  const se = $.CGEventCreateScrollWheelEvent(null, $.kCGScrollEventUnitLine, 1, ${steps});
+  $.CGEventPost($.kCGHIDEventTap, se);
+}
+`;
+    await execFileAsync('osascript', ['-l', 'JavaScript', '-e', jxa], { timeout: 4500 });
+    return { content: [{ type: 'text', text: `Executed mouse ${action} at (${px}, ${py})` }] };
   }
 
-  return { content: [{ type: 'text', text: `Unknown mouse action: ${action}` }], isError: true };
+  return { content: [{ type: 'text', text: `Mouse automation unsupported on ${process.platform}.` }], isError: true };
 }
 
 async function readClipboardText(): Promise<string | null> {
+  const bridged = await callBridge<{ ok?: boolean; text?: string }>('GET', '/clipboard');
+  if (bridged?.ok && typeof bridged.text === 'string') {
+    return bridged.text;
+  }
+
   try {
-    if (await commandExists('wl-paste')) {
-      const { stdout } = await execFileAsync('wl-paste', ['--no-newline'], { timeout: 1500 });
+    if (process.platform === 'linux') {
+      if (await commandExists('wl-paste')) {
+        const { stdout } = await execFileAsync('wl-paste', ['--no-newline'], { timeout: 1500 });
+        return stdout;
+      }
+      if (await commandExists('xclip')) {
+        const { stdout } = await execFileAsync('xclip', ['-o', '-selection', 'clipboard'], { timeout: 1500 });
+        return stdout;
+      }
+    } else if (process.platform === 'darwin') {
+      const { stdout } = await execFileAsync('pbpaste', [], { timeout: 1500 });
       return stdout;
-    }
-    if (await commandExists('xclip')) {
-      const { stdout } = await execFileAsync('xclip', ['-o', '-selection', 'clipboard'], { timeout: 1500 });
+    } else if (process.platform === 'win32') {
+      const stdout = await runPowerShell('Get-Clipboard -Raw', 2500);
       return stdout;
     }
   } catch {
@@ -685,9 +1223,35 @@ async function readClipboardText(): Promise<string | null> {
 }
 
 async function writeClipboardText(text: string): Promise<boolean> {
-  if (await commandExists('wl-copy')) {
+  const bridged = await callBridge<{ ok?: boolean }>('POST', '/clipboard', { text });
+  if (bridged?.ok) return true;
+
+  if (process.platform === 'linux') {
+    if (await commandExists('wl-copy')) {
+      await new Promise<void>((resolve, reject) => {
+        const child = execFile('wl-copy', [], { timeout: 2000 }, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+        child.stdin?.write(text);
+        child.stdin?.end();
+      });
+      return true;
+    }
+    if (await commandExists('xclip')) {
+      await new Promise<void>((resolve, reject) => {
+        const child = execFile('xclip', ['-i', '-selection', 'clipboard'], { timeout: 2000 }, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+        child.stdin?.write(text);
+        child.stdin?.end();
+      });
+      return true;
+    }
+  } else if (process.platform === 'darwin') {
     await new Promise<void>((resolve, reject) => {
-      const child = execFile('wl-copy', [], { timeout: 2000 }, (err) => {
+      const child = execFile('pbcopy', [], { timeout: 2000 }, (err) => {
         if (err) reject(err);
         else resolve();
       });
@@ -695,45 +1259,78 @@ async function writeClipboardText(text: string): Promise<boolean> {
       child.stdin?.end();
     });
     return true;
-  }
-  if (await commandExists('xclip')) {
-    await new Promise<void>((resolve, reject) => {
-      const child = execFile('xclip', ['-i', '-selection', 'clipboard'], { timeout: 2000 }, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-      child.stdin?.write(text);
-      child.stdin?.end();
-    });
+  } else if (process.platform === 'win32') {
+    await runPowerShell(`Set-Clipboard -Value '${text.replace(/'/g, "''")}'`, 3000);
     return true;
   }
   return false;
 }
 
+function toWindowsSendKeys(combo: string): string {
+  const parts = combo.toLowerCase().split('+').map((p) => p.trim()).filter(Boolean);
+  let mods = '';
+  let mainKey = '';
+  const map: Record<string, string> = {
+    enter: '{ENTER}',
+    return: '{ENTER}',
+    tab: '{TAB}',
+    esc: '{ESC}',
+    escape: '{ESC}',
+    backspace: '{BACKSPACE}',
+    delete: '{DELETE}',
+    del: '{DELETE}',
+    up: '{UP}',
+    down: '{DOWN}',
+    left: '{LEFT}',
+    right: '{RIGHT}',
+    home: '{HOME}',
+    end: '{END}',
+    pageup: '{PGUP}',
+    pagedown: '{PGDN}',
+    space: ' ',
+  };
+  for (const p of parts) {
+    if (p === 'ctrl' || p === 'control') mods += '^';
+    else if (p === 'alt') mods += '%';
+    else if (p === 'shift') mods += '+';
+    else if (map[p]) mainKey = map[p];
+    else if (/^f([1-9]|1[0-2])$/.test(p)) mainKey = `{${p.toUpperCase()}}`;
+    else mainKey = p;
+  }
+  return `${mods}${mainKey}`;
+}
+
 async function handleKeyboard(args: Record<string, unknown>) {
   const action = String(args.action || 'type');
+
   if (action === 'type') {
     const text = typeof args.text === 'string' ? args.text : '';
     if (!text) {
       return { content: [{ type: 'text', text: 'text parameter is required.' }], isError: true };
     }
-    const isAsciiSingleLine = /^[\x20-\x7e]+$/.test(text);
-    if (isAsciiSingleLine) {
-      await runYdotool(['type', '--key-delay', '8', '--', text], 8000);
-      return { content: [{ type: 'text', text: `Typed ${text.length} ASCII chars` }] };
+
+    if (process.platform === 'linux') {
+      const isAsciiSingleLine = /^[\x20-\x7e]+$/.test(text);
+      const ydoSock = await ensureYdotoolSocket();
+      if (ydoSock && isAsciiSingleLine) {
+        await runYdotool(['type', '--key-delay', '8', '--', text], 8000);
+        return { content: [{ type: 'text', text: `Typed ${text.length} ASCII chars` }] };
+      }
+      if (!ydoSock && (await commandExists('xdotool'))) {
+        await execFileAsync('xdotool', ['type', '--clearmodifiers', '--delay', '8', text], { timeout: 8000 });
+        return { content: [{ type: 'text', text: `Typed ${text.length} chars (xdotool)` }] };
+      }
     }
-    // Unicode / Vietnamese / multiline: paste atomically via clipboard and restore previous clipboard
+
+    // Unicode-safe atomic paste via clipboard + OS paste keystroke
     const prevClip = await readClipboardText();
     const ok = await writeClipboardText(text);
     if (!ok) {
-      throw new Error('Clipboard utility (wl-copy/xclip) required to type Unicode text.');
+      throw new Error('Clipboard backend required to type Unicode text.');
     }
-    await new Promise((r) => setTimeout(r, 40));
-    const pasteSeq = toYdotoolKeySequence('ctrl+v');
-    if (pasteSeq) {
-      await runYdotool(['key', ...pasteSeq]);
-    }
-    await new Promise((r) => setTimeout(r, 90));
+    await new Promise((r) => setTimeout(r, 45));
+    await handleKeyboard({ action: 'key', combo: process.platform === 'darwin' ? 'cmd+v' : 'ctrl+v' });
+    await new Promise((r) => setTimeout(r, 95));
     if (prevClip !== null) {
       await writeClipboardText(prevClip).catch(() => {});
     }
@@ -742,12 +1339,61 @@ async function handleKeyboard(args: Record<string, unknown>) {
 
   if (action === 'key') {
     const combo = String(args.combo || '').trim();
-    const seq = toYdotoolKeySequence(combo);
-    if (!seq) {
-      return { content: [{ type: 'text', text: `Unsupported key combo: ${combo}` }], isError: true };
+    if (!combo) {
+      return { content: [{ type: 'text', text: 'combo parameter is required.' }], isError: true };
     }
-    await runYdotool(['key', ...seq]);
-    return { content: [{ type: 'text', text: `Pressed key combo: ${combo}` }] };
+
+    if (process.platform === 'linux') {
+      const seq = toYdotoolKeySequence(combo);
+      const ydoSock = seq ? await ensureYdotoolSocket() : null;
+      if (seq && ydoSock) {
+        await runYdotool(['key', ...seq]);
+        return { content: [{ type: 'text', text: `Pressed key combo: ${combo}` }] };
+      }
+      if (await commandExists('xdotool')) {
+        const xCombo = combo
+          .toLowerCase()
+          .split('+')
+          .map((p) => (p === 'enter' ? 'Return' : p === 'esc' ? 'Escape' : p))
+          .join('+');
+        await execFileAsync('xdotool', ['key', '--clearmodifiers', xCombo], { timeout: 3000 });
+        return { content: [{ type: 'text', text: `Pressed key combo: ${combo}` }] };
+      }
+      throw new Error(`Keyboard automation unavailable for combo "${combo}".`);
+    }
+
+    if (process.platform === 'win32') {
+      const sendKeysStr = toWindowsSendKeys(combo);
+      await runPowerShell(
+        `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${sendKeysStr.replace(/'/g, "''")}')`,
+        4000,
+      );
+      return { content: [{ type: 'text', text: `Pressed key combo: ${combo}` }] };
+    }
+
+    if (process.platform === 'darwin') {
+      const parts = combo.toLowerCase().split('+').map((p) => p.trim()).filter(Boolean);
+      const mods: string[] = [];
+      let mainKey = '';
+      for (const p of parts) {
+        if (p === 'cmd' || p === 'meta' || p === 'super' || p === 'win') mods.push('command down');
+        else if (p === 'ctrl' || p === 'control') mods.push('control down');
+        else if (p === 'alt' || p === 'option') mods.push('option down');
+        else if (p === 'shift') mods.push('shift down');
+        else mainKey = p;
+      }
+      const keyCodeMap: Record<string, number> = {
+        enter: 36, return: 36, tab: 48, space: 49, backspace: 51, delete: 117, esc: 53, escape: 53,
+        left: 123, right: 124, down: 125, up: 126,
+      };
+      const usingClause = mods.length > 0 ? ` using {${mods.join(', ')}}` : '';
+      const stmt =
+        keyCodeMap[mainKey] !== undefined
+          ? `tell application "System Events" to key code ${keyCodeMap[mainKey]}${usingClause}`
+          : `tell application "System Events" to keystroke ${JSON.stringify(mainKey)}${usingClause}`;
+      await execFileAsync('osascript', ['-e', stmt], { timeout: 3500 });
+      return { content: [{ type: 'text', text: `Pressed key combo: ${combo}` }] };
+    }
   }
 
   return { content: [{ type: 'text', text: `Unknown keyboard action: ${action}` }], isError: true };
@@ -778,21 +1424,38 @@ async function handleSystem(args: Record<string, unknown>) {
     if (!/^https?:\/\//i.test(target)) {
       return { content: [{ type: 'text', text: 'Only http:// and https:// URLs are allowed.' }], isError: true };
     }
-    await execFileAsync('xdg-open', [target], { timeout: 4000 });
+    const bridged = await callBridge<{ ok?: boolean }>('POST', '/open-url', { url: target });
+    if (bridged?.ok) {
+      return { content: [{ type: 'text', text: `Opened URL: ${target}` }] };
+    }
+    if (process.platform === 'darwin') {
+      await execFileAsync('open', [target], { timeout: 4000 });
+    } else if (process.platform === 'win32') {
+      await execFileAsync('cmd.exe', ['/c', 'start', '', target], { timeout: 4000, windowsHide: true });
+    } else {
+      await execFileAsync('xdg-open', [target], { timeout: 4000 });
+    }
     return { content: [{ type: 'text', text: `Opened URL: ${target}` }] };
   }
 
   if (act === 'open_app' && target) {
-    if (!/^[A-Za-z0-9._-]+$/.test(target)) {
+    if (!/^[A-Za-z0-9 ._-]+$/.test(target)) {
       return { content: [{ type: 'text', text: 'Invalid application identifier.' }], isError: true };
+    }
+    if (process.platform === 'darwin') {
+      await execFileAsync('open', ['-a', target], { timeout: 4000 });
+      return { content: [{ type: 'text', text: `Launched ${target}` }] };
+    }
+    if (process.platform === 'win32') {
+      const child = spawn('cmd.exe', ['/c', 'start', '', target], { detached: true, stdio: 'ignore', windowsHide: true });
+      child.unref();
+      return { content: [{ type: 'text', text: `Launched ${target}` }] };
     }
     if (await commandExists('gtk-launch')) {
       try {
         await execFileAsync('gtk-launch', [target], { timeout: 4000 });
         return { content: [{ type: 'text', text: `Launched ${target}` }] };
-      } catch {
-        // try direct binary
-      }
+      } catch {}
     }
     if (await commandExists(target)) {
       const child = spawn(target, [], { detached: true, stdio: 'ignore', cwd: os.homedir() });
@@ -803,52 +1466,97 @@ async function handleSystem(args: Record<string, unknown>) {
   }
 
   if (act === 'list_apps') {
-    const appDirs = [
-      '/usr/share/applications',
-      '/usr/local/share/applications',
-      path.join(os.homedir(), '.local/share/applications'),
-      '/var/lib/flatpak/exports/share/applications',
-    ];
-    const found: Array<{ name: string; exec: string; desktopId: string }> = [];
-    for (const d of appDirs) {
-      try {
-        const files = await fs.readdir(d);
-        for (const f of files) {
-          if (!f.endsWith('.desktop')) continue;
-          try {
-            const raw = await fs.readFile(path.join(d, f), 'utf8');
-            if (raw.includes('NoDisplay=true')) continue;
-            const n = raw.match(/^Name=([^\n\r]+)/m)?.[1]?.trim();
-            const ex = raw.match(/^Exec=([^\n\r]+)/m)?.[1]?.split(/\s+/)[0];
-            if (n) {
-              found.push({ name: n, exec: ex || f.replace('.desktop', ''), desktopId: f.replace('.desktop', '') });
-            }
-          } catch {}
-        }
-      } catch {}
+    if (process.platform === 'linux') {
+      const appDirs = [
+        '/usr/share/applications',
+        '/usr/local/share/applications',
+        path.join(os.homedir(), '.local/share/applications'),
+        '/var/lib/flatpak/exports/share/applications',
+      ];
+      const found: Array<{ name: string; exec: string; desktopId: string }> = [];
+      for (const d of appDirs) {
+        try {
+          const files = await fs.readdir(d);
+          for (const f of files) {
+            if (!f.endsWith('.desktop')) continue;
+            try {
+              const raw = await fs.readFile(path.join(d, f), 'utf8');
+              if (raw.includes('NoDisplay=true')) continue;
+              const n = raw.match(/^Name=([^\n\r]+)/m)?.[1]?.trim();
+              const ex = raw.match(/^Exec=([^\n\r]+)/m)?.[1]?.split(/\s+/)[0];
+              if (n) {
+                found.push({ name: n, exec: ex || f.replace('.desktop', ''), desktopId: f.replace('.desktop', '') });
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+      const dedup = Array.from(new Map(found.map((a) => [a.desktopId, a])).values()).slice(0, 50);
+      return { content: [{ type: 'text', text: JSON.stringify(dedup, null, 2) }] };
     }
-    const dedup = Array.from(new Map(found.map((a) => [a.desktopId, a])).values()).slice(0, 50);
-    return { content: [{ type: 'text', text: JSON.stringify(dedup, null, 2) }] };
+    if (process.platform === 'darwin') {
+      const entries = (await fs.readdir('/Applications').catch(() => []))
+        .filter((f) => f.endsWith('.app'))
+        .slice(0, 50)
+        .map((f) => ({ name: f.replace(/\.app$/, ''), app: f }));
+      return { content: [{ type: 'text', text: JSON.stringify(entries, null, 2) }] };
+    }
+    if (process.platform === 'win32') {
+      const out = await runPowerShell('Get-StartApps | Select-Object -First 50 Name,AppID | ConvertTo-Json -Compress', 5000);
+      return { content: [{ type: 'text', text: out.trim() }] };
+    }
   }
 
   if (act === 'volume_get') {
-    const { stdout } = await execFileAsync('wpctl', ['get-volume', '@DEFAULT_AUDIO_SINK@'], { timeout: 3000 });
-    return { content: [{ type: 'text', text: stdout.trim() }] };
+    if (process.platform === 'darwin') {
+      const { stdout } = await execFileAsync('osascript', ['-e', 'output volume of (get volume settings)']);
+      return { content: [{ type: 'text', text: `Volume: ${stdout.trim()}%` }] };
+    }
+    if (process.platform === 'linux') {
+      const { stdout } = await execFileAsync('wpctl', ['get-volume', '@DEFAULT_AUDIO_SINK@'], { timeout: 3000 });
+      return { content: [{ type: 'text', text: stdout.trim() }] };
+    }
   }
 
   if (act === 'volume_set') {
-    const pct = Math.min(150, Math.max(0, Math.round(typeof args.value === 'number' ? args.value : 50)));
-    await execFileAsync('wpctl', ['set-volume', '@DEFAULT_AUDIO_SINK@', `${pct}%`], { timeout: 3000 });
-    return { content: [{ type: 'text', text: `Set volume to ${pct}%` }] };
+    const pct = Math.min(100, Math.max(0, Math.round(typeof args.value === 'number' ? args.value : 50)));
+    if (process.platform === 'darwin') {
+      await execFileAsync('osascript', ['-e', `set volume output volume ${pct}`]);
+      return { content: [{ type: 'text', text: `Set volume to ${pct}%` }] };
+    }
+    if (process.platform === 'linux') {
+      await execFileAsync('wpctl', ['set-volume', '@DEFAULT_AUDIO_SINK@', `${pct}%`], { timeout: 3000 });
+      return { content: [{ type: 'text', text: `Set volume to ${pct}%` }] };
+    }
   }
 
   if (act === 'volume_mute') {
-    await execFileAsync('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', 'toggle'], { timeout: 3000 });
-    return { content: [{ type: 'text', text: 'Toggled audio mute' }] };
+    if (process.platform === 'darwin') {
+      await execFileAsync('osascript', ['-e', 'set volume output muted not (output muted of (get volume settings))']);
+      return { content: [{ type: 'text', text: 'Toggled audio mute' }] };
+    }
+    if (process.platform === 'linux') {
+      await execFileAsync('wpctl', ['set-mute', '@DEFAULT_AUDIO_SINK@', 'toggle'], { timeout: 3000 });
+      return { content: [{ type: 'text', text: 'Toggled audio mute' }] };
+    }
   }
 
   if (act === 'theme_dark' || act === 'theme_light') {
     const isDark = act === 'theme_dark';
+    if (process.platform === 'darwin') {
+      await execFileAsync('osascript', [
+        '-e',
+        `tell app "System Events" to tell appearance preferences to set dark mode to ${isDark}`,
+      ]);
+      return { content: [{ type: 'text', text: `Switched macOS appearance to ${isDark ? 'Dark' : 'Light'}` }] };
+    }
+    if (process.platform === 'win32') {
+      const val = isDark ? 0 : 1;
+      await runPowerShell(
+        `Set-ItemProperty -Path HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize -Name AppsUseLightTheme -Value ${val}`,
+      );
+      return { content: [{ type: 'text', text: `Switched Windows app theme to ${isDark ? 'Dark' : 'Light'}` }] };
+    }
     if (await commandExists('plasma-apply-colorscheme')) {
       await execFileAsync('plasma-apply-colorscheme', [isDark ? 'BreezeDark' : 'BreezeLight'], { timeout: 5000 });
       return { content: [{ type: 'text', text: `Switched KDE color scheme to ${isDark ? 'Dark' : 'Light'}` }] };
@@ -864,7 +1572,7 @@ async function handleSystem(args: Record<string, unknown>) {
     return { content: [{ type: 'text', text: 'No desktop theme switcher available.' }], isError: true };
   }
 
-  if (act === 'dnd_on' || act === 'dnd_off') {
+  if ((act === 'dnd_on' || act === 'dnd_off') && process.platform === 'linux') {
     const inhibited = act === 'dnd_on' ? 'true' : 'false';
     await execFileAsync('gdbus', [
       'call',
@@ -885,7 +1593,15 @@ async function handleSystem(args: Record<string, unknown>) {
   if (act === 'notify') {
     const title = typeof args.title === 'string' ? args.title : 'Notification';
     const body = typeof args.body === 'string' ? args.body : '';
-    await execFileAsync('notify-send', [title, body], { timeout: 3000 });
+    const bridged = await callBridge<{ ok?: boolean }>('POST', '/notify', { title, body });
+    if (bridged?.ok) {
+      return { content: [{ type: 'text', text: `Sent notification: ${title}` }] };
+    }
+    if (process.platform === 'darwin') {
+      await execFileAsync('osascript', ['-e', `display notification ${JSON.stringify(body)} with title ${JSON.stringify(title)}`]);
+    } else if (process.platform === 'linux') {
+      await execFileAsync('notify-send', [title, body], { timeout: 3000 });
+    }
     return { content: [{ type: 'text', text: `Sent notification: ${title}` }] };
   }
 
@@ -1052,7 +1768,6 @@ function startStdioMcpServer(): void {
     const params =
       msg.params && typeof msg.params === 'object' ? (msg.params as Record<string, unknown>) : {};
 
-    // Notifications (no id) require no JSON-RPC response
     if (id === undefined || id === null) {
       return;
     }
@@ -1070,7 +1785,7 @@ function startStdioMcpServer(): void {
           },
           serverInfo: {
             name: 'computer-use',
-            version: '3.2.10',
+            version: '4.0.0',
           },
         },
       });

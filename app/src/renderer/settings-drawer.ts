@@ -1,6 +1,7 @@
 import { HARNESS_LIST } from '../shared/types';
 import type {
   AppSettings,
+  AppUpdateStatus,
   DesktopCapabilities,
   DesktopControlMode,
   FollowUpBehavior,
@@ -124,6 +125,17 @@ export function renderTabbedSettingsDrawer(opts: {
         </label>
         <div class="settings-hint">
           Toggle Ghost: <code>Ctrl+Alt+G</code> · Clipboard Companion: <code>Ctrl+Alt+Q</code> · Model Picker: <code>Ctrl+.</code>
+        </div>
+        <div class="diag-card" style="margin-top:6px;">
+          <div class="diag-card-top">
+            <strong>App &amp; Updates</strong>
+            <span id="app-version-badge" class="badge">v...</span>
+          </div>
+          <div id="app-update-status" class="diag-card-sub" style="margin:4px 0 6px;">Checking update status...</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button id="btn-check-updates" type="button" class="mini-action-btn">Check for Updates</button>
+            <button id="btn-install-updates" type="button" class="mini-action-btn primary hidden">Download Update</button>
+          </div>
         </div>
       `;
     } else if (activeTab === 'safety') {
@@ -361,11 +373,11 @@ export function renderTabbedSettingsDrawer(opts: {
             : res.message;
         });
 
-        if (!d.installed && d.npmPackage) {
+        if (!d.installed && (d.npmPackage || d.standaloneInstaller)) {
           const installBtn = document.createElement('button');
           installBtn.type = 'button';
           installBtn.className = 'mini-action-btn primary';
-          installBtn.textContent = 'Install';
+          installBtn.textContent = d.standaloneInstaller ? 'Install Standalone' : 'Install';
           installBtn.addEventListener('click', async () => {
             installBtn.disabled = true;
             installBtn.textContent = 'Installing...';
@@ -422,6 +434,7 @@ export function renderTabbedSettingsDrawer(opts: {
         patch.permissionPolicy = (body.querySelector('#set-perm-policy') as HTMLSelectElement).value as PermissionPolicy;
         patch.desktopControlMode = (body.querySelector('#set-desktop-mode') as HTMLSelectElement).value as DesktopControlMode;
         patch.autoApprovePermissions = patch.permissionPolicy === 'yolo';
+        patch.autoApproveDesktopActions = Boolean((body.querySelector('#set-auto-desktop') as HTMLInputElement)?.checked);
         patch.revertMode = (body.querySelector('#set-revert-mode') as HTMLSelectElement).value as RevertMode;
       } else if (activeTab === 'vision') {
         patch.followUpBehavior = (body.querySelector('#set-followup') as HTMLSelectElement).value as FollowUpBehavior;
@@ -458,6 +471,73 @@ export function renderTabbedSettingsDrawer(opts: {
         render();
       }
     });
+
+    if (activeTab === 'overlay') {
+      const verBadge = body.querySelector<HTMLElement>('#app-version-badge');
+      const updStatusEl = body.querySelector<HTMLElement>('#app-update-status');
+      const checkBtn = body.querySelector<HTMLButtonElement>('#btn-check-updates');
+      const installBtn = body.querySelector<HTMLButtonElement>('#btn-install-updates');
+
+      window.agentOverlay.getAppVersion?.().then((v) => {
+        if (verBadge) verBadge.textContent = `v${v}`;
+      }).catch(() => {});
+
+      const applyUpdateStatus = (st: AppUpdateStatus) => {
+        if (!updStatusEl) return;
+        updStatusEl.textContent = st.message || 'Ready';
+        if (installBtn) {
+          if (st.state === 'available') {
+            installBtn.classList.remove('hidden');
+            installBtn.disabled = false;
+            installBtn.textContent = st.version ? `Download v${st.version}` : 'Download Update';
+          } else if (st.state === 'downloaded') {
+            installBtn.classList.remove('hidden');
+            installBtn.disabled = false;
+            installBtn.textContent = 'Restart & Install';
+          } else if (st.state === 'downloading') {
+            installBtn.classList.remove('hidden');
+            installBtn.disabled = true;
+            installBtn.textContent = `Downloading ${st.percent ?? 0}%`;
+          } else {
+            installBtn.classList.add('hidden');
+          }
+        }
+      };
+
+      window.agentOverlay.getUpdateStatus?.().then(applyUpdateStatus).catch(() => {});
+      const unsubUpd = window.agentOverlay.onUpdateStatus?.((st) => {
+        if (!opts.container.isConnected) {
+          unsubUpd?.();
+          return;
+        }
+        applyUpdateStatus(st);
+      });
+
+      checkBtn?.addEventListener('click', async () => {
+        if (checkBtn) {
+          checkBtn.disabled = true;
+          checkBtn.textContent = 'Checking...';
+        }
+        try {
+          const st = await window.agentOverlay.checkForUpdates();
+          applyUpdateStatus(st);
+        } finally {
+          if (checkBtn) {
+            checkBtn.disabled = false;
+            checkBtn.textContent = 'Check for Updates';
+          }
+        }
+      });
+
+      installBtn?.addEventListener('click', async () => {
+        const cur = await window.agentOverlay.getUpdateStatus();
+        if (cur.state === 'downloaded') {
+          await window.agentOverlay.installUpdateNow();
+        } else if (cur.state === 'available') {
+          await window.agentOverlay.downloadUpdate();
+        }
+      });
+    }
 
     if (activeTab === 'vision' && window.agentOverlay?.detectSpeechBackends) {
       window.agentOverlay

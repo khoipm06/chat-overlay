@@ -1,31 +1,29 @@
 # Installation
 
-## Requirements
+## End-User Installers (Recommended)
 
-- **Node.js** 20+ (or [Bun](https://bun.sh))
-- **npm** (bundled with Node.js)
-- Linux with Wayland or X11 (macOS / Windows: dev mode only)
+Download the latest build from [GitHub Releases](https://github.com/khoipm06/chat-overlay/releases/latest). No developer runtime (`node`, `bun`, `ffmpeg`, `cmake`, or `brew`) is required.
 
-## One-step install (Linux)
+### Linux
+- **AppImage** (recommended across all distros, including immutable desktops):
+  ```bash
+  chmod +x Chat-Overlay-*.AppImage
+  mkdir -p ~/Applications && mv Chat-Overlay-*.AppImage ~/Applications/Chat-Overlay.AppImage
+  ~/Applications/Chat-Overlay.AppImage
+  ```
+  On startup, the AppImage automatically registers its `.desktop` launcher, icon, KDE global shortcuts, and KDE ScreenShot2 D-Bus permission. Launching it again toggles the overlay.
+- **Debian / Ubuntu**: `sudo apt install ./chat-overlay_*.deb`
+- **Fedora / RHEL**: `sudo dnf install ./chat-overlay-*.rpm`
 
-```bash
-git clone https://github.com/khoipm06/chat-overlay.git
-cd chat-overlay
-./install.sh
-```
+### Windows
+Run `Chat-Overlay-Setup-*.exe`. Both per-user/custom install paths and automatic updates are supported.
 
-This will:
-1. Build the app (`npm run build:prod`)
-2. Install a launcher script to `~/.local/bin/chat-overlay`
-3. Register a desktop entry with the KDE/GNOME app launcher
-4. Start the background daemon
+### macOS
+Open `Chat-Overlay-*-arm64.dmg` (Apple Silicon) or `Chat-Overlay-*-x64.dmg` (Intel) and drag **Chat Overlay** to **Applications**. Grant Screen Recording and Accessibility permissions when prompted for screenshots and optional computer control.
 
-**To enable autostart on login:**
-```bash
-./install.sh --autostart
-```
+---
 
-## Keyboard shortcuts
+## Keyboard Shortcuts
 
 | Shortcut | Action |
 |---|---|
@@ -35,18 +33,27 @@ This will:
 | `Ctrl+Alt+G` | Ghost click-through mode |
 | `Ctrl+Alt+X` | Desktop automation panic stop |
 
-## Dev mode (any platform)
+---
+
+## Building from Source (Developers)
+
+Requires Node.js 20+ (or Bun) and npm.
 
 ```bash
 cd app
-npm install   # or: bun install
+bun install   # or: npm install
 npm run start
 ```
 
-## Uninstall
+Linux source install script (adds a launcher at `~/.local/bin/chat-overlay`):
+
+```bash
+./install.sh
+./install.sh --autostart
+```
+
+Uninstall source wrapper:
 
 ```bash
 ./uninstall.sh
 ```
-
-Removes the launcher, desktop entry, autostart entry, and icon.

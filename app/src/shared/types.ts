@@ -7,6 +7,7 @@ export interface HarnessInfo {
   defaultCommand: string;
   defaultArgs: string[];
   npmPackage?: string;
+  standaloneInstaller?: boolean;
 }
 
 export const HARNESS_LIST: readonly HarnessInfo[] = [
@@ -23,6 +24,7 @@ export const HARNESS_LIST: readonly HarnessInfo[] = [
     shortLabel: 'opencode acp',
     defaultCommand: 'opencode',
     defaultArgs: ['acp'],
+    standaloneInstaller: true,
   },
   {
     id: 'codex_acp',
@@ -271,6 +273,23 @@ export interface HarnessDiagnostic {
   version: string | null;
   viaRunner?: boolean;
   npmPackage?: string;
+  standaloneInstaller?: boolean;
+}
+
+export type AppUpdateState =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'not-available'
+  | 'error';
+
+export interface AppUpdateStatus {
+  state: AppUpdateState;
+  version?: string;
+  percent?: number;
+  message?: string;
 }
 
 export interface FilePreviewResult {

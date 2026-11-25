@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   AppSettings,
+  AppUpdateStatus,
   ChatAttachment,
   DesktopAction,
   DesktopCapabilities,
@@ -110,6 +111,12 @@ export interface AgentOverlayApi {
   deleteSpeechModel: (modelId: string) => Promise<boolean>;
   onSpeechInstallProgress: (cb: (progress: SpeechInstallProgress) => void) => () => void;
   openExternal: (url: string) => Promise<void>;
+  getAppVersion: () => Promise<string>;
+  getUpdateStatus: () => Promise<AppUpdateStatus>;
+  checkForUpdates: () => Promise<AppUpdateStatus>;
+  downloadUpdate: () => Promise<AppUpdateStatus>;
+  installUpdateNow: () => Promise<void>;
+  onUpdateStatus: (cb: (status: AppUpdateStatus) => void) => () => void;
   auditCapture: (filename: string) => Promise<void>;
   auditDone: () => Promise<void>;
   onStreamEvent: (cb: (event: StreamEvent) => void) => () => void;
@@ -195,6 +202,16 @@ const api: AgentOverlayApi = {
     return () => ipcRenderer.off('speech:install-progress', handler);
   },
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
+  getAppVersion: () => ipcRenderer.invoke('app:get-version'),
+  getUpdateStatus: () => ipcRenderer.invoke('updater:get-status'),
+  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+  downloadUpdate: () => ipcRenderer.invoke('updater:download'),
+  installUpdateNow: () => ipcRenderer.invoke('updater:install'),
+  onUpdateStatus: (cb) => {
+    const handler = (_ev: Electron.IpcRendererEvent, status: AppUpdateStatus) => cb(status);
+    ipcRenderer.on('updater:status', handler);
+    return () => ipcRenderer.off('updater:status', handler);
+  },
   auditCapture: (filename) => ipcRenderer.invoke('audit:capture', filename),
   auditDone: () => ipcRenderer.invoke('audit:done'),
   onStreamEvent: (cb) => {

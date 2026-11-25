@@ -1,7 +1,10 @@
 {
   "name": "chat-overlay",
-  "version": "3.2.11",
+  "version": "4.0.0",
   "description": "Universal cross-platform ACP chat & live screen overlay",
+  "author": "khoipm06",
+  "homepage": "https://github.com/khoipm06/chat-overlay",
+  "repository": "https://github.com/khoipm06/chat-overlay.git",
   "main": "dist/main/main.js",
   "scripts": {
     "build": "node esbuild.mjs",
@@ -9,7 +12,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "start": "npm run build && electron dist/main/main.js",
-    "dev": "npm run build && electron dist/main/main.js --dev"
+    "dev": "npm run build && electron dist/main/main.js --dev",
+    "dist:appimage": "npm run build:prod && electron-builder --linux AppImage --publish never",
+    "dist:linux": "npm run build:prod && electron-builder --linux AppImage deb rpm --publish never",
+    "dist:win": "npm run build:prod && electron-builder --win nsis --publish never",
+    "dist:mac": "npm run build:prod && electron-builder --mac dmg zip --publish never"
   },
   "keywords": [
     "acp",
@@ -20,15 +27,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@vscode/codicons": "^0.0.36",
-    "dompurify": "^3.2.4",
-    "katex": "^0.16.21",
-    "markdown-it": "^14.1.0",
-    "markdown-it-deflist": "^3.0.0",
-    "markdown-it-footnote": "^4.0.0",
-    "markdown-it-task-lists": "^2.1.1",
-    "mermaid": "^11.4.1",
-    "shiki": "^3.2.1"
+    "electron-updater": "^6.8.11"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
@@ -36,9 +35,19 @@
     "@types/katex": "^0.16.7",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.13.0",
+    "@vscode/codicons": "^0.0.36",
+    "dompurify": "^3.2.4",
     "electron": "^35.0.0",
+    "electron-builder": "^26.18.0",
     "esbuild": "^0.25.0",
     "jsdom": "^31.0.1",
+    "katex": "^0.16.21",
+    "markdown-it": "^14.1.0",
+    "markdown-it-deflist": "^3.0.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.4.1",
+    "shiki": "^3.2.1",
     "typescript": "^5.7.3",
     "vitest": "^3.0.7"
   }

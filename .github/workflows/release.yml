@@ -5,13 +5,90 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  build-electron:
-    name: Package Electron (Linux / Windows / macOS)
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: app
+  build-whisper-server:
+    name: Build whisper-server (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            os: ubuntu-24.04
+            cmake_flags: "-DGGML_NATIVE=OFF"
+            artifact: whisper-server-linux-x64.tar.gz
+          - target: win32-x64
+            os: windows-latest
+            cmake_flags: "-DGGML_NATIVE=OFF"
+            artifact: whisper-server-win32-x64.zip
+          - target: darwin-arm64
+            os: macos-latest
+            cmake_flags: "-DGGML_NATIVE=OFF -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+            artifact: whisper-server-darwin-arm64.tar.gz
+          - target: darwin-x64
+            os: macos-latest
+            cmake_flags: "-DGGML_NATIVE=OFF -DCMAKE_OSX_ARCHITECTURES=x86_64 -DGGML_METAL=OFF"
+            artifact: whisper-server-darwin-x64.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install Linux RPM/build deps
+        if: matrix.os == 'ubuntu-24.04'
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential curl
+
+      - name: Download & configure whisper.cpp v1.9.6
+        shell: bash
+        run: |
+          curl -fsSL https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.9.6.tar.gz -o whisper.tar.gz
+          tar -xzf whisper.tar.gz
+          cmake -S whisper.cpp-1.9.6 -B build \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DWHISPER_BUILD_SERVER=ON \
+            -DWHISPER_BUILD_EXAMPLES=ON \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            ${{ matrix.cmake_flags }}
+
+      - name: Compile whisper-server
+        shell: bash
+        run: cmake --build build --target whisper-server --config Release -j 4
+
+      - name: Archive standalone whisper-server binary
+        shell: bash
+        run: |
+          mkdir -p out-bin out-archive
+          BIN_PATH="$(find build -type f \( -name 'whisper-server' -o -name 'whisper-server.exe' \) | head -n 1)"
+          cp "$BIN_PATH" out-bin/
+          if [[ "${{ matrix.target }}" == "win32-x64" ]]; then
+            7z a -tzip "out-archive/${{ matrix.artifact }}" ./out-bin/*
+          else
+            tar -C out-bin -czf "out-archive/${{ matrix.artifact }}" .
+          fi
+
+      - name: Upload whisper-server archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-${{ matrix.target }}
+          path: out-archive/${{ matrix.artifact }}
+
+  package-app:
+    name: Package Installer (${{ matrix.name }})
+    needs: [build-whisper-server]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+            platform: linux
+          - name: Windows
+            os: windows-latest
+            platform: win32
+          - name: macOS
+            os: macos-latest
+            platform: darwin
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,49 +103,74 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install dependencies
+      - name: Install Linux packaging tools (rpmbuild)
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm desktop-file-utils
+
+      - name: Download prebuilt whisper-server artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded-whisper
+
+      - name: Install app dependencies
+        working-directory: app
         run: bun install --frozen-lockfile
 
-      - name: Build bundle
-        run: npm run build:prod
-
-      - name: Stage and package cross-platform builds
+      - name: Package Linux AppImage / deb / rpm
+        if: matrix.platform == 'linux'
+        working-directory: app
         run: |
-          rm -rf /tmp/co-stage /tmp/co-out /tmp/co-archives
-          mkdir -p /tmp/co-stage /tmp/co-out /tmp/co-archives
-          cp -r dist /tmp/co-stage/dist
-          cp -r resources /tmp/co-stage/resources
-          node -e "const p=require('./package.json'); require('fs').writeFileSync('/tmp/co-stage/package.json', JSON.stringify({name:p.name,version:p.version,description:p.description,main:p.main,license:p.license},null,2))"
-          ELECTRON_VER="$(node -p "require('./node_modules/electron/package.json').version")"
-          bunx @electron/packager /tmp/co-stage chat-overlay --platform=linux --arch=x64 --out=/tmp/co-out --overwrite --electron-version="$ELECTRON_VER"
-          bunx @electron/packager /tmp/co-stage chat-overlay --platform=win32 --arch=x64 --out=/tmp/co-out --overwrite --electron-version="$ELECTRON_VER"
-          bunx @electron/packager /tmp/co-stage chat-overlay --platform=darwin --arch=arm64,x64 --out=/tmp/co-out --overwrite --electron-version="$ELECTRON_VER"
-          tar -C /tmp/co-out -czf /tmp/co-archives/chat-overlay-linux-x64.tar.gz chat-overlay-linux-x64
-          (cd /tmp/co-out && zip -qr /tmp/co-archives/chat-overlay-win32-x64.zip chat-overlay-win32-x64)
-          (cd /tmp/co-out && zip -qr /tmp/co-archives/chat-overlay-darwin-arm64.zip chat-overlay-darwin-arm64)
-          (cd /tmp/co-out && zip -qr /tmp/co-archives/chat-overlay-darwin-x64.zip chat-overlay-darwin-x64)
+          mkdir -p build-resources/bin
+          tar -xzf ../downloaded-whisper/whisper-linux-x64/whisper-server-linux-x64.tar.gz -C build-resources/bin
+          chmod +x build-resources/bin/whisper-server
+          npm run dist:linux
 
-      - name: Upload Electron artifacts
+      - name: Package Windows NSIS installer
+        if: matrix.platform == 'win32'
+        working-directory: app
+        shell: bash
+        run: |
+          mkdir -p build-resources/bin
+          7z e -y ../downloaded-whisper/whisper-win32-x64/whisper-server-win32-x64.zip -obuild-resources/bin
+          npm run dist:win
+
+      - name: Package macOS arm64 & x64 DMG/ZIP
+        if: matrix.platform == 'darwin'
+        working-directory: app
+        run: |
+          mkdir -p build-resources/bin /tmp/wh-arm64 /tmp/wh-x64
+          npm run build:prod
+          tar -xzf ../downloaded-whisper/whisper-darwin-arm64/whisper-server-darwin-arm64.tar.gz -C /tmp/wh-arm64
+          tar -xzf ../downloaded-whisper/whisper-darwin-x64/whisper-server-darwin-x64.tar.gz -C /tmp/wh-x64
+          lipo -create /tmp/wh-arm64/whisper-server /tmp/wh-x64/whisper-server -output build-resources/bin/whisper-server
+          chmod +x build-resources/bin/whisper-server
+          npx electron-builder --mac dmg zip --arm64 --x64 --publish never
+
+      - name: Collect release installers
+        shell: bash
+        run: |
+          mkdir -p release-files
+          find app/release -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.blockmap' -o -name 'latest*.yml' \) -exec cp {} release-files/ \;
+
+      - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-electron
-          path: /tmp/co-archives/*
+          name: installers-${{ matrix.platform }}
+          path: release-files/*
 
   publish:
     name: Create GitHub Release
-    needs: [build-electron]
+    needs: [build-whisper-server, package-app]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
-      - name: Download build artifacts
+      - name: Download installer artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: all-artifacts
           merge-multiple: true
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/*
+          files: all-artifacts/*
