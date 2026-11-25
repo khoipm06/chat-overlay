@@ -65,13 +65,19 @@ function toEnvArray(env: unknown): Array<{ name: string; value: string }> {
 const MCP_DESKTOP_HINT =
   '\n\n[Computer Use MCP tools (`desktop_screenshot`, `desktop_list_windows`, `desktop_window_control`, `desktop_mouse`, `desktop_keyboard`, `desktop_clipboard`, `desktop_system`, `desktop_wait`) are enabled. Call `desktop_screenshot` or `desktop_list_windows` to inspect UI before clicking, and use normalized 0-1000 coordinates in `desktop_mouse`.]';
 
-export function resolveComputerUseMcpPath(): string | null {
-  for (const candidate of [
+export function resolveComputerUseMcpPath(candidatesOverride?: string[]): string | null {
+  const candidates = candidatesOverride || [
     path.join(__dirname, 'mcp-computer-use.js'),
     path.resolve(__dirname, '../../dist/main/mcp-computer-use.js'),
     path.resolve(process.cwd(), 'dist/main/mcp-computer-use.js'),
     path.resolve(process.cwd(), 'app/dist/main/mcp-computer-use.js'),
-  ]) {
+  ];
+  for (const candidate of candidates) {
+    // Check unpacked asar location first so ELECTRON_RUN_AS_NODE can execute outside app.asar
+    if (candidate.includes('app.asar') && !candidate.includes('app.asar.unpacked')) {
+      const unpacked = candidate.replace('app.asar', 'app.asar.unpacked');
+      if (fsSync.existsSync(unpacked)) return unpacked;
+    }
     if (fsSync.existsSync(candidate)) return candidate;
   }
   return null;
@@ -80,6 +86,7 @@ export function resolveComputerUseMcpPath(): string | null {
 export async function loadMcpServersForSession(
   workspaceDir: string,
   settings?: Pick<AppSettings, 'desktopControlMode'>,
+  bridge?: { url: string; token: string } | null,
 ): Promise<Array<Record<string, unknown>>> {
   const servers: Array<Record<string, unknown>> = [];
   try {
@@ -172,6 +179,10 @@ export async function loadMcpServersForSession(
       for (const k of ['DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR', 'YDOTOOL_SOCKET']) {
         if (process.env[k]) envEntries.push({ name: k, value: process.env[k]! });
       }
+      if (bridge?.url && bridge?.token) {
+        envEntries.push({ name: 'CHAT_OVERLAY_BRIDGE_URL', value: bridge.url });
+        envEntries.push({ name: 'CHAT_OVERLAY_BRIDGE_TOKEN', value: bridge.token });
+      }
       servers.push({
         name: 'computer-use',
         command: process.execPath,
@@ -231,11 +242,13 @@ export class AcpAgentController {
 
   private onEvent: (ev: StreamEvent) => void;
   private onMarkupAnnotations: (annotations: MarkupAnnotation[]) => void;
+  private getComputerUseBridge?: () => { url: string; token: string } | null;
 
   constructor(
     settings: AppSettings,
     onEvent: (ev: StreamEvent) => void,
     onMarkupAnnotations: (annotations: MarkupAnnotation[]) => void,
+    getComputerUseBridge?: () => { url: string; token: string } | null,
   ) {
     this.currentHarness = settings.harness;
     this.currentWorkspace = settings.workspaceDir;
@@ -245,6 +258,7 @@ export class AcpAgentController {
     this.autoApproveDesktopActions = settings.autoApproveDesktopActions !== false;
     this.onEvent = onEvent;
     this.onMarkupAnnotations = onMarkupAnnotations;
+    this.getComputerUseBridge = getComputerUseBridge;
     this.catalog = this.emptyCatalog(this.currentHarness, 'idle', 'Waiting to connect');
   }
 
@@ -325,7 +339,7 @@ export class AcpAgentController {
         },
         clientInfo: {
           name: 'chat-overlay',
-          version: '3.2.11',
+          version: '4.0.0',
         },
       }, 20_000)) as Record<string, unknown> | null;
       if (gen !== this.warmupSeq) return this.catalog;
@@ -358,7 +372,11 @@ export class AcpAgentController {
       }
 
       if (!parsed) {
-        const mcpServers = await loadMcpServersForSession(settings.workspaceDir, settings);
+        const mcpServers = await loadMcpServersForSession(
+          settings.workspaceDir,
+          settings,
+          this.getComputerUseBridge?.(),
+        );
         const sessionRes = (await this.sendRpc('session/new', {
           cwd: settings.workspaceDir,
           mcpServers,
@@ -475,7 +493,11 @@ export class AcpAgentController {
 
     const meta = HARNESS_LIST.find((h) => h.id === settings.harness) ?? HARNESS_LIST[0];
     this.emitStatus('warming', `Creating ${meta.shortLabel} session...`);
-    const mcpServers = await loadMcpServersForSession(settings.workspaceDir, settings);
+    const mcpServers = await loadMcpServersForSession(
+      settings.workspaceDir,
+      settings,
+      this.getComputerUseBridge?.(),
+    );
     const sessionRes = (await this.sendRpc(
       'session/new',
       {
@@ -875,9 +897,11 @@ export class AcpAgentController {
       this.replayedTurns = [];
       this.currentReplayedTurn = null;
       this.catalog.sessionId = sessionId;
-      const mcpServers = await loadMcpServersForSession(this.currentWorkspace, {
-        desktopControlMode: this.desktopControlMode,
-      });
+      const mcpServers = await loadMcpServersForSession(
+        this.currentWorkspace,
+        { desktopControlMode: this.desktopControlMode },
+        this.getComputerUseBridge?.(),
+      );
       await this.sendRpc(
         'session/load',
         {

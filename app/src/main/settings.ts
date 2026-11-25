@@ -11,6 +11,8 @@ import type {
   SessionCatalog,
 } from '../shared/types';
 import { HARNESS_LIST } from '../shared/types';
+import { bundledBinDir, managedBinDir, sanitizeDefaultWorkspaceDir } from './app-paths';
+import { installStandaloneOpenCode } from './harness-installer';
 
 const execFileAsync = promisify(execFile);
 
@@ -36,7 +38,10 @@ export function resolveExecutable(configured: string): string {
 
   const pathDirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
   const home = os.homedir();
+  const bundled = bundledBinDir();
   const extraDirs = [
+    ...(bundled ? [bundled] : []),
+    managedBinDir(),
     path.join(home, '.local', 'bin'),
     path.join(home, '.opencode', 'bin'),
     path.join(home, '.bun', 'bin'),
@@ -47,7 +52,7 @@ export function resolveExecutable(configured: string): string {
     '/usr/local/bin',
   ];
 
-  for (const dir of [...pathDirs, ...extraDirs]) {
+  for (const dir of [...extraDirs, ...pathDirs]) {
     for (const ext of exts) {
       const candidate = path.join(dir, trimmed + ext);
       if (isFile(candidate)) return candidate;
@@ -64,18 +69,18 @@ export function defaultWorkspaceDir(): string {
       cwd = fs.realpathSync(cwd);
     }
   } catch {}
-  // When launched from /app, default to parent playground if workspace is there, else cwd
+  // When launched from /app, default to parent directory if present, else sanitized cwd
   if (path.basename(cwd) === 'app') {
     const parent = path.dirname(cwd);
     if (fs.existsSync(parent)) {
       try {
-        return fs.realpathSync(parent);
+        return sanitizeDefaultWorkspaceDir(fs.realpathSync(parent));
       } catch {
-        return parent;
+        return sanitizeDefaultWorkspaceDir(parent);
       }
     }
   }
-  return cwd || os.homedir();
+  return sanitizeDefaultWorkspaceDir(cwd);
 }
 
 export const CURRENT_LAYOUT_VERSION = 3;
@@ -176,9 +181,12 @@ export function resolveHarnessLaunch(
 export async function installHarnessPackage(
   harness: HarnessKind,
 ): Promise<{ ok: boolean; message: string }> {
+  if (harness === 'opencode_acp') {
+    return installStandaloneOpenCode();
+  }
   const meta = HARNESS_LIST.find((h) => h.id === harness);
   if (!meta?.npmPackage) {
-    return { ok: false, message: 'No installable npm package configured for this harness.' };
+    return { ok: false, message: 'No installable package configured for this harness.' };
   }
   const bunBin = resolveExecutable('bun');
   const npmBin = resolveExecutable('npm');
@@ -226,6 +234,7 @@ export async function inspectHarnesses(settings: AppSettings): Promise<HarnessDi
         version,
         viaRunner: !installed && launch.viaRunner,
         npmPackage: meta.npmPackage,
+        standaloneInstaller: meta.standaloneInstaller,
       };
     }),
   );
@@ -434,8 +443,9 @@ export function syncLinuxAutostartDesktopFile(
     'Type=Application',
     'Version=1.0',
     'Name=Chat Overlay',
-    'Comment=Cross-platform ACP coding and screen assistant overlay',
+    'Comment=Universal cross-platform ACP coding and screen assistant overlay',
     `Exec=${execLine}`,
+    'Icon=chat-overlay',
     'Terminal=false',
     'X-GNOME-Autostart-enabled=true',
     'X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2',

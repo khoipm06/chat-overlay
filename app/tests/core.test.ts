@@ -57,6 +57,7 @@ import {
 import {
   cleanAudioMimeType,
   detectLocalSpeechBackend,
+  isPcm16Mono16kWav,
   resolveSpeechApiKey,
   sanitizeTranscription,
   transcribeAudio,
@@ -65,8 +66,14 @@ import {
 import {
   downloadModelFile,
   getSpeechStatus,
+  resolveWhisperBinaryAsset,
   WHISPER_MODELS,
 } from '../src/main/speech-manager';
+import { sanitizeDefaultWorkspaceDir } from '../src/main/app-paths';
+import { startComputerUseBridge } from '../src/main/computer-use-bridge';
+import { syncLinuxAppImageDesktopEntry } from '../src/main/desktop-integration';
+import { resolveOpenCodeAsset } from '../src/main/harness-installer';
+import { downsampleLinear, encodePcm16Wav } from '../src/renderer/audio-recorder';
 import {
   extractCleanOutput,
   pickToolKind,
@@ -1431,6 +1438,141 @@ describe('ACP question tool, shell output & settings updates', () => {
       if (prevXdgData === undefined) delete process.env.XDG_DATA_HOME;
       else process.env.XDG_DATA_HOME = prevXdgData;
       fs.rmSync(tmpData, { recursive: true, force: true });
+    }
+  });
+
+  it('encodes 16kHz mono PCM WAV without ffmpeg and validates WAV headers cleanly', () => {
+    const input = new Float32Array(4800).fill(0.25);
+    const downsampled = downsampleLinear(input, 48000, 16000);
+    expect(downsampled.length).toBe(1600);
+
+    const wavBytes = encodePcm16Wav([input], 48000, 16000);
+    expect(wavBytes.length).toBe(44 + 1600 * 2);
+    expect(isPcm16Mono16kWav(Buffer.from(wavBytes))).toBe(true);
+    expect(isPcm16Mono16kWav(Buffer.from('not-a-wav'))).toBe(false);
+  });
+
+  it('sanitizes packaged read-only launch directories to user home', () => {
+    const home = '/home/alice';
+    expect(sanitizeDefaultWorkspaceDir('/', home)).toBe(home);
+    expect(sanitizeDefaultWorkspaceDir('/tmp/.mount_ChatOvAbc', home)).toBe(home);
+    expect(sanitizeDefaultWorkspaceDir('/Applications/Chat Overlay.app/Contents/Resources', home)).toBe(home);
+    expect(sanitizeDefaultWorkspaceDir('/home/alice/projects/demo', home)).toBe('/home/alice/projects/demo');
+  });
+
+  it('serves authenticated ComputerUseBridge endpoints and rejects missing auth', async () => {
+    let clipboardText = 'initial';
+    let openedUrl = '';
+    const bridge = await startComputerUseBridge({
+      getScreenInfo: () => ({ width: 1920, height: 1080, scaleFactor: 1, pixelWidth: 1920, pixelHeight: 1080 }),
+      captureScreenshot: async () => ({
+        ok: true,
+        screenWidth: 1920,
+        screenHeight: 1080,
+        logicalScreenWidth: 1920,
+        logicalScreenHeight: 1080,
+        imageWidth: 1440,
+        imageHeight: 810,
+        mimeType: 'image/jpeg',
+        data: Buffer.from('mock-jpg').toString('base64'),
+      }),
+      readClipboard: () => clipboardText,
+      writeClipboard: (text) => {
+        clipboardText = text;
+      },
+      openUrl: (url) => {
+        openedUrl = url;
+      },
+      notify: () => {},
+    });
+
+    try {
+      const unauth = await fetch(`${bridge.url}/screen-info`);
+      expect(unauth.status).toBe(401);
+
+      const authHeaders = {
+        Authorization: `Bearer ${bridge.token}`,
+        'Content-Type': 'application/json',
+      };
+      const screenRes = await fetch(`${bridge.url}/screen-info`, { headers: authHeaders });
+      expect(screenRes.status).toBe(200);
+      expect(await screenRes.json()).toMatchObject({ width: 1920, height: 1080 });
+
+      const shotRes = await fetch(`${bridge.url}/screenshot`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ maxWidth: 1440 }),
+      });
+      expect(shotRes.status).toBe(200);
+      expect((await shotRes.json()).mimeType).toBe('image/jpeg');
+
+      await fetch(`${bridge.url}/clipboard`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ text: 'updated' }),
+      });
+      expect(clipboardText).toBe('updated');
+
+      const badUrlRes = await fetch(`${bridge.url}/open-url`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ url: 'file:///etc/passwd' }),
+      });
+      expect(badUrlRes.status).toBe(400);
+
+      const goodUrlRes = await fetch(`${bridge.url}/open-url`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ url: 'https://example.com' }),
+      });
+      expect(goodUrlRes.status).toBe(200);
+      expect(openedUrl).toBe('https://example.com');
+    } finally {
+      await bridge.close();
+    }
+  });
+
+  it('resolves cross-platform whisper-server and OpenCode release assets', () => {
+    expect(resolveWhisperBinaryAsset('linux', 'x64')?.fileName).toBe('whisper-server-linux-x64.tar.gz');
+    expect(resolveWhisperBinaryAsset('win32', 'x64')?.binaryName).toBe('whisper-server.exe');
+    expect(resolveWhisperBinaryAsset('darwin', 'arm64')?.fileName).toBe('whisper-server-darwin-arm64.tar.gz');
+
+    expect(resolveOpenCodeAsset('linux', 'x64')?.fileName).toBe('opencode-linux-x64.tar.gz');
+    expect(resolveOpenCodeAsset('win32', 'x64')?.binaryName).toBe('opencode.exe');
+    expect(resolveOpenCodeAsset('darwin', 'arm64')?.fileName).toBe('opencode-darwin-arm64.zip');
+  });
+
+  it('writes Linux desktop entry with KDE ScreenShot2 permission and shortcuts', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'co-desktop-int-'));
+    try {
+      const appsDir = path.join(tmp, 'applications');
+      const iconsDir = path.join(tmp, 'icons');
+      const changed = syncLinuxAppImageDesktopEntry({
+        execPath: '/home/user/Applications/Chat-Overlay.AppImage',
+        applicationsDir: appsDir,
+        iconsDir,
+        skipDesktopTools: true,
+      });
+      expect(changed).toBe(true);
+      const desktopContent = fs.readFileSync(path.join(appsDir, 'chat-overlay.desktop'), 'utf8');
+      expect(desktopContent).toContain('Exec=/home/user/Applications/Chat-Overlay.AppImage');
+      expect(desktopContent).toContain('X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2');
+      expect(desktopContent).toContain('X-KDE-Shortcuts=Ctrl+Alt+L,Meta+Shift+L');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('prefers app.asar.unpacked path for packaged MCP subprocess', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'co-asar-'));
+    try {
+      const packed = path.join(tmp, 'app.asar', 'dist', 'main', 'mcp-computer-use.js');
+      const unpacked = path.join(tmp, 'app.asar.unpacked', 'dist', 'main', 'mcp-computer-use.js');
+      fs.mkdirSync(path.dirname(unpacked), { recursive: true });
+      fs.writeFileSync(unpacked, '// unpacked', 'utf8');
+      expect(resolveComputerUseMcpPath([packed])).toBe(unpacked);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 });

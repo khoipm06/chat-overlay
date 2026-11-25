@@ -2,6 +2,10 @@
 node_modules/
 app/dist/
 app/node_modules/
+app/release/
+*.AppImage
+app/build-resources/bin/*
+!app/build-resources/bin/.gitkeep
 
 # Rust build artifacts (legacy)
 target/

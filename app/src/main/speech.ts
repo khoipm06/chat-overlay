@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AppSettings, SpeechMode } from '../shared/types';
+import { bundledBinDir } from './app-paths';
 import { configDir } from './settings';
 import {
   ensureManagedWhisperServer,
@@ -161,7 +162,10 @@ export function findExecutableInPath(names: string[]): string | null {
     path.join(os.homedir(), 'anaconda3', 'bin'),
     '/home/linuxbrew/.linuxbrew/bin',
   ];
-  const searchDirs = Array.from(new Set([speechBinDir(), ...pathEnv.split(delimiter).filter(Boolean), ...standardDirs]));
+  const bundled = bundledBinDir();
+  const searchDirs = Array.from(
+    new Set([...(bundled ? [bundled] : []), speechBinDir(), ...pathEnv.split(delimiter).filter(Boolean), ...standardDirs]),
+  );
 
   for (const name of names) {
     const nameCandidates =
@@ -170,6 +174,7 @@ export function findExecutableInPath(names: string[]): string | null {
     for (const candidate of nameCandidates) {
       if (path.isAbsolute(candidate)) {
         if (fs.existsSync(candidate)) {
+          if (process.platform === 'win32') return candidate;
           try {
             fs.accessSync(candidate, fs.constants.X_OK);
             return candidate;
@@ -180,6 +185,7 @@ export function findExecutableInPath(names: string[]): string | null {
       for (const dir of searchDirs) {
         const fullPath = path.join(dir, candidate);
         if (fs.existsSync(fullPath)) {
+          if (process.platform === 'win32') return fullPath;
           try {
             fs.accessSync(fullPath, fs.constants.X_OK);
             return fullPath;
@@ -189,6 +195,33 @@ export function findExecutableInPath(names: string[]): string | null {
     }
   }
   return null;
+}
+
+export function isPcm16Mono16kWav(buf: Buffer): boolean {
+  if (!buf || buf.length < 44) return false;
+  if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
+    return false;
+  }
+  let offset = 12;
+  let validFmt = false;
+  let hasData = false;
+  while (offset + 8 <= buf.length) {
+    const chunkId = buf.toString('ascii', offset, offset + 4);
+    const chunkSize = buf.readUInt32LE(offset + 4);
+    const bodyStart = offset + 8;
+    if (chunkId === 'fmt ' && bodyStart + 16 <= buf.length) {
+      const audioFormat = buf.readUInt16LE(bodyStart);
+      const channels = buf.readUInt16LE(bodyStart + 2);
+      const sampleRate = buf.readUInt32LE(bodyStart + 4);
+      const bitsPerSample = buf.readUInt16LE(bodyStart + 14);
+      validFmt = audioFormat === 1 && channels === 1 && sampleRate === 16000 && bitsPerSample === 16;
+    } else if (chunkId === 'data' && chunkSize > 0) {
+      hasData = true;
+    }
+    if (chunkSize === 0 && chunkId !== 'data') break;
+    offset = bodyStart + chunkSize + (chunkSize % 2);
+  }
+  return validFmt && hasData;
 }
 
 export function findWhisperCppModel(preferredModelId?: string): string | null {
@@ -392,8 +425,8 @@ export async function transcribeViaCli(
       const expanded = customCmd.includes('{file}')
         ? customCmd.replace(/\{file\}/g, `"${wavPath}"`)
         : `${customCmd} "${wavPath}"`;
-      const cmd = '/bin/sh';
-      const args = ['-c', expanded];
+      const cmd = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+      const args = process.platform === 'win32' ? ['/c', expanded] : ['-c', expanded];
       let liveOutput = '';
       const res = await runProcessWithTimeout(cmd, args, 30_000, undefined, (chunk) => {
         liveOutput += chunk;
@@ -559,18 +592,24 @@ export async function transcribeLocalSpeech(
   const inputPath = path.join(tmpDir, `input.${ext}`);
   const wavPath = path.join(tmpDir, 'input-16k.wav');
 
-  fs.writeFileSync(inputPath, audioBuffer);
-
   let targetWav = inputPath;
   let targetBuffer = audioBuffer;
   let targetMime = options.mimeType;
 
   try {
-    const converted = await convertAudioToWav(inputPath, wavPath);
-    if (converted && fs.existsSync(wavPath)) {
+    if (isPcm16Mono16kWav(audioBuffer)) {
+      fs.writeFileSync(wavPath, audioBuffer);
       targetWav = wavPath;
-      targetBuffer = fs.readFileSync(wavPath);
+      targetBuffer = audioBuffer;
       targetMime = 'audio/wav';
+    } else {
+      fs.writeFileSync(inputPath, audioBuffer);
+      const converted = await convertAudioToWav(inputPath, wavPath);
+      if (converted && fs.existsSync(wavPath)) {
+        targetWav = wavPath;
+        targetBuffer = fs.readFileSync(wavPath);
+        targetMime = 'audio/wav';
+      }
     }
 
     // 1. If custom local command is configured, run it directly without delay

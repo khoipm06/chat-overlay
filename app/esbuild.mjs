@@ -18,7 +18,7 @@ await Promise.all([
     target: 'node22',
     format: 'cjs',
     outfile: 'dist/main/main.js',
-    external: ['electron'],
+    external: ['electron', 'electron-updater'],
     minify: IS_PROD,
     sourcemap: !IS_PROD,
   }),

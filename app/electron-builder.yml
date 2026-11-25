@@ -1,0 +1,75 @@
+appId: io.chatoverlay.app
+productName: Chat Overlay
+executableName: chat-overlay
+asar: true
+asarUnpack:
+  - dist/main/mcp-computer-use.js
+  - resources/**/*
+directories:
+  output: release
+  buildResources: resources
+files:
+  - dist/**/*
+  - resources/**/*
+  - package.json
+  - node_modules/**/*
+  - "!node_modules/.cache/**"
+extraResources:
+  - from: build-resources/bin
+    to: bin
+    filter:
+      - "**/*"
+      - "!.gitkeep"
+publish:
+  - provider: github
+    owner: khoipm06
+    repo: chat-overlay
+linux:
+  icon: resources/icons/icon-512.png
+  category: Development;Utility
+  desktop:
+    entry:
+      Name: Chat Overlay
+      Comment: Universal cross-platform ACP coding and screen assistant overlay
+      StartupWMClass: chat-overlay
+      X-KDE-Shortcuts: Ctrl+Alt+L,Meta+Shift+L
+      X-KDE-DBUS-Restricted-Interfaces: org.kde.KWin.ScreenShot2
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+    - target: rpm
+      arch:
+        - x64
+win:
+  icon: resources/icons/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Chat Overlay
+mac:
+  icon: resources/icons/icon-512.png
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  extendInfo:
+    NSMicrophoneUsageDescription: Chat Overlay needs microphone access for voice dictation.
+    NSScreenCaptureUsageDescription: Chat Overlay captures the screen for screen-aware chat and computer use.
+    NSAppleEventsUsageDescription: Chat Overlay uses Apple Events for optional desktop automation actions.
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64

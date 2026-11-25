@@ -22,6 +22,7 @@ import {
   PROMPT_TEMPLATES,
 } from '../main/commands';
 import { extractActiveTrigger } from '../shared/triggers';
+import { PcmWavRecorder } from './audio-recorder';
 import { renderGitDiffDrawer } from './diff-drawer';
 import { hydrateRenderedMarkdown, markdownToSpokenText, renderMarkdownHtml } from './markdown';
 import { PopoverController, type PopoverEntry } from './popovers';
@@ -3581,6 +3582,7 @@ async function runAuditFlow(): Promise<void> {
 const btnMic = document.getElementById('btn-mic') as HTMLButtonElement | null;
 let mediaStream: MediaStream | null = null;
 let mediaRecorder: MediaRecorder | null = null;
+let pcmRecorder: PcmWavRecorder | null = null;
 let audioChunks: Blob[] = [];
 let isRecordingSpeech = false;
 let isTranscribingSpeech = false;
@@ -3591,6 +3593,10 @@ let browserSpeechRecognition: any = null;
 let browserRecognizedTranscript = '';
 
 function cleanupMediaStream(): void {
+  if (pcmRecorder) {
+    pcmRecorder.cancel();
+    pcmRecorder = null;
+  }
   if (mediaStream) {
     try {
       for (const track of mediaStream.getTracks()) {
@@ -3917,38 +3923,42 @@ async function startSpeechRecording(): Promise<void> {
     speechLiveCommitted = '';
     speechLiveInterim = '';
 
-    let mimeType = 'audio/webm;codecs=opus';
-    if (typeof MediaRecorder !== 'undefined') {
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        if (MediaRecorder.isTypeSupported('audio/webm')) {
-          mimeType = 'audio/webm';
-        } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
-          mimeType = 'audio/ogg';
-        } else {
-          mimeType = '';
+    let recordedMime = 'audio/wav';
+    pcmRecorder = new PcmWavRecorder();
+    try {
+      await pcmRecorder.start(stream);
+    } catch {
+      pcmRecorder = null;
+      let mimeType = 'audio/webm;codecs=opus';
+      if (typeof MediaRecorder !== 'undefined') {
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          if (MediaRecorder.isTypeSupported('audio/webm')) {
+            mimeType = 'audio/webm';
+          } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+            mimeType = 'audio/ogg';
+          } else {
+            mimeType = '';
+          }
         }
       }
+      recordedMime = mimeType || 'audio/webm';
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorder = recorder;
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
+      recorder.onerror = (event: any) => {
+        console.warn('MediaRecorder error:', event);
+        cleanupMediaStream();
+        btnMic?.classList.remove('recording');
+        isRecordingSpeech = false;
+        showNotice('Audio recording error occurred.', true);
+      };
+      recorder.start(250);
     }
 
-    const recordedMime = mimeType || 'audio/webm';
-    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-    mediaRecorder = recorder;
-
-    recorder.ondataavailable = (event: BlobEvent) => {
-      if (event.data && event.data.size > 0) {
-        audioChunks.push(event.data);
-      }
-    };
-
-    recorder.onerror = (event: any) => {
-      console.warn('MediaRecorder error:', event);
-      cleanupMediaStream();
-      btnMic?.classList.remove('recording');
-      isRecordingSpeech = false;
-      showNotice('Audio recording error occurred.', true);
-    };
-
-    recorder.start(250);
     isRecordingSpeech = true;
     btnMic?.classList.add('recording');
     btnMic?.setAttribute('title', 'Listening... Click to stop and transcribe (Esc to cancel)');
@@ -3997,12 +4007,18 @@ async function startSpeechRecording(): Promise<void> {
     speechInterimInterval = setInterval(async () => {
       if (!isRecordingSpeech || isInterimTranscribing) return;
       if (browserRecognizedTranscript?.trim()) return; // browser speech recognition is already providing real-time words
-      if (audioChunks.length === 0) return;
-      const interimBlob = new Blob(audioChunks, { type: recordedMime });
-      if (interimBlob.size < 2000) return;
+      let base64: string | null = null;
+      if (pcmRecorder) {
+        base64 = pcmRecorder.getSnapshotBase64();
+      } else if (audioChunks.length > 0) {
+        const interimBlob = new Blob(audioChunks, { type: recordedMime });
+        if (interimBlob.size >= 2000) {
+          base64 = await blobToBase64(interimBlob);
+        }
+      }
+      if (!base64 || base64.length < 2400) return;
       isInterimTranscribing = true;
       try {
-        const base64 = await blobToBase64(interimBlob);
         if (!isRecordingSpeech) return;
         const lang = settings?.speechLanguage || 'auto';
         const mode = settings?.speechMode || 'auto';
@@ -4058,7 +4074,7 @@ async function stopAndTranscribeSpeech(): Promise<void> {
     } catch {}
   }
 
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+  if (!pcmRecorder && (!mediaRecorder || mediaRecorder.state === 'inactive')) {
     cleanupMediaStream();
     btnMic?.classList.remove('recording');
     isRecordingSpeech = false;
@@ -4072,36 +4088,47 @@ async function stopAndTranscribeSpeech(): Promise<void> {
   isTranscribingSpeech = true;
   showNotice('Transcribing audio...');
 
-  const stoppedPromise = new Promise<void>((resolve) => {
-    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-      resolve();
-      return;
-    }
-    const timeout = setTimeout(resolve, 350);
-    mediaRecorder.onstop = () => {
-      clearTimeout(timeout);
-      resolve();
-    };
-    try {
-      if (mediaRecorder.state === 'recording') {
-        mediaRecorder.requestData();
+  let recordedMime = 'audio/wav';
+  let base64: string | null = null;
+
+  if (pcmRecorder) {
+    base64 = await pcmRecorder.stopAndGetBase64();
+    pcmRecorder = null;
+    cleanupMediaStream();
+  } else {
+    const stoppedPromise = new Promise<void>((resolve) => {
+      if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+        resolve();
+        return;
       }
-      mediaRecorder.stop();
-    } catch {
-      clearTimeout(timeout);
-      resolve();
-    }
-  });
+      const timeout = setTimeout(resolve, 350);
+      mediaRecorder.onstop = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      try {
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.requestData();
+        }
+        mediaRecorder.stop();
+      } catch {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
 
-  await stoppedPromise;
-  const recordedMime = mediaRecorder?.mimeType || 'audio/webm';
-  cleanupMediaStream();
-
-  try {
+    await stoppedPromise;
+    recordedMime = mediaRecorder?.mimeType || 'audio/webm';
+    cleanupMediaStream();
     const blob = new Blob(audioChunks, { type: recordedMime });
     audioChunks = [];
+    if (blob.size >= 200) {
+      base64 = await blobToBase64(blob);
+    }
+  }
 
-    if (blob.size < 200) {
+  try {
+    if (!base64 || base64.length < 200) {
       if (browserRecognizedTranscript?.trim()) {
         const cleaned = browserRecognizedTranscript.trim();
         updateLiveSpeechDisplay(cleaned, '');
@@ -4118,7 +4145,6 @@ async function stopAndTranscribeSpeech(): Promise<void> {
       return;
     }
 
-    const base64 = await blobToBase64(blob);
     const lang = settings?.speechLanguage || 'auto';
     const mode = settings?.speechMode || 'auto';
     const localUrl = settings?.localSpeechUrl || '';
@@ -4194,6 +4220,105 @@ async function stopAndTranscribeSpeech(): Promise<void> {
   }
 }
 
+function openFirstRunOnboardingModal(): void {
+  modalTitle.textContent = 'Welcome to Chat Overlay';
+  modalBody.innerHTML = '';
+
+  const desc = document.createElement('div');
+  desc.className = 'voice-setup-desc';
+  desc.textContent =
+    'No ACP coding agent was detected on this machine yet. Install OpenCode standalone right now (zero Node.js, Bun, or CLI prerequisites required), or configure another agent in Settings.';
+
+  const statusLine = document.createElement('div');
+  statusLine.className = 'field-hint';
+  statusLine.style.cssText = 'font-size:12px;margin:8px 0;';
+
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px;';
+
+  const left = document.createElement('div');
+  left.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+  const installBtn = document.createElement('button');
+  installBtn.type = 'button';
+  installBtn.className = 'perm-btn primary';
+  installBtn.textContent = 'Install OpenCode (Recommended)';
+
+  const settingsBtn = document.createElement('button');
+  settingsBtn.type = 'button';
+  settingsBtn.className = 'mini-action-btn';
+  settingsBtn.textContent = 'Open Harness Settings';
+
+  const laterBtn = document.createElement('button');
+  laterBtn.type = 'button';
+  laterBtn.className = 'mini-action-btn';
+  laterBtn.textContent = 'Later';
+
+  left.append(installBtn, settingsBtn);
+  actions.append(left, laterBtn);
+  modalBody.append(desc, statusLine, actions);
+  modalBackdrop.classList.remove('hidden');
+
+  laterBtn.addEventListener('click', closeModal);
+  settingsBtn.addEventListener('click', () => {
+    closeModal();
+    openSettingsModal();
+  });
+
+  installBtn.addEventListener('click', async () => {
+    installBtn.disabled = true;
+    settingsBtn.disabled = true;
+    laterBtn.disabled = true;
+    installBtn.textContent = 'Downloading & Installing...';
+    statusLine.textContent = 'Fetching standalone OpenCode binary from GitHub Releases...';
+    try {
+      const res = await window.agentOverlay.installHarness('opencode_acp');
+      if (res.ok) {
+        statusLine.textContent = res.message;
+        catalog = await window.agentOverlay.switchHarness('opencode_acp');
+        settings = await window.agentOverlay.getSettings();
+        renderHeaderAndPickers();
+        closeModal();
+        showNotice('OpenCode installed & connected.');
+      } else {
+        statusLine.textContent = res.message;
+        installBtn.disabled = false;
+        settingsBtn.disabled = false;
+        laterBtn.disabled = false;
+        installBtn.textContent = 'Retry Install';
+      }
+    } catch (err: any) {
+      statusLine.textContent = err?.message || 'Installation failed';
+      installBtn.disabled = false;
+      settingsBtn.disabled = false;
+      laterBtn.disabled = false;
+      installBtn.textContent = 'Retry Install';
+    }
+  });
+}
+
+async function ensureReadyHarnessOrOnboard(): Promise<void> {
+  if (window.location.search.includes('audit=1')) return;
+  try {
+    const diagnostics = await window.agentOverlay.inspectHarnesses();
+    const currentDiag = diagnostics.find((d) => d.id === settings.harness);
+    if (currentDiag && (currentDiag.installed || currentDiag.viaRunner)) {
+      return;
+    }
+    const available = diagnostics.find((d) => d.installed || d.viaRunner);
+    if (available) {
+      catalog = await window.agentOverlay.switchHarness(available.id);
+      settings = await window.agentOverlay.getSettings();
+      renderHeaderAndPickers();
+      showNotice(`Switched to available agent: ${available.label}`);
+      return;
+    }
+    openFirstRunOnboardingModal();
+  } catch {
+    // ignore onboarding probe failures
+  }
+}
+
 async function bootstrap(): Promise<void> {
   settings = await window.agentOverlay.getSettings();
   currentSessionWorkspaceDir = settings.workspaceDir;
@@ -4202,6 +4327,14 @@ async function bootstrap(): Promise<void> {
   updateSendButton();
   void refreshGitGlance();
   setupSpeechToText();
+
+  window.agentOverlay.onUpdateStatus?.((st) => {
+    if (st.state === 'available' && st.version) {
+      showNotice(`Update v${st.version} available (Settings -> Check for Updates).`);
+    } else if (st.state === 'downloaded' && st.version) {
+      showNotice(`Update v${st.version} downloaded — ready to install in Settings.`);
+    }
+  });
 
   window.agentOverlay.onStreamEvent(handleStreamEvent);
   window.agentOverlay.onFocusComposer(() => composerInput.focus());
@@ -4288,6 +4421,7 @@ let lastFocusSync = 0;
   });
 
   startPeriodicAcpSync();
+  void ensureReadyHarnessOrOnboard();
   composerInput.focus();
 
   if (window.location.search.includes('audit=1')) {
