@@ -71,6 +71,9 @@ export function pickToolKind(name: string, title?: string): { icon: string; verb
   if (hasWord(nameL, ['question', 'ask', 'prompt', 'elicit'])) {
     return { icon: 'codicon-question', verb: 'Question', category: 'question' };
   }
+  if (/desktop_|computer[-_]use/i.test(nameL) || /desktop_(screenshot|mouse|keyboard|list_windows|window_control|clipboard|system|wait)/i.test(hay)) {
+    return { icon: 'codicon-vm', verb: 'Desktop', category: 'desktop' };
+  }
   // Secondary match by title words when tool name is generic
   if (hasWord(hay, ['shell', 'bash', 'exec'])) {
     return { icon: 'codicon-terminal', verb: 'Shell', category: 'shell' };
