@@ -8,9 +8,11 @@ import type {
   HarnessKind,
   SavedSession,
   SessionCatalog,
+  SpeechStatus,
   StoredTurn,
   StreamEvent,
   TurnMetrics,
+  WhisperModelId,
 } from '../shared/types';
 import {
   expandSlashTemplate,
@@ -21,7 +23,7 @@ import {
 } from '../main/commands';
 import { extractActiveTrigger } from '../shared/triggers';
 import { renderGitDiffDrawer } from './diff-drawer';
-import { hydrateRenderedMarkdown, renderMarkdownHtml } from './markdown';
+import { hydrateRenderedMarkdown, markdownToSpokenText, renderMarkdownHtml } from './markdown';
 import { PopoverController, type PopoverEntry } from './popovers';
 import { renderTabbedSettingsDrawer } from './settings-drawer';
 import { playAttentionChime, playDoneChime } from './sound';
@@ -207,8 +209,61 @@ interface ActiveTurnRefs {
   markdownEl: HTMLElement;
   workingBadge: HTMLElement;
   footerEl: HTMLElement;
+  speakBtn: HTMLButtonElement;
   metricsEl: HTMLElement;
   renderScheduled: number | null;
+}
+
+let activeSpeakingTurnId: string | null = null;
+let activeSpeakingBtn: HTMLButtonElement | null = null;
+let usedVoiceForDraft = false;
+let lastPromptUsedVoice = false;
+
+function stopSpeechPlayback(): void {
+  if (typeof window.speechSynthesis !== 'undefined') {
+    window.speechSynthesis.cancel();
+  }
+  if (activeSpeakingBtn) {
+    activeSpeakingBtn.classList.remove('tts-speaking');
+    activeSpeakingBtn.innerHTML = '<i class="codicon codicon-unmute"></i>';
+    activeSpeakingBtn.title = 'Read reply aloud';
+  }
+  activeSpeakingTurnId = null;
+  activeSpeakingBtn = null;
+}
+
+function toggleSpeakTurn(turnId: string, markdown: string, btn: HTMLButtonElement): void {
+  if (typeof window.speechSynthesis === 'undefined') {
+    showNotice('Speech synthesis is unavailable in this environment.', true);
+    return;
+  }
+  if (activeSpeakingTurnId === turnId) {
+    stopSpeechPlayback();
+    return;
+  }
+  stopSpeechPlayback();
+  const spoken = markdownToSpokenText(markdown);
+  if (!spoken) {
+    showNotice('Nothing readable to speak.');
+    return;
+  }
+  const utter = new SpeechSynthesisUtterance(spoken);
+  if (settings?.speechLanguage && settings.speechLanguage !== 'auto') {
+    utter.lang = settings.speechLanguage;
+  }
+  activeSpeakingTurnId = turnId;
+  activeSpeakingBtn = btn;
+  btn.classList.add('tts-speaking');
+  btn.innerHTML = '<i class="codicon codicon-mute"></i>';
+  btn.title = 'Stop reading aloud';
+  const reset = () => {
+    if (activeSpeakingTurnId === turnId) {
+      stopSpeechPlayback();
+    }
+  };
+  utter.onend = reset;
+  utter.onerror = reset;
+  window.speechSynthesis.speak(utter);
 }
 
 let activeTurn: ActiveTurnRefs | null = null;
@@ -1242,7 +1297,16 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
     void submitPrompt();
   });
 
-  actionsEl.append(copyBtn, retryBtn);
+  const speakBtn = document.createElement('button');
+  speakBtn.type = 'button';
+  speakBtn.className = 'icon-btn';
+  speakBtn.title = 'Read reply aloud';
+  speakBtn.innerHTML = '<i class="codicon codicon-unmute"></i>';
+  speakBtn.addEventListener('click', () => {
+    toggleSpeakTurn(turn.id, turn.assistantMarkdown, speakBtn);
+  });
+
+  actionsEl.append(copyBtn, speakBtn, retryBtn);
   const metricsEl = document.createElement('span');
   if (turn.metrics) {
     const formatted = formatTurnMetrics(turn.metrics);
@@ -1271,6 +1335,7 @@ function buildTurnDom(turn: StoredTurn, streamingNow: boolean): ActiveTurnRefs {
     markdownEl: defaultMarkdownEl,
     workingBadge,
     footerEl,
+    speakBtn,
     metricsEl,
     renderScheduled: null,
   };
@@ -1465,6 +1530,8 @@ async function submitPrompt(overridePrompt?: QueuedPrompt): Promise<void> {
   btnScrollBottom.classList.add('hidden');
   updateSendButton();
   updateUndoRedoButtons();
+  lastPromptUsedVoice = usedVoiceForDraft;
+  usedVoiceForDraft = false;
 
   const expanded = overridePrompt ? raw : expandSlashTemplate(raw);
   if (!overridePrompt) {
@@ -2222,6 +2289,17 @@ function handleStreamEvent(ev: StreamEvent): void {
           currentSessionTitle || 'Response Ready',
           turns[turns.length - 1]?.assistantMarkdown?.slice(0, 120) || 'Turn completed.',
         );
+      }
+      const spokenTurn = turns[turns.length - 1];
+      if (settings.autoSpeakReplies && lastPromptUsedVoice && spokenTurn?.assistantMarkdown) {
+        lastPromptUsedVoice = false;
+        const btns = messagesView.querySelectorAll<HTMLButtonElement>('.turn-footer-actions .icon-btn[title="Read reply aloud"]');
+        const lastSpeakBtn = btns[btns.length - 1];
+        if (lastSpeakBtn) {
+          toggleSpeakTurn(spokenTurn.id, spokenTurn.assistantMarkdown, lastSpeakBtn);
+        }
+      } else {
+        lastPromptUsedVoice = false;
       }
       void refreshGitGlance();
       if (queuedFollowUp) {
@@ -3626,20 +3704,196 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+function openVoiceSetupModal(st: SpeechStatus, autoRecordAfterInstall = false): void {
+  modalTitle.textContent = 'Offline Speech-to-Text Setup';
+  modalBody.innerHTML = '';
+
+  const desc = document.createElement('div');
+  desc.className = 'voice-setup-desc';
+  desc.textContent =
+    'Download an offline Whisper model for accurate, multilingual & mixed-language voice input without requiring cloud API keys:';
+
+  let selectedModelId: WhisperModelId =
+    (settings?.speechModel as WhisperModelId) || 'large-v3-turbo-q5_0';
+  if (!st.catalog.some((m) => m.id === selectedModelId)) {
+    selectedModelId = 'large-v3-turbo-q5_0';
+  }
+
+  const list = document.createElement('div');
+  list.className = 'voice-model-list';
+  const cards: Array<{ id: WhisperModelId; el: HTMLLabelElement; radio: HTMLInputElement }> = [];
+
+  for (const spec of st.catalog) {
+    const installed = st.installedModels.includes(spec.id);
+    const label = document.createElement('label');
+    label.className = `voice-model-option${spec.id === selectedModelId ? ' selected' : ''}`;
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'voice-model-choice';
+    radio.value = spec.id;
+    radio.checked = spec.id === selectedModelId;
+
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0;';
+    const titleRow = document.createElement('div');
+    titleRow.style.cssText = 'font-weight:600;font-size:12.5px;color:var(--text-strong);display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
+    titleRow.textContent = spec.label;
+    if (installed) {
+      const badge = document.createElement('span');
+      badge.style.cssText = 'font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(78,201,176,0.2);color:#4ec9b0;';
+      badge.textContent = 'Installed';
+      titleRow.appendChild(badge);
+    }
+    const sub = document.createElement('div');
+    sub.style.cssText = 'font-size:11.5px;color:var(--text-muted);margin-top:2px;';
+    sub.textContent = spec.description;
+
+    info.append(titleRow, sub);
+    label.append(radio, info);
+    radio.addEventListener('change', () => {
+      selectedModelId = spec.id;
+      for (const c of cards) {
+        c.el.classList.toggle('selected', c.id === selectedModelId);
+      }
+    });
+    cards.push({ id: spec.id, el: label, radio });
+    list.appendChild(label);
+  }
+
+  const progWrap = document.createElement('div');
+  progWrap.className = 'voice-progress-wrap hidden';
+  const progLabel = document.createElement('div');
+  progLabel.style.cssText = 'font-size:11.5px;color:var(--text);';
+  const progBar = document.createElement('div');
+  progBar.className = 'voice-progress-bar';
+  const progFill = document.createElement('div');
+  progFill.className = 'voice-progress-fill';
+  progBar.appendChild(progFill);
+  progWrap.append(progLabel, progBar);
+
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:6px;';
+
+  const leftBtns = document.createElement('div');
+  leftBtns.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+  const installBtn = document.createElement('button');
+  installBtn.type = 'button';
+  installBtn.className = 'perm-btn primary';
+  installBtn.textContent = 'Download & Enable';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'mini-action-btn hidden';
+  cancelBtn.textContent = 'Cancel Download';
+
+  const settingsLinkBtn = document.createElement('button');
+  settingsLinkBtn.type = 'button';
+  settingsLinkBtn.className = 'mini-action-btn';
+  settingsLinkBtn.textContent = 'Settings';
+  settingsLinkBtn.addEventListener('click', () => {
+    closeModal();
+    openSettingsModal();
+  });
+
+  leftBtns.append(installBtn, cancelBtn);
+  actions.append(leftBtns, settingsLinkBtn);
+  modalBody.append(desc, list, progWrap, actions);
+  modalBackdrop.classList.remove('hidden');
+
+  let unsub: (() => void) | null = null;
+  let installing = false;
+
+  cancelBtn.addEventListener('click', async () => {
+    await window.agentOverlay.cancelSpeechInstall();
+    cancelBtn.disabled = true;
+    progLabel.textContent = 'Cancelling...';
+  });
+
+  installBtn.addEventListener('click', async () => {
+    if (installing) return;
+    installing = true;
+    installBtn.disabled = true;
+    settingsLinkBtn.disabled = true;
+    cancelBtn.classList.remove('hidden');
+    cancelBtn.disabled = false;
+    for (const c of cards) c.radio.disabled = true;
+    progWrap.classList.remove('hidden');
+    progLabel.textContent = 'Preparing Whisper engine & model download...';
+    progFill.style.width = '5%';
+
+    unsub = window.agentOverlay.onSpeechInstallProgress((p) => {
+      if (p.modelId !== selectedModelId) return;
+      progLabel.textContent = p.detail;
+      progFill.style.width = `${Math.max(4, p.percent)}%`;
+    });
+
+    try {
+      const res = await window.agentOverlay.installSpeechModel(selectedModelId);
+      unsub?.();
+      unsub = null;
+      if (res.ok) {
+        settings = await window.agentOverlay.getSettings();
+        closeModal();
+        showNotice(`Offline speech model ready (${selectedModelId})`);
+        if (autoRecordAfterInstall) {
+          await startSpeechRecording();
+        }
+      } else {
+        progLabel.textContent = `Install failed: ${res.error || 'Unknown error'}`;
+        installBtn.disabled = false;
+        installBtn.textContent = 'Retry';
+        settingsLinkBtn.disabled = false;
+        cancelBtn.classList.add('hidden');
+        for (const c of cards) c.radio.disabled = false;
+      }
+    } catch (err: any) {
+      unsub?.();
+      unsub = null;
+      progLabel.textContent = `Install failed: ${err?.message || 'Error'}`;
+      installBtn.disabled = false;
+      settingsLinkBtn.disabled = false;
+      cancelBtn.classList.add('hidden');
+      for (const c of cards) c.radio.disabled = false;
+    } finally {
+      installing = false;
+    }
+  });
+}
+
 function setupSpeechToText(): void {
   if (!btnMic) return;
+
+  window.addEventListener('chat-overlay:open-voice-setup', async () => {
+    const st = await window.agentOverlay.getSpeechStatus();
+    openVoiceSetupModal(st, false);
+  });
 
   btnMic.addEventListener('click', async () => {
     if (isTranscribingSpeech) return;
     if (isRecordingSpeech) {
       await stopAndTranscribeSpeech();
     } else {
+      const mode = settings?.speechMode || 'auto';
+      try {
+        const st = await window.agentOverlay.getSpeechStatus();
+        const needsLocalSetup =
+          (mode === 'local' && (!st.hasLocalEngine || !st.hasLocalModel)) ||
+          (mode === 'auto' && !st.hasCloudKey && (!st.hasLocalEngine || !st.hasLocalModel));
+        if (needsLocalSetup) {
+          openVoiceSetupModal(st, true);
+          return;
+        }
+      } catch {
+        // proceed directly if status probe unavailable
+      }
       await startSpeechRecording();
     }
   });
 
   window.agentOverlay.onSpeechProgress?.((progress) => {
     if (progress && progress.text && !progress.text.includes('[NO_SPEECH]')) {
+      usedVoiceForDraft = true;
       updateLiveSpeechDisplay(progress.text, '');
     }
   });
@@ -3884,6 +4138,7 @@ async function stopAndTranscribeSpeech(): Promise<void> {
     }
 
     if (result.ok && result.text) {
+      usedVoiceForDraft = true;
       updateLiveSpeechDisplay(result.text, '');
       composerInput.dispatchEvent(new Event('input', { bubbles: true }));
       composerInput.focus();
@@ -3893,6 +4148,7 @@ async function stopAndTranscribeSpeech(): Promise<void> {
     } else if (result.ok && !result.text) {
       if (browserRecognizedTranscript?.trim()) {
         const cleaned = browserRecognizedTranscript.trim();
+        usedVoiceForDraft = true;
         updateLiveSpeechDisplay(cleaned, '');
         composerInput.dispatchEvent(new Event('input', { bubbles: true }));
         composerInput.focus();
@@ -3907,6 +4163,7 @@ async function stopAndTranscribeSpeech(): Promise<void> {
     } else {
       if (browserRecognizedTranscript?.trim()) {
         const cleaned = browserRecognizedTranscript.trim();
+        usedVoiceForDraft = true;
         updateLiveSpeechDisplay(cleaned, '');
         composerInput.dispatchEvent(new Event('input', { bubbles: true }));
         composerInput.focus();
@@ -3916,7 +4173,11 @@ async function stopAndTranscribeSpeech(): Promise<void> {
         composerInput.setSelectionRange(speechCursorStart, speechCursorStart);
         autoResizeComposer();
         updateSendButton();
-        showNotice(`Voice transcription failed: ${result.error || 'Unknown error'}`, true);
+        if (result.error?.includes('No local speech-to-text engine responded')) {
+          void window.agentOverlay.getSpeechStatus().then((st) => openVoiceSetupModal(st, true));
+        } else {
+          showNotice(`Voice transcription failed: ${result.error || 'Unknown error'}`, true);
+        }
       }
     }
   } catch (err: any) {

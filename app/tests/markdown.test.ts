@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { renderMarkdownHtml } from '../src/renderer/markdown';
+import { markdownToSpokenText, renderMarkdownHtml } from '../src/renderer/markdown';
 
 describe('VS Code Markdown Renderer', () => {
   it('renders KaTeX inline and display math without leaking raw dollar syntax', () => {
@@ -55,5 +55,25 @@ describe('VS Code Markdown Renderer', () => {
     expect(html2).not.toContain('<button');
     expect(html2).not.toContain('onerror');
     expect(html2).not.toContain('md-copy-code-btn');
+  });
+
+  it('converts markdown replies cleanly to plain spoken text for TTS', () => {
+    const md = [
+      '# Summary',
+      '',
+      '> [!NOTE]',
+      '> Fixed **session sync** in [app.ts](file:///app.ts).',
+      '',
+      '- Use `npm test` to verify',
+      '',
+      '```ts',
+      'const secret = 123;',
+      '```',
+      '',
+      '[[desktop: os action=theme_dark]]',
+    ].join('\n');
+
+    const spoken = markdownToSpokenText(md);
+    expect(spoken).toBe('Summary Fixed session sync in app.ts. Use npm test to verify');
   });
 });

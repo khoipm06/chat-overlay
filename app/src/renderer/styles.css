@@ -2232,6 +2232,67 @@ body {
   border-radius: 4px;
 }
 
+/* Voice Setup Modal & Read Aloud */
+.voice-setup-desc {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.voice-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.voice-model-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.voice-model-option:hover {
+  border-color: var(--border-strong);
+}
+
+.voice-model-option.selected {
+  border-color: var(--accent);
+  background: rgba(0, 120, 212, 0.12);
+}
+
+.voice-progress-wrap {
+  margin: 10px 0 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice-progress-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.voice-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.15s ease-out;
+}
+
+.icon-btn.tts-speaking {
+  color: #38bdf8;
+}
+
 /* Clipboard Companion Quick Action Bar */
 .clipboard-actions-bar {
   display: flex;

@@ -63,6 +63,11 @@ import {
   transcribeLocalSpeech,
 } from '../src/main/speech';
 import {
+  downloadModelFile,
+  getSpeechStatus,
+  WHISPER_MODELS,
+} from '../src/main/speech-manager';
+import {
   extractCleanOutput,
   pickToolKind,
   presentToolCall,
@@ -1374,6 +1379,58 @@ describe('ACP question tool, shell output & settings updates', () => {
       expect(pickToolKind('mcp_computer-use_desktop_mouse').verb).toBe('Desktop');
     } finally {
       child.kill('SIGTERM');
+    }
+  });
+
+  it('exposes multilingual Whisper catalog, atomic download with progress, and autoSpeakReplies persistence', async () => {
+    expect(WHISPER_MODELS.map((m) => m.id)).toEqual(['large-v3-turbo-q5_0', 'small-q5_1']);
+    expect(WHISPER_MODELS[0].recommended).toBe(true);
+
+    const tmpData = fs.mkdtempSync(path.join(os.tmpdir(), 'co-speech-dl-'));
+    const prevXdgData = process.env.XDG_DATA_HOME;
+    process.env.XDG_DATA_HOME = tmpData;
+    const srv = http.createServer((_req, res) => {
+      const payload = Buffer.from('GGML_MOCK_WEIGHTS_1234567890');
+      res.writeHead(200, { 'Content-Length': String(payload.length) });
+      res.end(payload);
+    });
+
+    try {
+      await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve));
+      const port = (srv.address() as any).port;
+
+      const dest = path.join(tmpData, 'chat-overlay', 'speech', 'models', 'ggml-small-q5_1.bin');
+      const seenPcts: number[] = [];
+      await downloadModelFile(`http://127.0.0.1:${port}/model.bin`, dest, (p) => {
+        seenPcts.push(p.percent);
+      });
+
+      expect(fs.existsSync(dest)).toBe(true);
+      expect(fs.existsSync(`${dest}.part`)).toBe(false);
+      expect(seenPcts).toContain(100);
+
+      const st = getSpeechStatus(defaultSettings());
+      expect(st.installedModels).toContain('small-q5_1');
+      expect(st.hasLocalModel).toBe(true);
+      expect(st.catalog.length).toBe(2);
+
+      // Verify abort removes partial file
+      const abortCtrl = new AbortController();
+      abortCtrl.abort();
+      const cancelledDest = path.join(tmpData, 'cancelled.bin');
+      await expect(
+        downloadModelFile(`http://127.0.0.1:${port}/model.bin`, cancelledDest, undefined, abortCtrl.signal),
+      ).rejects.toThrow();
+      expect(fs.existsSync(cancelledDest)).toBe(false);
+      expect(fs.existsSync(`${cancelledDest}.part`)).toBe(false);
+
+      expect(defaultSettings().autoSpeakReplies).toBe(false);
+      expect(defaultSettings().speechModel).toBe('large-v3-turbo-q5_0');
+    } finally {
+      srv.close();
+      if (prevXdgData === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = prevXdgData;
+      fs.rmSync(tmpData, { recursive: true, force: true });
     }
   });
 });

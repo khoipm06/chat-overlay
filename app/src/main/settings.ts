@@ -102,9 +102,11 @@ export function defaultSettings(): AppSettings {
     autoApprovePermissions: false,
     autoApproveDesktopActions: true,
     speechMode: 'auto',
+    speechModel: 'large-v3-turbo-q5_0',
     speechLanguage: 'auto',
     localSpeechUrl: '',
     localSpeechCommand: '',
+    autoSpeakReplies: false,
     followUpBehavior: 'queue',
     soundCues: true,
     flashOnAttention: true,
@@ -316,6 +318,10 @@ export function loadSettings(): AppSettings {
       speechMode: (parsed.speechMode && ['auto', 'local', 'cloud'].includes(parsed.speechMode)
         ? (parsed.speechMode as AppSettings['speechMode'])
         : defaults.speechMode),
+      speechModel:
+        typeof parsed.speechModel === 'string' && parsed.speechModel.trim()
+          ? parsed.speechModel.trim()
+          : defaults.speechModel,
       speechLanguage: parsed.speechLanguage ?? defaults.speechLanguage,
       localSpeechUrl:
         typeof parsed.localSpeechUrl === 'string'
@@ -325,6 +331,7 @@ export function loadSettings(): AppSettings {
         typeof parsed.localSpeechCommand === 'string'
           ? parsed.localSpeechCommand
           : defaults.localSpeechCommand,
+      autoSpeakReplies: parsed.autoSpeakReplies ?? defaults.autoSpeakReplies,
       harness: validHarness,
       commands: mergedCommands,
       harnessEnv: { ...(parsed.harnessEnv ?? {}) },

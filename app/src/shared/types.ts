@@ -189,7 +189,37 @@ export type RevertMode = 'workspace_and_chat' | 'chat_only';
 export type PermissionPolicy = 'ask' | 'auto_read' | 'auto_workspace' | 'yolo';
 export type DesktopControlMode = 'off' | 'confirm' | 'preview_auto' | 'auto';
 export type SpeechMode = 'auto' | 'local' | 'cloud';
+export type WhisperModelId = 'large-v3-turbo-q5_0' | 'small-q5_1';
 export type FollowUpBehavior = 'queue' | 'steer';
+
+export interface WhisperModelSpec {
+  id: WhisperModelId;
+  fileName: string;
+  sizeBytes: number;
+  url: string;
+  label: string;
+  description: string;
+  recommended: boolean;
+}
+
+export interface SpeechStatus {
+  hasCloudKey: boolean;
+  hasLocalEngine: boolean;
+  hasLocalModel: boolean;
+  installedModels: string[];
+  activeModelPath: string | null;
+  engineBinary: string | null;
+  catalog: WhisperModelSpec[];
+}
+
+export interface SpeechInstallProgress {
+  modelId: string;
+  stage: 'installing_engine' | 'downloading_model' | 'verifying' | 'done' | 'error';
+  percent: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
+  detail: string;
+}
 
 export type DesktopActionKind =
   | 'click'
@@ -303,9 +333,11 @@ export interface AppSettings {
   autoApprovePermissions: boolean;
   autoApproveDesktopActions: boolean;
   speechMode: SpeechMode;
+  speechModel?: string;
   speechLanguage: string;
   localSpeechUrl: string;
   localSpeechCommand: string;
+  autoSpeakReplies: boolean;
   followUpBehavior: FollowUpBehavior;
   soundCues: boolean;
   flashOnAttention: boolean;
