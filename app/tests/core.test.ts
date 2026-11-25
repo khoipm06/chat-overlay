@@ -6,6 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 vi.mock('electron', () => ({
+  app: {
+    getVersion: () => '4.0.1',
+    isPackaged: false,
+  },
   desktopCapturer: {},
   nativeImage: {},
   screen: {},
@@ -56,19 +60,31 @@ import {
 } from '../src/main/acp-client';
 import {
   cleanAudioMimeType,
+  clearCloudSpeechKey,
   detectLocalSpeechBackend,
   isPcm16Mono16kWav,
+  resolveOpenAiKey,
   resolveSpeechApiKey,
   sanitizeTranscription,
+  saveCloudSpeechKey,
   transcribeAudio,
   transcribeLocalSpeech,
 } from '../src/main/speech';
 import {
+  addCustomSpeechModel,
+  deleteLocalWhisperModel,
   downloadModelFile,
   getSpeechStatus,
+  listSpeechModels,
   resolveWhisperBinaryAsset,
+  speechBinDir,
+  speechDataDir,
+  speechStagingDir,
+  uninstallLocalWhisperRuntime,
+  updateCustomSpeechModel,
   WHISPER_MODELS,
 } from '../src/main/speech-manager';
+import { compareSemver, formatUpdaterError } from '../src/main/updater';
 import { sanitizeDefaultWorkspaceDir } from '../src/main/app-paths';
 import { startComputerUseBridge } from '../src/main/computer-use-bridge';
 import { syncLinuxAppImageDesktopEntry } from '../src/main/desktop-integration';
@@ -1573,6 +1589,116 @@ describe('ACP question tool, shell output & settings updates', () => {
       expect(resolveComputerUseMcpPath([packed])).toBe(unpacked);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('sanitizes updater error strings and compares semantic versions', () => {
+    const raw404 =
+      'Cannot find latest-linux.yml in the latest release artifacts: HttpError: 404 "url"\nHeaders: {"cache-control":"no-cache"}\n    at ClientRequest.<anonymous> (/tmp/.mount_Chat-O6YYdzb/resources/app.asar/node_modules/builder-util-runtime/out/HttpExecutor.js:122:26)';
+    expect(formatUpdaterError(new Error(raw404))).toBe('Release update metadata is not available yet.');
+    expect(formatUpdaterError(new Error('getaddrinfo ENOTFOUND github.com'))).toBe(
+      'Cannot reach update server. Check your internet connection.',
+    );
+    const genericStack =
+      'Unexpected failure (/tmp/.mount_ChatOvXyz/resources/app.asar/main.js)\nHeaders: {"a":1}\n    at foo (/tmp/.mount_ChatOvXyz/main.js:1:1)';
+    const formatted = formatUpdaterError(new Error(genericStack));
+    expect(formatted).not.toContain('/tmp/.mount_');
+    expect(formatted).not.toContain('Headers:');
+
+    expect(compareSemver('4.0.1', '4.0.0')).toBe(1);
+    expect(compareSemver('v4.0.1', '4.0.1')).toBe(0);
+    expect(compareSemver('3.2.11', '4.0.1')).toBe(-1);
+  });
+
+  it('supports full Speech Model CRUD, external file preservation, staging path, and cloud key storage', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'co-crud-'));
+    const prevXdgData = process.env.XDG_DATA_HOME;
+    const prevXdgCfg = process.env.XDG_CONFIG_HOME;
+    const prevGemini = process.env.GEMINI_API_KEY;
+    const prevOpenAi = process.env.OPENAI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    process.env.XDG_DATA_HOME = path.join(tmpRoot, 'data');
+    process.env.XDG_CONFIG_HOME = path.join(tmpRoot, 'cfg');
+
+    try {
+      // Staging lives inside persistent user speech data directory, never /tmp
+      expect(speechStagingDir()).toBe(path.join(speechDataDir(), '.staging'));
+
+      // External local .bin file outside speechModelsDir
+      const extModelPath = path.join(tmpRoot, 'external-whisper-custom.bin');
+      fs.writeFileSync(extModelPath, 'EXT_BIN_WEIGHTS', 'utf8');
+
+      // Add custom local model & custom URL model
+      const addedLocal = addCustomSpeechModel({
+        label: 'My Local Whisper',
+        description: 'External file',
+        source: 'custom_local',
+        localPath: extModelPath,
+      });
+      expect(addedLocal.ok).toBe(true);
+      expect(addedLocal.model?.installed).toBe(true);
+
+      const addedUrl = addCustomSpeechModel({
+        label: 'Custom Remote GGML',
+        description: 'URL model',
+        source: 'custom_url',
+        url: 'https://example.com/ggml-custom.bin',
+      });
+      expect(addedUrl.ok).toBe(true);
+      expect(addedUrl.model?.installed).toBe(false);
+
+      // Reject invalid URL
+      expect(
+        addCustomSpeechModel({ label: 'Bad', source: 'custom_url', url: 'ftp://bad/model.bin' }).ok,
+      ).toBe(false);
+
+      // Update custom model metadata
+      const updated = updateCustomSpeechModel(addedUrl.model!.id, {
+        label: 'Renamed Remote GGML',
+        url: 'https://example.com/ggml-v2.bin',
+      });
+      expect(updated.ok).toBe(true);
+      expect(updated.model?.label).toBe('Renamed Remote GGML');
+
+      // Delete custom_local removes entry ONLY and leaves external file untouched on disk
+      expect(deleteLocalWhisperModel(addedLocal.model!.id, true)).toBe(true);
+      expect(fs.existsSync(extModelPath)).toBe(true);
+      expect(listSpeechModels().some((m) => m.id === addedLocal.model!.id)).toBe(false);
+
+      // Delete custom_url entry cleanly
+      expect(deleteLocalWhisperModel(addedUrl.model!.id, true)).toBe(true);
+      expect(listSpeechModels().some((m) => m.id === addedUrl.model!.id)).toBe(false);
+
+      // Optional runtime cleanup
+      fs.mkdirSync(speechBinDir(), { recursive: true });
+      const fakeBin = path.join(speechBinDir(), process.platform === 'win32' ? 'whisper-server.exe' : 'whisper-server');
+      fs.writeFileSync(fakeBin, '#!/bin/sh\n', { mode: 0o755 });
+      expect(getSpeechStatus(defaultSettings()).managedRuntimeInstalled).toBe(true);
+      expect(uninstallLocalWhisperRuntime()).toBe(true);
+      expect(fs.existsSync(fakeBin)).toBe(false);
+
+      // Cloud API key save & clear
+      expect(saveCloudSpeechKey('gemini', 'test-gem-key-123').ok).toBe(true);
+      expect(resolveSpeechApiKey()).toBe('test-gem-key-123');
+      expect(saveCloudSpeechKey('openai', 'test-oa-key-456').ok).toBe(true);
+      expect(resolveOpenAiKey()).toBe('test-oa-key-456');
+
+      const stWithKeys = getSpeechStatus(defaultSettings());
+      expect(stWithKeys.cloudProviders).toEqual({ gemini: true, openai: true });
+
+      expect(clearCloudSpeechKey('gemini')).toBe(true);
+      expect(clearCloudSpeechKey('openai')).toBe(true);
+      expect(resolveSpeechApiKey()).toBeNull();
+      expect(resolveOpenAiKey()).toBeNull();
+    } finally {
+      if (prevXdgData === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = prevXdgData;
+      if (prevXdgCfg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = prevXdgCfg;
+      if (prevGemini !== undefined) process.env.GEMINI_API_KEY = prevGemini;
+      if (prevOpenAi !== undefined) process.env.OPENAI_API_KEY = prevOpenAi;
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
   });
 });

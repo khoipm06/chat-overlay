@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-whisper-server:
-    name: Build whisper-server (${{ matrix.target }})
+    name: Build optional whisper-server (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +33,7 @@ jobs:
             artifact: whisper-server-darwin-x64.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Install Linux RPM/build deps
+      - name: Install Linux build deps
         if: matrix.os == 'ubuntu-24.04'
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential curl
 
@@ -66,7 +66,7 @@ jobs:
             tar -C out-bin -czf "out-archive/${{ matrix.artifact }}" .
           fi
 
-      - name: Upload whisper-server archive
+      - name: Upload optional whisper-server archive
         uses: actions/upload-artifact@v4
         with:
           name: whisper-${{ matrix.target }}
@@ -74,7 +74,6 @@ jobs:
 
   package-app:
     name: Package Installer (${{ matrix.name }})
-    needs: [build-whisper-server]
     strategy:
       fail-fast: false
       matrix:
@@ -107,11 +106,6 @@ jobs:
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y rpm desktop-file-utils
 
-      - name: Download prebuilt whisper-server artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: downloaded-whisper
-
       - name: Install app dependencies
         working-directory: app
         run: bun install --frozen-lockfile
@@ -119,32 +113,17 @@ jobs:
       - name: Package Linux AppImage / deb / rpm
         if: matrix.platform == 'linux'
         working-directory: app
-        run: |
-          mkdir -p build-resources/bin
-          tar -xzf ../downloaded-whisper/whisper-linux-x64/whisper-server-linux-x64.tar.gz -C build-resources/bin
-          chmod +x build-resources/bin/whisper-server
-          npm run dist:linux
+        run: npm run dist:linux
 
       - name: Package Windows NSIS installer
         if: matrix.platform == 'win32'
         working-directory: app
-        shell: bash
-        run: |
-          mkdir -p build-resources/bin
-          7z e -y ../downloaded-whisper/whisper-win32-x64/whisper-server-win32-x64.zip -obuild-resources/bin
-          npm run dist:win
+        run: npm run dist:win
 
       - name: Package macOS arm64 & x64 DMG/ZIP
         if: matrix.platform == 'darwin'
         working-directory: app
-        run: |
-          mkdir -p build-resources/bin /tmp/wh-arm64 /tmp/wh-x64
-          npm run build:prod
-          tar -xzf ../downloaded-whisper/whisper-darwin-arm64/whisper-server-darwin-arm64.tar.gz -C /tmp/wh-arm64
-          tar -xzf ../downloaded-whisper/whisper-darwin-x64/whisper-server-darwin-x64.tar.gz -C /tmp/wh-x64
-          lipo -create /tmp/wh-arm64/whisper-server /tmp/wh-x64/whisper-server -output build-resources/bin/whisper-server
-          chmod +x build-resources/bin/whisper-server
-          npx electron-builder --mac dmg zip --arm64 --x64 --publish never
+        run: npm run dist:mac
 
       - name: Collect release installers
         shell: bash
@@ -163,7 +142,7 @@ jobs:
     needs: [build-whisper-server, package-app]
     runs-on: ubuntu-24.04
     steps:
-      - name: Download installer artifacts
+      - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
           path: all-artifacts

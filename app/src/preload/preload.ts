@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AppUpdateStatus,
   ChatAttachment,
+  CustomSpeechModelInput,
   DesktopAction,
   DesktopCapabilities,
   FilePreviewResult,
@@ -17,10 +18,10 @@ import type {
   ScreenshotQuality,
   SessionCatalog,
   SpeechInstallProgress,
+  SpeechModelEntry,
   SpeechStatus,
   StoredTurn,
   StreamEvent,
-  WhisperModelId,
   WidthPreset,
 } from '../shared/types';
 import type { CaptureKind } from '../main/capture';
@@ -105,10 +106,25 @@ export interface AgentOverlayApi {
   detectSpeechBackends?: () => Promise<{ available: boolean; engine: string; target?: string }>;
   getSpeechStatus: () => Promise<SpeechStatus>;
   installSpeechModel: (
-    modelId: WhisperModelId,
+    modelId: string,
   ) => Promise<{ ok: boolean; modelPath?: string; engineBinary?: string | null; error?: string }>;
   cancelSpeechInstall: () => Promise<void>;
-  deleteSpeechModel: (modelId: string) => Promise<boolean>;
+  selectSpeechModel: (modelId: string) => Promise<SpeechStatus>;
+  addSpeechModel: (
+    input: CustomSpeechModelInput,
+  ) => Promise<{ ok: boolean; model?: SpeechModelEntry; error?: string }>;
+  updateSpeechModel: (
+    id: string,
+    patch: Partial<CustomSpeechModelInput>,
+  ) => Promise<{ ok: boolean; model?: SpeechModelEntry; error?: string }>;
+  deleteSpeechModel: (modelId: string, removeEntry?: boolean) => Promise<boolean>;
+  pickSpeechModelFile: () => Promise<string | null>;
+  uninstallSpeechRuntime: () => Promise<boolean>;
+  saveCloudSpeechKey: (
+    provider: 'gemini' | 'openai',
+    apiKey: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  clearCloudSpeechKey: (provider: 'gemini' | 'openai') => Promise<boolean>;
   onSpeechInstallProgress: (cb: (progress: SpeechInstallProgress) => void) => () => void;
   openExternal: (url: string) => Promise<void>;
   getAppVersion: () => Promise<string>;
@@ -195,7 +211,16 @@ const api: AgentOverlayApi = {
   getSpeechStatus: () => ipcRenderer.invoke('speech:status'),
   installSpeechModel: (modelId) => ipcRenderer.invoke('speech:install-model', modelId),
   cancelSpeechInstall: () => ipcRenderer.invoke('speech:cancel-install'),
-  deleteSpeechModel: (modelId) => ipcRenderer.invoke('speech:delete-model', modelId),
+  selectSpeechModel: (modelId) => ipcRenderer.invoke('speech:select-model', modelId),
+  addSpeechModel: (input) => ipcRenderer.invoke('speech:add-model', input),
+  updateSpeechModel: (id, patch) => ipcRenderer.invoke('speech:update-model', id, patch),
+  deleteSpeechModel: (modelId, removeEntry) =>
+    ipcRenderer.invoke('speech:delete-model', modelId, removeEntry),
+  pickSpeechModelFile: () => ipcRenderer.invoke('speech:pick-model-file'),
+  uninstallSpeechRuntime: () => ipcRenderer.invoke('speech:uninstall-runtime'),
+  saveCloudSpeechKey: (provider, apiKey) =>
+    ipcRenderer.invoke('speech:save-cloud-key', provider, apiKey),
+  clearCloudSpeechKey: (provider) => ipcRenderer.invoke('speech:clear-cloud-key', provider),
   onSpeechInstallProgress: (cb) => {
     const handler = (_ev: Electron.IpcRendererEvent, progress: SpeechInstallProgress) => cb(progress);
     ipcRenderer.on('speech:install-progress', handler);

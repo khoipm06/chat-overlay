@@ -5,13 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import type {
   AppSettings,
+  CustomSpeechModelInput,
   SpeechInstallProgress,
+  SpeechModelEntry,
   SpeechStatus,
-  WhisperModelId,
   WhisperModelSpec,
 } from '../shared/types';
-import { appDataDir, bundledBinDir } from './app-paths';
+import { appDataDir } from './app-paths';
 import { extractArchive, findFileRecursive } from './archive-utils';
+import { configDir } from './settings';
 import { findExecutableInPath, resolveOpenAiKey, resolveSpeechApiKey } from './speech';
 
 export const WHISPER_MODELS: WhisperModelSpec[] = [
@@ -21,7 +23,7 @@ export const WHISPER_MODELS: WhisperModelSpec[] = [
     sizeBytes: 574_041_195,
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin',
     label: 'Whisper Large-v3-Turbo (q5_0 · ~574 MB)',
-    description: 'Recommended — Best multilingual & mixed-language (code-switching) accuracy.',
+    description: 'Best multilingual & mixed-language (code-switching) accuracy.',
     recommended: true,
   },
   {
@@ -35,6 +37,16 @@ export const WHISPER_MODELS: WhisperModelSpec[] = [
   },
 ];
 
+interface StoredCustomSpeechModel {
+  id: string;
+  label: string;
+  description: string;
+  source: 'custom_url' | 'custom_local';
+  fileName: string;
+  url?: string;
+  localPath?: string;
+}
+
 export function speechDataDir(): string {
   return path.join(appDataDir(), 'speech');
 }
@@ -45,6 +57,56 @@ export function speechModelsDir(): string {
 
 export function speechBinDir(): string {
   return path.join(speechDataDir(), 'bin');
+}
+
+export function speechStagingDir(): string {
+  return path.join(speechDataDir(), '.staging');
+}
+
+export function customSpeechModelsFilePath(): string {
+  return path.join(configDir(), 'speech_models.json');
+}
+
+function loadCustomSpeechModels(): StoredCustomSpeechModel[] {
+  const target = customSpeechModelsFilePath();
+  if (!fs.existsSync(target)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is StoredCustomSpeechModel =>
+        Boolean(item && typeof item.id === 'string' && typeof item.label === 'string'),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomSpeechModels(models: StoredCustomSpeechModel[]): void {
+  fs.mkdirSync(configDir(), { recursive: true });
+  const target = customSpeechModelsFilePath();
+  const tmp = `${target}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(models, null, 2), 'utf8');
+  fs.renameSync(tmp, target);
+}
+
+function deriveSafeBinFileName(labelOrUrl: string, fallbackId: string): string {
+  try {
+    const u = new URL(labelOrUrl);
+    const base = path.basename(u.pathname).replace(/[^A-Za-z0-9._-]/g, '');
+    if (base && (base.endsWith('.bin') || base.includes('ggml'))) {
+      return base;
+    }
+  } catch {
+    // not a URL
+  }
+  const slug = labelOrUrl
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  const safe = slug || fallbackId;
+  return safe.endsWith('.bin') ? safe : `${safe}.bin`;
 }
 
 export interface WhisperBinaryAsset {
@@ -82,74 +144,310 @@ export function resolveWhisperBinaryAsset(
 export function findManagedWhisperBinary(
   names: string[] = ['whisper-server', 'whisper-cli', 'whisper-cpp', 'whisper.cpp'],
 ): string | null {
-  const dirs = [bundledBinDir(), speechBinDir()].filter(Boolean) as string[];
-  for (const dir of dirs) {
-    for (const name of names) {
-      const ext = process.platform === 'win32' && !name.endsWith('.exe') ? '.exe' : '';
-      const candidate = path.join(dir, name + ext);
-      if (fs.existsSync(candidate)) {
-        if (process.platform === 'win32') return candidate;
-        try {
-          fs.accessSync(candidate, fs.constants.X_OK);
-          return candidate;
-        } catch {
-          // ignore
-        }
+  const binDir = speechBinDir();
+  for (const name of names) {
+    const ext = process.platform === 'win32' && !name.endsWith('.exe') ? '.exe' : '';
+    const candidate = path.join(binDir, name + ext);
+    if (fs.existsSync(candidate)) {
+      if (process.platform === 'win32') return candidate;
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        // ignore
       }
     }
   }
-  return findExecutableInPath(names);
+  const found = findExecutableInPath(names);
+  if (found && found.includes('/tmp/.mount_')) return null;
+  return found;
+}
+
+export function findManagedOnlyRuntimePath(): string | null {
+  const binDir = speechBinDir();
+  for (const name of ['whisper-server', 'whisper-cli']) {
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    const candidate = path.join(binDir, name + ext);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+export function listSpeechModels(preferredModelId?: string): SpeechModelEntry[] {
+  const entries: SpeechModelEntry[] = [];
+  const modelsDir = speechModelsDir();
+  const seenFiles = new Set<string>();
+
+  for (const spec of WHISPER_MODELS) {
+    const candidate = path.join(modelsDir, spec.fileName);
+    const exists = fs.existsSync(candidate);
+    if (exists) seenFiles.add(spec.fileName);
+    entries.push({
+      id: spec.id,
+      label: spec.label,
+      description: spec.description,
+      fileName: spec.fileName,
+      sizeBytes: spec.sizeBytes,
+      source: 'builtin',
+      url: spec.url,
+      installed: exists,
+      resolvedPath: exists ? candidate : null,
+      active: false,
+      recommended: spec.recommended,
+    });
+  }
+
+  for (const custom of loadCustomSpeechModels()) {
+    if (custom.source === 'custom_local') {
+      const p = custom.localPath ? path.resolve(custom.localPath) : '';
+      const exists = Boolean(p && fs.existsSync(p));
+      let sizeBytes: number | undefined;
+      if (exists) {
+        try {
+          sizeBytes = fs.statSync(p).size;
+        } catch {}
+      }
+      entries.push({
+        id: custom.id,
+        label: custom.label,
+        description: custom.description || `Local file: ${p}`,
+        fileName: custom.fileName || path.basename(p),
+        sizeBytes,
+        source: 'custom_local',
+        localPath: custom.localPath,
+        installed: exists,
+        resolvedPath: exists ? p : null,
+        active: false,
+      });
+    } else {
+      const candidate = path.join(modelsDir, path.basename(custom.fileName));
+      const exists = fs.existsSync(candidate);
+      if (exists) seenFiles.add(path.basename(candidate));
+      let sizeBytes: number | undefined;
+      if (exists) {
+        try {
+          sizeBytes = fs.statSync(candidate).size;
+        } catch {}
+      }
+      entries.push({
+        id: custom.id,
+        label: custom.label,
+        description: custom.description || `Custom URL model (${custom.fileName})`,
+        fileName: custom.fileName,
+        sizeBytes,
+        source: 'custom_url',
+        url: custom.url,
+        installed: exists,
+        resolvedPath: exists ? candidate : null,
+        active: false,
+      });
+    }
+  }
+
+  if (fs.existsSync(modelsDir)) {
+    try {
+      for (const f of fs.readdirSync(modelsDir)) {
+        if ((!f.endsWith('.bin') && !f.includes('ggml')) || f.endsWith('.part')) continue;
+        if (seenFiles.has(f)) continue;
+        const full = path.join(modelsDir, f);
+        let sizeBytes: number | undefined;
+        try {
+          const st = fs.statSync(full);
+          if (!st.isFile()) continue;
+          sizeBytes = st.size;
+        } catch {
+          continue;
+        }
+        entries.push({
+          id: `local:${f}`,
+          label: f,
+          description: `Discovered model file in ${modelsDir}`,
+          fileName: f,
+          sizeBytes,
+          source: 'custom_local',
+          localPath: full,
+          installed: true,
+          resolvedPath: full,
+          active: false,
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  let activeEntry: SpeechModelEntry | undefined;
+  if (preferredModelId) {
+    activeEntry = entries.find(
+      (e) =>
+        e.installed &&
+        (e.id === preferredModelId ||
+          e.fileName === preferredModelId ||
+          e.id.includes(preferredModelId)),
+    );
+  }
+  if (!activeEntry) {
+    activeEntry = entries.find((e) => e.installed);
+  }
+  if (activeEntry) {
+    activeEntry.active = true;
+  }
+
+  return entries;
 }
 
 export function listInstalledWhisperModelFiles(): string[] {
-  const dirs = Array.from(
-    new Set([
-      speechModelsDir(),
-      path.join(os.homedir(), '.cache', 'whisper'),
-      path.join(os.homedir(), '.local', 'share', 'whisper'),
-      path.join(os.homedir(), '.local', 'share', 'whisper.cpp'),
-      path.join(os.homedir(), 'whisper.cpp', 'models'),
-    ]),
-  );
-  const found: string[] = [];
-  for (const d of dirs) {
+  const fromEntries = listSpeechModels()
+    .filter((m) => m.installed && m.resolvedPath)
+    .map((m) => m.resolvedPath!);
+  const extraDirs = [
+    path.join(os.homedir(), '.cache', 'whisper'),
+    path.join(os.homedir(), '.local', 'share', 'whisper'),
+    path.join(os.homedir(), '.local', 'share', 'whisper.cpp'),
+    path.join(os.homedir(), 'whisper.cpp', 'models'),
+  ];
+  const out = [...fromEntries];
+  const seen = new Set(out);
+  for (const d of extraDirs) {
     if (!fs.existsSync(d)) continue;
     try {
       for (const f of fs.readdirSync(d)) {
-        if (f.endsWith('.bin') || f.includes('ggml')) {
-          found.push(path.join(d, f));
+        if ((f.endsWith('.bin') || f.includes('ggml')) && !f.endsWith('.part')) {
+          const full = path.join(d, f);
+          if (!seen.has(full)) {
+            seen.add(full);
+            out.push(full);
+          }
         }
       }
     } catch {
       // ignore
     }
   }
-  return found;
+  return out;
 }
 
 export function resolveActiveModelPath(preferredModelId?: string): string | null {
-  const installed = listInstalledWhisperModelFiles();
-  if (installed.length === 0) return null;
+  const models = listSpeechModels(preferredModelId);
+  const active = models.find((m) => m.active && m.resolvedPath);
+  if (active?.resolvedPath) return active.resolvedPath;
 
-  if (preferredModelId) {
-    const spec = WHISPER_MODELS.find((m) => m.id === preferredModelId);
-    if (spec) {
-      const exact = installed.find((p) => path.basename(p) === spec.fileName);
-      if (exact) return exact;
+  const extra = listInstalledWhisperModelFiles();
+  return extra[0] || null;
+}
+
+export function addCustomSpeechModel(
+  input: CustomSpeechModelInput,
+): { ok: boolean; model?: SpeechModelEntry; error?: string } {
+  const label = (input.label || '').trim();
+  if (!label) {
+    return { ok: false, error: 'Model name is required.' };
+  }
+  const description = (input.description || '').trim();
+  const id = `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  const customList = loadCustomSpeechModels();
+
+  if (input.source === 'custom_url') {
+    const rawUrl = (input.url || '').trim();
+    if (!/^https?:\/\//i.test(rawUrl)) {
+      return { ok: false, error: 'A valid http:// or https:// download URL is required.' };
     }
-    const partial = installed.find((p) => path.basename(p).includes(preferredModelId));
-    if (partial) return partial;
+    let fileName = deriveSafeBinFileName(rawUrl, id);
+    if (
+      WHISPER_MODELS.some((m) => m.fileName === fileName) ||
+      customList.some((m) => m.fileName === fileName)
+    ) {
+      fileName = `${id}-${fileName}`;
+    }
+    customList.push({
+      id,
+      label,
+      description: description || `Custom model from URL`,
+      source: 'custom_url',
+      fileName,
+      url: rawUrl,
+    });
+    saveCustomSpeechModels(customList);
+  } else {
+    const rawPath = (input.localPath || '').trim();
+    if (!rawPath) {
+      return { ok: false, error: 'Local model file path is required.' };
+    }
+    const resolved = path.resolve(rawPath);
+    if (!fs.existsSync(resolved)) {
+      return { ok: false, error: `Model file does not exist: ${resolved}` };
+    }
+    try {
+      if (!fs.statSync(resolved).isFile()) {
+        return { ok: false, error: `Selected path is not a file: ${resolved}` };
+      }
+    } catch {
+      return { ok: false, error: `Cannot read file: ${resolved}` };
+    }
+    customList.push({
+      id,
+      label,
+      description: description || `Local model file`,
+      source: 'custom_local',
+      fileName: path.basename(resolved),
+      localPath: resolved,
+    });
+    saveCustomSpeechModels(customList);
   }
 
-  for (const spec of WHISPER_MODELS) {
-    const exact = installed.find((p) => path.basename(p) === spec.fileName);
-    if (exact) return exact;
+  const created = listSpeechModels().find((m) => m.id === id);
+  return { ok: true, model: created };
+}
+
+export function updateCustomSpeechModel(
+  id: string,
+  patch: Partial<CustomSpeechModelInput>,
+): { ok: boolean; model?: SpeechModelEntry; error?: string } {
+  const customList = loadCustomSpeechModels();
+  const idx = customList.findIndex((m) => m.id === id);
+  if (idx === -1) {
+    return { ok: false, error: 'Only custom models can be edited.' };
   }
-  return installed[0];
+  const existing = customList[idx];
+  const nextLabel = patch.label !== undefined ? patch.label.trim() : existing.label;
+  if (!nextLabel) {
+    return { ok: false, error: 'Model name cannot be empty.' };
+  }
+  const nextDesc = patch.description !== undefined ? patch.description.trim() : existing.description;
+
+  if (existing.source === 'custom_url') {
+    const nextUrl = patch.url !== undefined ? patch.url.trim() : existing.url || '';
+    if (!/^https?:\/\//i.test(nextUrl)) {
+      return { ok: false, error: 'A valid http:// or https:// download URL is required.' };
+    }
+    existing.label = nextLabel;
+    existing.description = nextDesc;
+    existing.url = nextUrl;
+  } else {
+    const nextPath = patch.localPath !== undefined ? patch.localPath.trim() : existing.localPath || '';
+    const resolved = path.resolve(nextPath);
+    if (!nextPath || !fs.existsSync(resolved)) {
+      return { ok: false, error: `Local model file does not exist: ${resolved}` };
+    }
+    existing.label = nextLabel;
+    existing.description = nextDesc;
+    existing.localPath = resolved;
+    existing.fileName = path.basename(resolved);
+  }
+
+  customList[idx] = existing;
+  saveCustomSpeechModels(customList);
+  const updated = listSpeechModels().find((m) => m.id === id);
+  return { ok: true, model: updated };
 }
 
 export function getSpeechStatus(settings?: Partial<AppSettings>): SpeechStatus {
-  const hasCloudKey = Boolean(resolveSpeechApiKey() || resolveOpenAiKey());
+  const hasGemini = Boolean(resolveSpeechApiKey());
+  const hasOpenAi = Boolean(resolveOpenAiKey());
+  const hasCloudKey = hasGemini || hasOpenAi;
+
   const serverOrCli = findManagedWhisperBinary([
     'whisper-server',
     'whisper-cli',
@@ -160,29 +458,32 @@ export function getSpeechStatus(settings?: Partial<AppSettings>): SpeechStatus {
     'sherpa-onnx-offline',
     'vosk-transcriber',
   ]);
-  const installedPaths = listInstalledWhisperModelFiles();
-  const activeModelPath = resolveActiveModelPath(settings?.speechModel);
-
-  const installedIds: string[] = [];
-  for (const spec of WHISPER_MODELS) {
-    if (installedPaths.some((p) => path.basename(p) === spec.fileName)) {
-      installedIds.push(spec.id);
-    }
-  }
-  if (installedIds.length === 0 && installedPaths.length > 0) {
-    installedIds.push(path.basename(installedPaths[0]));
-  }
-
-  const hasCustomRemote = Boolean(settings?.localSpeechUrl?.trim() || settings?.localSpeechCommand?.trim());
+  const managedRuntimePath = findManagedOnlyRuntimePath();
+  const models = listSpeechModels(settings?.speechModel);
+  const activeEntry = models.find((m) => m.active) || null;
+  const activeModelPath = activeEntry?.resolvedPath || resolveActiveModelPath(settings?.speechModel);
+  const installedIds = models.filter((m) => m.installed).map((m) => m.id);
+  const hasCustomLocalBackend = Boolean(
+    settings?.localSpeechUrl?.trim() || settings?.localSpeechCommand?.trim(),
+  );
 
   return {
     hasCloudKey,
-    hasLocalEngine: Boolean(serverOrCli || hasCustomRemote),
-    hasLocalModel: Boolean(activeModelPath || hasCustomRemote),
+    cloudProviders: {
+      gemini: hasGemini,
+      openai: hasOpenAi,
+    },
+    hasLocalEngine: Boolean(serverOrCli || hasCustomLocalBackend),
+    hasCustomLocalBackend,
+    hasLocalModel: Boolean(activeModelPath || hasCustomLocalBackend),
+    managedRuntimeInstalled: Boolean(managedRuntimePath),
+    managedRuntimePath,
     installedModels: installedIds,
+    activeModelId: activeEntry?.id || null,
     activeModelPath,
     engineBinary: serverOrCli,
     catalog: WHISPER_MODELS,
+    models,
   };
 }
 
@@ -230,7 +531,8 @@ export async function downloadModelFile(
         const now = Date.now();
         if (now - lastEmitAt >= 120) {
           lastEmitAt = now;
-          const pct = totalBytes > 0 ? Math.min(99, Math.round((downloadedBytes / totalBytes) * 100)) : 0;
+          const pct =
+            totalBytes > 0 ? Math.min(99, Math.round((downloadedBytes / totalBytes) * 100)) : 0;
           onProgress?.({ downloadedBytes, totalBytes, percent: pct });
         }
       }
@@ -301,6 +603,12 @@ function runStreamingCommand(
   });
 }
 
+function createPersistentStagingDir(prefix: string): string {
+  const base = speechStagingDir();
+  fs.mkdirSync(base, { recursive: true });
+  return fs.mkdtempSync(path.join(base, prefix));
+}
+
 async function ensureWhisperEngineBinary(
   onProgress: (p: SpeechInstallProgress) => void,
   modelId: string,
@@ -311,15 +619,15 @@ async function ensureWhisperEngineBinary(
 
   const asset = resolveWhisperBinaryAsset();
   if (asset) {
-    const tmpPrebuilt = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-bin-'));
+    const stagingDir = createPersistentStagingDir('runtime-');
     try {
-      const archivePath = path.join(tmpPrebuilt, asset.fileName);
-      const extractDir = path.join(tmpPrebuilt, 'out');
+      const archivePath = path.join(stagingDir, asset.fileName);
+      const extractDir = path.join(stagingDir, 'out');
       onProgress({
         modelId,
         stage: 'installing_engine',
         percent: 10,
-        detail: `Downloading prebuilt ${asset.binaryName}...`,
+        detail: `Downloading optional runtime (${asset.binaryName})...`,
       });
       await downloadModelFile(
         asset.url,
@@ -329,7 +637,7 @@ async function ensureWhisperEngineBinary(
             modelId,
             stage: 'installing_engine',
             percent: Math.min(75, Math.max(10, Math.round(percent * 0.75))),
-            detail: `Downloading offline speech engine (${percent}%)...`,
+            detail: `Downloading optional runtime (${percent}%)...`,
           });
         },
         signal,
@@ -338,7 +646,7 @@ async function ensureWhisperEngineBinary(
         modelId,
         stage: 'installing_engine',
         percent: 85,
-        detail: 'Extracting offline speech engine...',
+        detail: 'Extracting optional offline speech runtime...',
       });
       await extractArchive(archivePath, extractDir);
       const extractedBin = findFileRecursive(extractDir, asset.binaryName);
@@ -354,10 +662,9 @@ async function ensureWhisperEngineBinary(
       }
     } catch (err) {
       if (signal.aborted) throw err;
-      // Fall back to Homebrew or source build below if release asset isn't reachable
     } finally {
       try {
-        fs.rmSync(tmpPrebuilt, { recursive: true, force: true });
+        fs.rmSync(stagingDir, { recursive: true, force: true });
       } catch {}
     }
   }
@@ -389,9 +696,9 @@ async function ensureWhisperEngineBinary(
   const makeBin = findExecutableInPath(['make']);
   const cxx = findExecutableInPath(['g++', 'clang++', 'c++']);
   if (cmake && tarBin && makeBin && cxx) {
-    const tmpSrc = fs.mkdtempSync(path.join(os.tmpdir(), 'whisper-cpp-build-'));
+    const stagingSrc = createPersistentStagingDir('src-build-');
     try {
-      const tgz = path.join(tmpSrc, 'whisper.tar.gz');
+      const tgz = path.join(stagingSrc, 'whisper.tar.gz');
       onProgress({
         modelId,
         stage: 'installing_engine',
@@ -404,10 +711,10 @@ async function ensureWhisperEngineBinary(
         undefined,
         signal,
       );
-      await runStreamingCommand(tarBin, ['-xzf', tgz, '-C', tmpSrc], undefined, signal, () => {});
-      const srcDir = fs.readdirSync(tmpSrc).find((d) => d.startsWith('whisper.cpp-'));
+      await runStreamingCommand(tarBin, ['-xzf', tgz, '-C', stagingSrc], undefined, signal, () => {});
+      const srcDir = fs.readdirSync(stagingSrc).find((d) => d.startsWith('whisper.cpp-'));
       if (srcDir) {
-        const fullSrc = path.join(tmpSrc, srcDir);
+        const fullSrc = path.join(stagingSrc, srcDir);
         const buildDir = path.join(fullSrc, 'build');
         onProgress({
           modelId,
@@ -464,7 +771,7 @@ async function ensureWhisperEngineBinary(
       }
     } finally {
       try {
-        fs.rmSync(tmpSrc, { recursive: true, force: true });
+        fs.rmSync(stagingSrc, { recursive: true, force: true });
       } catch {}
     }
   }
@@ -473,10 +780,13 @@ async function ensureWhisperEngineBinary(
 }
 
 export async function installLocalWhisper(
-  modelId: WhisperModelId,
+  modelId: string,
   onProgress: (p: SpeechInstallProgress) => void,
 ): Promise<{ ok: boolean; modelPath?: string; engineBinary?: string | null; error?: string }> {
-  const spec = WHISPER_MODELS.find((m) => m.id === modelId) ?? WHISPER_MODELS[0];
+  const entry = listSpeechModels().find((m) => m.id === modelId) ?? listSpeechModels()[0];
+  if (!entry) {
+    return { ok: false, error: `Unknown speech model: ${modelId}` };
+  }
   if (activeInstallAbort) {
     activeInstallAbort.abort();
   }
@@ -484,37 +794,55 @@ export async function installLocalWhisper(
   activeInstallAbort = abort;
 
   try {
-    const engineBinary = await ensureWhisperEngineBinary(onProgress, spec.id, abort.signal);
+    const engineBinary = await ensureWhisperEngineBinary(onProgress, entry.id, abort.signal);
     if (!engineBinary) {
       const msg =
-        'Unable to install whisper.cpp automatically (install Homebrew or cmake + g++, or install whisper-cpp manually).';
-      onProgress({ modelId: spec.id, stage: 'error', percent: 0, detail: msg });
+        'Unable to set up optional whisper.cpp runtime (check internet access or configure an external local/cloud speech provider).';
+      onProgress({ modelId: entry.id, stage: 'error', percent: 0, detail: msg });
       return { ok: false, error: msg };
     }
 
-    const destPath = path.join(speechModelsDir(), spec.fileName);
+    if (entry.source === 'custom_local') {
+      const target = entry.resolvedPath || entry.localPath || '';
+      if (!target || !fs.existsSync(target)) {
+        const msg = `Local model file missing: ${target}`;
+        onProgress({ modelId: entry.id, stage: 'error', percent: 0, detail: msg });
+        return { ok: false, error: msg };
+      }
+      onProgress({ modelId: entry.id, stage: 'done', percent: 100, detail: `${entry.label} ready` });
+      return { ok: true, modelPath: target, engineBinary };
+    }
+
+    const downloadUrl = entry.url;
+    if (!downloadUrl) {
+      return { ok: false, error: 'Model entry has no download URL.' };
+    }
+
+    const destPath = path.join(speechModelsDir(), path.basename(entry.fileName));
     if (!fs.existsSync(destPath)) {
+      const expectedBytes = entry.sizeBytes || 0;
       onProgress({
-        modelId: spec.id,
+        modelId: entry.id,
         stage: 'downloading_model',
         percent: 0,
         downloadedBytes: 0,
-        totalBytes: spec.sizeBytes,
-        detail: `Downloading ${spec.label}...`,
+        totalBytes: expectedBytes,
+        detail: `Downloading ${entry.label}...`,
       });
       await downloadModelFile(
-        spec.url,
+        downloadUrl,
         destPath,
         ({ downloadedBytes, totalBytes, percent }) => {
           const dlMb = (downloadedBytes / (1024 * 1024)).toFixed(1);
-          const totMb = ((totalBytes || spec.sizeBytes) / (1024 * 1024)).toFixed(0);
+          const denom = totalBytes || expectedBytes;
+          const totLabel = denom > 0 ? ` / ${(denom / (1024 * 1024)).toFixed(0)} MB` : ' MB';
           onProgress({
-            modelId: spec.id,
+            modelId: entry.id,
             stage: 'downloading_model',
             percent,
             downloadedBytes,
-            totalBytes: totalBytes || spec.sizeBytes,
-            detail: `Downloading model: ${dlMb} / ${totMb} MB (${percent}%)`,
+            totalBytes: denom,
+            detail: `Downloading model: ${dlMb}${totLabel} (${percent}%)`,
           });
         },
         abort.signal,
@@ -522,15 +850,15 @@ export async function installLocalWhisper(
     }
 
     onProgress({
-      modelId: spec.id,
+      modelId: entry.id,
       stage: 'done',
       percent: 100,
-      detail: `${spec.label} ready`,
+      detail: `${entry.label} ready`,
     });
     return { ok: true, modelPath: destPath, engineBinary };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    onProgress({ modelId: spec.id, stage: 'error', percent: 0, detail: msg });
+    onProgress({ modelId: entry.id, stage: 'error', percent: 0, detail: msg });
     return { ok: false, error: msg };
   } finally {
     if (activeInstallAbort === abort) {
@@ -539,7 +867,50 @@ export async function installLocalWhisper(
   }
 }
 
-export function deleteLocalWhisperModel(modelId: string): boolean {
+export function deleteLocalWhisperModel(modelId: string, removeEntry = false): boolean {
+  const customList = loadCustomSpeechModels();
+  const customIdx = customList.findIndex((m) => m.id === modelId);
+  if (customIdx !== -1) {
+    const custom = customList[customIdx];
+    if (custom.source === 'custom_local') {
+      // Never delete user's external local model file; remove metadata entry only
+      if (managedServerModelPath === custom.localPath) {
+        shutdownManagedWhisperServer();
+      }
+      customList.splice(customIdx, 1);
+      saveCustomSpeechModels(customList);
+      return true;
+    }
+    const target = path.join(speechModelsDir(), path.basename(custom.fileName));
+    if (managedServerModelPath === target) {
+      shutdownManagedWhisperServer();
+    }
+    let deleted = false;
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { force: true });
+      deleted = true;
+    }
+    if (removeEntry) {
+      customList.splice(customIdx, 1);
+      saveCustomSpeechModels(customList);
+      deleted = true;
+    }
+    return deleted;
+  }
+
+  if (modelId.startsWith('local:')) {
+    const fileName = path.basename(modelId.slice('local:'.length));
+    const target = path.join(speechModelsDir(), fileName);
+    if (managedServerModelPath === target) {
+      shutdownManagedWhisperServer();
+    }
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { force: true });
+      return true;
+    }
+    return false;
+  }
+
   const spec = WHISPER_MODELS.find((m) => m.id === modelId);
   const fileName = spec ? spec.fileName : modelId;
   const target = path.join(speechModelsDir(), path.basename(fileName));
@@ -551,6 +922,21 @@ export function deleteLocalWhisperModel(modelId: string): boolean {
     return true;
   }
   return false;
+}
+
+export function uninstallLocalWhisperRuntime(): boolean {
+  shutdownManagedWhisperServer();
+  const binDir = speechBinDir();
+  if (!fs.existsSync(binDir)) return false;
+  let removed = false;
+  for (const name of ['whisper-server', 'whisper-server.exe', 'whisper-cli', 'whisper-cli.exe']) {
+    const target = path.join(binDir, name);
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { force: true });
+      removed = true;
+    }
+  }
+  return removed;
 }
 
 let managedServerProc: ChildProcess | null = null;
@@ -647,7 +1033,7 @@ export async function ensureManagedWhisperServer(modelPath: string): Promise<str
             return `${baseUrl}/inference`;
           }
         } catch {
-          // still warming model into RAM
+          // still loading model into RAM
         }
         await new Promise((r) => setTimeout(r, 250));
       }

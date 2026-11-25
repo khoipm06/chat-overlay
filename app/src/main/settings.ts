@@ -107,6 +107,7 @@ export function defaultSettings(): AppSettings {
     autoApprovePermissions: false,
     autoApproveDesktopActions: true,
     speechMode: 'auto',
+    speechConfigured: false,
     speechModel: 'large-v3-turbo-q5_0',
     speechLanguage: 'auto',
     localSpeechUrl: '',
@@ -327,6 +328,7 @@ export function loadSettings(): AppSettings {
       speechMode: (parsed.speechMode && ['auto', 'local', 'cloud'].includes(parsed.speechMode)
         ? (parsed.speechMode as AppSettings['speechMode'])
         : defaults.speechMode),
+      speechConfigured: parsed.speechConfigured ?? defaults.speechConfigured,
       speechModel:
         typeof parsed.speechModel === 'string' && parsed.speechModel.trim()
           ? parsed.speechModel.trim()

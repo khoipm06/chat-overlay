@@ -192,6 +192,7 @@ export type PermissionPolicy = 'ask' | 'auto_read' | 'auto_workspace' | 'yolo';
 export type DesktopControlMode = 'off' | 'confirm' | 'preview_auto' | 'auto';
 export type SpeechMode = 'auto' | 'local' | 'cloud';
 export type WhisperModelId = 'large-v3-turbo-q5_0' | 'small-q5_1';
+export type SpeechModelSource = 'builtin' | 'custom_url' | 'custom_local';
 export type FollowUpBehavior = 'queue' | 'steer';
 
 export interface WhisperModelSpec {
@@ -204,14 +205,46 @@ export interface WhisperModelSpec {
   recommended: boolean;
 }
 
+export interface SpeechModelEntry {
+  id: string;
+  label: string;
+  description: string;
+  fileName: string;
+  sizeBytes?: number;
+  source: SpeechModelSource;
+  url?: string;
+  localPath?: string;
+  installed: boolean;
+  resolvedPath: string | null;
+  active: boolean;
+  recommended?: boolean;
+}
+
+export interface CustomSpeechModelInput {
+  label: string;
+  description?: string;
+  source: 'custom_url' | 'custom_local';
+  url?: string;
+  localPath?: string;
+}
+
 export interface SpeechStatus {
   hasCloudKey: boolean;
+  cloudProviders: {
+    gemini: boolean;
+    openai: boolean;
+  };
   hasLocalEngine: boolean;
+  hasCustomLocalBackend: boolean;
   hasLocalModel: boolean;
+  managedRuntimeInstalled: boolean;
+  managedRuntimePath: string | null;
   installedModels: string[];
+  activeModelId: string | null;
   activeModelPath: string | null;
   engineBinary: string | null;
   catalog: WhisperModelSpec[];
+  models: SpeechModelEntry[];
 }
 
 export interface SpeechInstallProgress {
@@ -352,6 +385,7 @@ export interface AppSettings {
   autoApprovePermissions: boolean;
   autoApproveDesktopActions: boolean;
   speechMode: SpeechMode;
+  speechConfigured?: boolean;
   speechModel?: string;
   speechLanguage: string;
   localSpeechUrl: string;

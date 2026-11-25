@@ -213,13 +213,17 @@ export function renderTabbedSettingsDrawer(opts: {
           </select>
         </div>
         <div class="field-group">
-          <label>Speech Recognition Engine</label>
-          <select id="set-speech-mode" class="field-select">
+          <label>Speech Input Method &amp; Cloud API</label>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;">
+            <span id="speech-cloud-status" class="field-hint" style="font-size:11.5px;flex:1;min-width:140px;">Checking voice configuration...</span>
+            <button type="button" id="btn-configure-voice-method" class="mini-action-btn">Configure Voice Method...</button>
+          </div>
+          <select id="set-speech-mode" class="field-select" style="margin-top:6px;">
             <option value="auto" ${current.speechMode === 'auto' ? 'selected' : ''}>Auto (Cloud API first, fallback to Local STT)</option>
-            <option value="local" ${current.speechMode === 'local' ? 'selected' : ''}>Local STT Only (Offline / Whisper / whisper.cpp / Sherpa / Vosk)</option>
-            <option value="cloud" ${current.speechMode === 'cloud' ? 'selected' : ''}>Cloud API Only (Gemini / Whisper API)</option>
+            <option value="local" ${current.speechMode === 'local' ? 'selected' : ''}>Local STT Only (External Server / CLI / Optional Offline)</option>
+            <option value="cloud" ${current.speechMode === 'cloud' ? 'selected' : ''}>Cloud API Only (Gemini / OpenAI Whisper API)</option>
           </select>
-          <div id="speech-backend-detected" class="field-hint" style="margin-top: 4px; font-size: 11px; opacity: 0.85;">Detecting local speech engines...</div>
+          <div id="speech-backend-detected" class="field-hint" style="margin-top: 4px; font-size: 11px; opacity: 0.85;">Checking local speech runtime...</div>
         </div>
         <div class="field-group">
           <label>Voice Input Language (Microphone STT)</label>
@@ -246,11 +250,10 @@ export function renderTabbedSettingsDrawer(opts: {
           <input id="set-local-speech-cmd" type="text" class="field-input" placeholder="whisper-cli, whisper, sherpa-onnx, or custom script" value="${current.localSpeechCommand || ''}" />
         </div>
         <div class="field-group">
-          <label>Offline Whisper Model (Built-in Multilingual &amp; Mixed-Language STT)</label>
+          <label>Offline Whisper Models &amp; Optional Runtime</label>
           <div id="speech-model-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;">
             <span id="speech-model-status" class="field-hint" style="font-size:11.5px;flex:1;min-width:140px;">Checking installed voice models...</span>
-            <button type="button" id="btn-setup-local-speech" class="mini-action-btn primary">Install / Switch Model</button>
-            <button type="button" id="btn-remove-local-speech" class="mini-action-btn hidden">Remove</button>
+            <button type="button" id="btn-setup-local-speech" class="mini-action-btn primary">Manage Models...</button>
           </div>
         </div>
         <label class="toggle-row">
@@ -547,42 +550,48 @@ export function renderTabbedSettingsDrawer(opts: {
           if (el) {
             if (backend.available) {
               el.textContent = `Local engine detected: ${backend.engine}${backend.target ? ` (${backend.target})` : ''}`;
-              (el as HTMLElement).style.color = 'var(--vscode-testing-iconPassed, #4ec9b0)';
+              (el as HTMLElement).style.color = '#4ec9b0';
             } else {
-              el.textContent = 'No local engine detected (click Install / Switch Model below to set up offline STT).';
-              (el as HTMLElement).style.color = 'var(--vscode-descriptionForeground, #888)';
+              el.textContent = 'Optional local runtime not installed (Cloud API or external server/CLI can be used instead).';
+              (el as HTMLElement).style.color = 'var(--text-muted)';
             }
           }
         })
         .catch(() => {});
 
+      const cloudStatusEl = body.querySelector<HTMLElement>('#speech-cloud-status');
+      const cfgVoiceBtn = body.querySelector<HTMLButtonElement>('#btn-configure-voice-method');
       const statusEl = body.querySelector<HTMLElement>('#speech-model-status');
       const setupBtn = body.querySelector<HTMLButtonElement>('#btn-setup-local-speech');
-      const removeBtn = body.querySelector<HTMLButtonElement>('#btn-remove-local-speech');
-      const refreshModelUi = () => {
-        window.agentOverlay.getSpeechStatus?.().then((st) => {
-          if (statusEl) {
-            if (st.installedModels.length > 0 && st.activeModelPath) {
-              statusEl.textContent = `Installed: ${st.installedModels.join(', ')}`;
-              removeBtn?.classList.remove('hidden');
-            } else {
-              statusEl.textContent = 'No offline model downloaded yet.';
-              removeBtn?.classList.add('hidden');
-            }
+
+      window.agentOverlay.getSpeechStatus?.().then((st) => {
+        if (cloudStatusEl) {
+          const providers = [
+            st.cloudProviders?.gemini ? 'Gemini' : '',
+            st.cloudProviders?.openai ? 'OpenAI' : '',
+          ].filter(Boolean);
+          cloudStatusEl.textContent = providers.length > 0
+            ? `Cloud API ready (${providers.join(', ')})`
+            : 'Cloud API: Not configured';
+        }
+        if (statusEl) {
+          if (st.installedModels.length > 0) {
+            const activeEntry = st.models?.find((m) => m.active);
+            const activeLabel = activeEntry ? activeEntry.label : st.installedModels[0];
+            statusEl.textContent = `Active: ${activeLabel} (${st.installedModels.length} installed)`;
+          } else {
+            statusEl.textContent = 'No offline model downloaded yet.';
           }
-        }).catch(() => {});
-      };
-      refreshModelUi();
+        }
+      }).catch(() => {});
+
+      cfgVoiceBtn?.addEventListener('click', () => {
+        opts.onClose();
+        window.dispatchEvent(new CustomEvent('chat-overlay:open-voice-picker'));
+      });
       setupBtn?.addEventListener('click', () => {
         opts.onClose();
         window.dispatchEvent(new CustomEvent('chat-overlay:open-voice-setup'));
-      });
-      removeBtn?.addEventListener('click', async () => {
-        const st = await window.agentOverlay.getSpeechStatus();
-        for (const mId of st.installedModels) {
-          await window.agentOverlay.deleteSpeechModel(mId);
-        }
-        refreshModelUi();
       });
     }
   };
