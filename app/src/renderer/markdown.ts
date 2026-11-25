@@ -336,6 +336,30 @@ export function renderMarkdownHtml(source: string): string {
   return safeHtml;
 }
 
+/**
+ * Strips markdown syntax, code fences, and inline overlay action tags to plain readable text for TTS.
+ */
+export function markdownToSpokenText(source: string): string {
+  if (!source) return '';
+  let text = stripActionTags(source);
+  // Omit fenced code blocks (keep a brief pause indicator instead of reading code syntax verbatim)
+  text = text.replace(/```[\s\S]*?```/g, ' ');
+  // Remove inline code backticks while preserving identifier text
+  text = text.replace(/`([^`]*)`/g, '$1');
+  // Replace markdown links [label](url) and images ![alt](url)
+  text = text.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1');
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  // Strip headings, blockquotes, list markers, emphasis, and HTML tags
+  text = text.replace(/^#{1,6}\s+/gm, '');
+  text = text.replace(/^>\s*(\[![A-Z]+\])?\s*/gm, '');
+  text = text.replace(/^\s*[-*+]\s+(\[[ xX]\]\s*)?/gm, '');
+  text = text.replace(/^\s*\d+\.\s+/gm, '');
+  text = text.replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, '$1');
+  text = text.replace(/<[^>]+>/g, ' ');
+  // Collapse whitespace cleanly
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 let mermaidSeq = 1;
 
 /**

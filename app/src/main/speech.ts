@@ -4,6 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AppSettings, SpeechMode } from '../shared/types';
 import { configDir } from './settings';
+import {
+  ensureManagedWhisperServer,
+  resolveActiveModelPath,
+  speechBinDir,
+  speechModelsDir,
+} from './speech-manager';
 
 export { SpeechMode };
 
@@ -143,6 +149,7 @@ export function findExecutableInPath(names: string[]): string | null {
   const pathEnv = process.env.PATH || '';
   const delimiter = path.delimiter;
   const standardDirs = [
+    speechBinDir(),
     '/usr/local/bin',
     '/usr/bin',
     '/bin',
@@ -154,7 +161,7 @@ export function findExecutableInPath(names: string[]): string | null {
     path.join(os.homedir(), 'anaconda3', 'bin'),
     '/home/linuxbrew/.linuxbrew/bin',
   ];
-  const searchDirs = Array.from(new Set([...pathEnv.split(delimiter).filter(Boolean), ...standardDirs]));
+  const searchDirs = Array.from(new Set([speechBinDir(), ...pathEnv.split(delimiter).filter(Boolean), ...standardDirs]));
 
   for (const name of names) {
     const nameCandidates =
@@ -184,12 +191,16 @@ export function findExecutableInPath(names: string[]): string | null {
   return null;
 }
 
-export function findWhisperCppModel(): string | null {
+export function findWhisperCppModel(preferredModelId?: string): string | null {
   if (process.env.WHISPER_CPP_MODEL && fs.existsSync(process.env.WHISPER_CPP_MODEL)) {
     return process.env.WHISPER_CPP_MODEL;
   }
 
+  const managed = resolveActiveModelPath(preferredModelId);
+  if (managed) return managed;
+
   const candidateDirs = [
+    speechModelsDir(),
     path.join(os.homedir(), '.cache', 'whisper'),
     path.join(os.homedir(), '.local', 'share', 'whisper'),
     path.join(os.homedir(), '.local', 'share', 'whisper.cpp'),
@@ -407,26 +418,25 @@ export async function transcribeViaCli(
   // 2. whisper-cli / whisper-cpp / whisper.cpp
   const whisperCpp = findExecutableInPath(['whisper-cli', 'whisper-cpp', 'whisper.cpp']);
   if (whisperCpp) {
-    const model = findWhisperCppModel();
-    const args: string[] = [];
+    const model = findWhisperCppModel(options.model);
     if (model) {
-      args.push('-m', model);
-    }
-    if (options.language && options.language !== 'auto') {
-      args.push('-l', options.language.split('-')[0]);
-    }
-    const cpus = Math.min(8, Math.max(2, os.cpus().length || 4));
-    args.push('-f', wavPath, '-nt', '-t', String(cpus), '--beam-size', '1', '--best-of', '1', '--no-context');
-    let liveOutput = '';
-    const res = await runProcessWithTimeout(whisperCpp, args, 30_000, undefined, (chunk) => {
-      liveOutput += chunk;
-      const cleaned = sanitizeTranscription(liveOutput);
-      if (cleaned && onProgress) {
-        onProgress(chunk, cleaned);
+      const args: string[] = ['-m', model];
+      if (options.language && options.language !== 'auto') {
+        args.push('-l', options.language.split('-')[0]);
       }
-    });
-    if (res.ok) {
-      return { ok: true, text: sanitizeTranscription(res.stdout), engine: 'local' };
+      const cpus = Math.min(8, Math.max(2, os.cpus().length || 4));
+      args.push('-f', wavPath, '-nt', '-t', String(cpus), '--beam-size', '1', '--best-of', '1', '--no-context');
+      let liveOutput = '';
+      const res = await runProcessWithTimeout(whisperCpp, args, 30_000, undefined, (chunk) => {
+        liveOutput += chunk;
+        const cleaned = sanitizeTranscription(liveOutput);
+        if (cleaned && onProgress) {
+          onProgress(chunk, cleaned);
+        }
+      });
+      if (res.ok) {
+        return { ok: true, text: sanitizeTranscription(res.stdout), engine: 'local' };
+      }
     }
   }
 
@@ -527,11 +537,12 @@ export async function transcribeViaCli(
 
 export async function transcribeLocalSpeech(
   options: TranscribeOptions,
-  settings?: { localSpeechUrl?: string; localSpeechCommand?: string },
+  settings?: { localSpeechUrl?: string; localSpeechCommand?: string; speechModel?: string },
   onProgress?: SpeechProgressCallback,
 ): Promise<TranscribeResult> {
   const mergedOptions: TranscribeOptions = {
     ...options,
+    model: options.model || settings?.speechModel,
     localUrl: options.localUrl || settings?.localSpeechUrl,
     localCommand: options.localCommand || settings?.localSpeechCommand,
   };
@@ -577,13 +588,31 @@ export async function transcribeLocalSpeech(
       return httpRes;
     }
 
-    // 3. Try fastest installed CLI tool (whisper-cli / whisper / sherpa-onnx / vosk)
+    // 3. Managed warm whisper-server (sub-second latency, keeps model loaded with 5m idle sleep)
+    const activeModel = findWhisperCppModel(mergedOptions.model);
+    if (activeModel) {
+      const managedUrl = await ensureManagedWhisperServer(activeModel);
+      if (managedUrl) {
+        const srvRes = await transcribeViaHttpServer(targetBuffer, targetMime, {
+          ...mergedOptions,
+          localUrl: managedUrl,
+        });
+        if (srvRes.ok) {
+          if (srvRes.text && onProgress) {
+            onProgress(srvRes.text, srvRes.text);
+          }
+          return srvRes;
+        }
+      }
+    }
+
+    // 4. Try fastest installed CLI tool (whisper-cli / whisper / sherpa-onnx / vosk)
     const cliRes = await transcribeViaCli(targetWav, mergedOptions, onProgress);
     if (cliRes.ok) {
       return cliRes;
     }
 
-    // 4. Try local HTTP server default ports (short probe timeout)
+    // 5. Try local HTTP server default ports (short probe timeout)
     try {
       const httpRes = await transcribeViaHttpServer(targetBuffer, targetMime, mergedOptions);
       if (httpRes.ok) {
@@ -636,9 +665,9 @@ export async function detectLocalSpeechBackend(
     return { available: true, engine: 'cli-custom', target: customCmd };
   }
 
-  const whisperCpp = findExecutableInPath(['whisper-cli', 'whisper-cpp', 'whisper.cpp']);
+  const whisperCpp = findExecutableInPath(['whisper-server', 'whisper-cli', 'whisper-cpp', 'whisper.cpp']);
   if (whisperCpp) {
-    return { available: true, engine: 'whisper-cli', target: whisperCpp };
+    return { available: true, engine: path.basename(whisperCpp), target: whisperCpp };
   }
 
   const whisperPy = findExecutableInPath(['whisper', 'whisper-fast', 'faster-whisper']);

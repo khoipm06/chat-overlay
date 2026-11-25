@@ -54,6 +54,13 @@ import {
   syncLinuxAutostartDesktopFile,
 } from './settings';
 import { detectLocalSpeechBackend, transcribeAudio } from './speech';
+import {
+  cancelLocalWhisperInstall,
+  deleteLocalWhisperModel,
+  getSpeechStatus,
+  installLocalWhisper,
+  shutdownManagedWhisperServer,
+} from './speech-manager';
 
 let mainWindow: BrowserWindow | null = null;
 let markupWindow: BrowserWindow | null = null;
@@ -1023,6 +1030,23 @@ function registerIpcHandlers(): void {
     }),
   );
   ipcMain.handle('speech:detect-backends', () => detectLocalSpeechBackend(settings));
+  ipcMain.handle('speech:status', () => getSpeechStatus(settings));
+  ipcMain.handle('speech:install-model', async (_ev, modelId: 'large-v3-turbo-q5_0' | 'small-q5_1') => {
+    const res = await installLocalWhisper(modelId, (progress) => {
+      mainWindow?.webContents.send('speech:install-progress', progress);
+    });
+    if (res.ok) {
+      settings = { ...settings, speechModel: modelId };
+      saveSettings(settings);
+    }
+    return res;
+  });
+  ipcMain.handle('speech:cancel-install', () => {
+    cancelLocalWhisperInstall();
+  });
+  ipcMain.handle('speech:delete-model', (_ev, modelId: string) => {
+    return deleteLocalWhisperModel(modelId);
+  });
 
   ipcMain.handle('git:glance', (_ev, workspaceDir?: string) =>
     getGitGlance(workspaceDir || settings.workspaceDir),
@@ -1337,6 +1361,7 @@ if (!gotLock) {
   app.on('before-quit', () => {
     quitting = true;
     clearIdleSleepTimer();
+    shutdownManagedWhisperServer();
     acpController?.dispose();
     globalShortcut.unregisterAll();
     ipcSocketServer?.close();

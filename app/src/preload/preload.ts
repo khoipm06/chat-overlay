@@ -15,8 +15,11 @@ import type {
   SavedSession,
   ScreenshotQuality,
   SessionCatalog,
+  SpeechInstallProgress,
+  SpeechStatus,
   StoredTurn,
   StreamEvent,
+  WhisperModelId,
   WidthPreset,
 } from '../shared/types';
 import type { CaptureKind } from '../main/capture';
@@ -99,6 +102,13 @@ export interface AgentOverlayApi {
     localCommand?: string;
   }) => Promise<{ ok: boolean; text?: string; error?: string; engine?: 'cloud' | 'local' | 'browser' }>;
   detectSpeechBackends?: () => Promise<{ available: boolean; engine: string; target?: string }>;
+  getSpeechStatus: () => Promise<SpeechStatus>;
+  installSpeechModel: (
+    modelId: WhisperModelId,
+  ) => Promise<{ ok: boolean; modelPath?: string; engineBinary?: string | null; error?: string }>;
+  cancelSpeechInstall: () => Promise<void>;
+  deleteSpeechModel: (modelId: string) => Promise<boolean>;
+  onSpeechInstallProgress: (cb: (progress: SpeechInstallProgress) => void) => () => void;
   openExternal: (url: string) => Promise<void>;
   auditCapture: (filename: string) => Promise<void>;
   auditDone: () => Promise<void>;
@@ -175,6 +185,15 @@ const api: AgentOverlayApi = {
   panicStopDesktop: () => ipcRenderer.invoke('desktop:panic-stop'),
   transcribeAudio: (audioData) => ipcRenderer.invoke('speech:transcribe-audio', audioData),
   detectSpeechBackends: () => ipcRenderer.invoke('speech:detect-backends'),
+  getSpeechStatus: () => ipcRenderer.invoke('speech:status'),
+  installSpeechModel: (modelId) => ipcRenderer.invoke('speech:install-model', modelId),
+  cancelSpeechInstall: () => ipcRenderer.invoke('speech:cancel-install'),
+  deleteSpeechModel: (modelId) => ipcRenderer.invoke('speech:delete-model', modelId),
+  onSpeechInstallProgress: (cb) => {
+    const handler = (_ev: Electron.IpcRendererEvent, progress: SpeechInstallProgress) => cb(progress);
+    ipcRenderer.on('speech:install-progress', handler);
+    return () => ipcRenderer.off('speech:install-progress', handler);
+  },
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   auditCapture: (filename) => ipcRenderer.invoke('audit:capture', filename),
   auditDone: () => ipcRenderer.invoke('audit:done'),

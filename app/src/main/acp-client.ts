@@ -325,7 +325,7 @@ export class AcpAgentController {
         },
         clientInfo: {
           name: 'chat-overlay',
-          version: '3.2.10',
+          version: '3.2.11',
         },
       }, 20_000)) as Record<string, unknown> | null;
       if (gen !== this.warmupSeq) return this.catalog;

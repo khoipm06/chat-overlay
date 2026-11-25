@@ -234,6 +234,18 @@ export function renderTabbedSettingsDrawer(opts: {
           <input id="set-local-speech-cmd" type="text" class="field-input" placeholder="whisper-cli, whisper, sherpa-onnx, or custom script" value="${current.localSpeechCommand || ''}" />
         </div>
         <div class="field-group">
+          <label>Offline Whisper Model (Built-in Multilingual &amp; Mixed-Language STT)</label>
+          <div id="speech-model-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;">
+            <span id="speech-model-status" class="field-hint" style="font-size:11.5px;flex:1;min-width:140px;">Checking installed voice models...</span>
+            <button type="button" id="btn-setup-local-speech" class="mini-action-btn primary">Install / Switch Model</button>
+            <button type="button" id="btn-remove-local-speech" class="mini-action-btn hidden">Remove</button>
+          </div>
+        </div>
+        <label class="toggle-row">
+          <span>Auto-read assistant replies aloud after voice input</span>
+          <input id="set-auto-speak" type="checkbox" ${current.autoSpeakReplies ? 'checked' : ''} />
+        </label>
+        <div class="field-group">
           <label>Auto-clear Agent Screen Annotations (seconds, 0 = manual)</label>
           <input id="set-markup-clear" type="number" min="0" max="120" class="field-input" value="${current.markupAutoClearSeconds}" />
         </div>
@@ -418,6 +430,7 @@ export function renderTabbedSettingsDrawer(opts: {
         patch.speechLanguage = (body.querySelector('#set-speech-lang') as HTMLSelectElement)?.value || 'auto';
         patch.localSpeechUrl = (body.querySelector('#set-local-speech-url') as HTMLInputElement)?.value?.trim() || '';
         patch.localSpeechCommand = (body.querySelector('#set-local-speech-cmd') as HTMLInputElement)?.value?.trim() || '';
+        patch.autoSpeakReplies = Boolean((body.querySelector('#set-auto-speak') as HTMLInputElement)?.checked);
         patch.markupAutoClearSeconds = Math.max(0, Number((body.querySelector('#set-markup-clear') as HTMLInputElement).value) || 0);
         patch.idleSleepMinutes = Math.max(0, Number((body.querySelector('#set-idle-sleep') as HTMLInputElement).value) || 0);
         patch.soundCues = (body.querySelector('#set-sound-cues') as HTMLInputElement).checked;
@@ -456,12 +469,41 @@ export function renderTabbedSettingsDrawer(opts: {
               el.textContent = `Local engine detected: ${backend.engine}${backend.target ? ` (${backend.target})` : ''}`;
               (el as HTMLElement).style.color = 'var(--vscode-testing-iconPassed, #4ec9b0)';
             } else {
-              el.textContent = 'No local engine detected (install whisper / whisper.cpp or run local STT server).';
+              el.textContent = 'No local engine detected (click Install / Switch Model below to set up offline STT).';
               (el as HTMLElement).style.color = 'var(--vscode-descriptionForeground, #888)';
             }
           }
         })
         .catch(() => {});
+
+      const statusEl = body.querySelector<HTMLElement>('#speech-model-status');
+      const setupBtn = body.querySelector<HTMLButtonElement>('#btn-setup-local-speech');
+      const removeBtn = body.querySelector<HTMLButtonElement>('#btn-remove-local-speech');
+      const refreshModelUi = () => {
+        window.agentOverlay.getSpeechStatus?.().then((st) => {
+          if (statusEl) {
+            if (st.installedModels.length > 0 && st.activeModelPath) {
+              statusEl.textContent = `Installed: ${st.installedModels.join(', ')}`;
+              removeBtn?.classList.remove('hidden');
+            } else {
+              statusEl.textContent = 'No offline model downloaded yet.';
+              removeBtn?.classList.add('hidden');
+            }
+          }
+        }).catch(() => {});
+      };
+      refreshModelUi();
+      setupBtn?.addEventListener('click', () => {
+        opts.onClose();
+        window.dispatchEvent(new CustomEvent('chat-overlay:open-voice-setup'));
+      });
+      removeBtn?.addEventListener('click', async () => {
+        const st = await window.agentOverlay.getSpeechStatus();
+        for (const mId of st.installedModels) {
+          await window.agentOverlay.deleteSpeechModel(mId);
+        }
+        refreshModelUi();
+      });
     }
   };
 
