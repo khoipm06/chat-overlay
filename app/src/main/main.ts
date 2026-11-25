@@ -645,6 +645,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('app:update-settings', async (_ev, patch: Partial<AppSettings>) => {
     const prevWorkspace = settings.workspaceDir;
     const prevHarness = settings.harness;
+    const prevDesktopMode = settings.desktopControlMode;
     const prevEdge = settings.edge;
     const prevWPreset = settings.widthPreset;
     const prevHPreset = settings.heightPreset;
@@ -660,6 +661,7 @@ function registerIpcHandlers(): void {
     };
     saveSettings(settings);
     acpController.setPermissionPolicy(settings.permissionPolicy);
+    acpController.setDesktopSettings(settings.desktopControlMode, settings.autoApproveDesktopActions);
 
     if (patch.launchAtLogin !== undefined && patch.launchAtLogin !== prevLaunch) {
       applyLaunchAtLoginSetting(settings.launchAtLogin);
@@ -687,6 +689,8 @@ function registerIpcHandlers(): void {
       mainWindow?.webContents.send('app:workspace-changed', settings.workspaceDir);
     } else if (settings.harness !== prevHarness) {
       await acpController.warmup(settings);
+    } else if ((prevDesktopMode === 'off') !== (settings.desktopControlMode === 'off')) {
+      await acpController.detachActiveSession();
     }
     return settings;
   });

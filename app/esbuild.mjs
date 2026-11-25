@@ -23,6 +23,16 @@ await Promise.all([
     sourcemap: !IS_PROD,
   }),
   esbuild.build({
+    entryPoints: ['src/main/mcp-computer-use.ts'],
+    bundle: true,
+    platform: 'node',
+    target: 'node22',
+    format: 'cjs',
+    outfile: 'dist/main/mcp-computer-use.js',
+    minify: IS_PROD,
+    sourcemap: !IS_PROD,
+  }),
+  esbuild.build({
     entryPoints: ['src/preload/preload.ts'],
     bundle: true,
     platform: 'node',

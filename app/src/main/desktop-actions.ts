@@ -1,4 +1,5 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,23 +42,36 @@ async function commandExists(cmd: string): Promise<boolean> {
   return false;
 }
 
-async function isYdotoolReady(): Promise<boolean> {
-  if (!(await commandExists('ydotool'))) return false;
+async function findOrStartYdotoolSocket(): Promise<string | null> {
+  if (!(await commandExists('ydotool'))) return null;
   const uid = process.getuid ? process.getuid() : 1000;
-  for (const sock of [
+  const candidates = [
     process.env.YDOTOOL_SOCKET,
     `/run/user/${uid}/.ydotool_socket`,
     '/tmp/.ydotool_socket',
-  ]) {
-    if (!sock) continue;
+  ].filter(Boolean) as string[];
+  for (const sock of candidates) {
+    if (fsSync.existsSync(sock)) return sock;
+  }
+  if (await commandExists('ydotoold')) {
     try {
-      await fs.stat(sock);
-      return true;
+      fsSync.accessSync('/dev/uinput', fsSync.constants.W_OK);
+      const targetSock = process.env.YDOTOOL_SOCKET || `/run/user/${uid}/.ydotool_socket`;
+      await fs.mkdir(path.dirname(targetSock), { recursive: true });
+      const child = spawn('ydotoold', ['--socket-path', targetSock], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        if (fsSync.existsSync(targetSock)) return targetSock;
+      }
     } catch {
-      // try next socket location
+      // uinput not writable or spawn failed
     }
   }
-  return false;
+  return null;
 }
 
 export async function detectDesktopCapabilities(): Promise<DesktopCapabilities> {
@@ -82,24 +96,25 @@ export async function detectDesktopCapabilities(): Promise<DesktopCapabilities> 
   }
 
   const hasYdotool = await commandExists('ydotool');
-  const ydotoolReady = hasYdotool ? await isYdotoolReady() : false;
+  const ydotoolSock = hasYdotool ? await findOrStartYdotoolSocket() : null;
   const hasXdotool = !process.env.WAYLAND_DISPLAY && (await commandExists('xdotool'));
-  const inputDriver = ydotoolReady
+  const hasKwinDbus = Boolean(process.env.WAYLAND_DISPLAY) && fsSync.existsSync('/usr/bin/python3');
+  const inputDriver = ydotoolSock
     ? 'ydotool'
     : hasXdotool
       ? 'xdotool'
       : hasYdotool
-        ? 'ydotool (daemon stopped)'
+        ? 'ydotool (daemon unavailable)'
         : null;
 
   const themeControl =
     (await commandExists('plasma-apply-colorscheme')) || (await commandExists('gsettings'));
   const audioControl = (await commandExists('wpctl')) || (await commandExists('pactl'));
-  const windowSnap = ydotoolReady || hasXdotool || (await commandExists('kdotool'));
+  const windowSnap = Boolean(ydotoolSock) || hasXdotool || hasKwinDbus || (await commandExists('kdotool'));
 
   let notes: string | undefined;
-  if (hasYdotool && !ydotoolReady) {
-    notes = 'Start ydotoold (`systemctl --user start ydotool`) to enable pointer & keyboard automation on Wayland.';
+  if (hasYdotool && !ydotoolSock) {
+    notes = 'Grant /dev/uinput access or start ydotoold to enable pointer & keyboard automation on Wayland.';
   } else if (!inputDriver) {
     notes = 'Install ydotool (Wayland) or xdotool (X11) to enable pointer & keyboard automation.';
   }
@@ -158,31 +173,33 @@ function toYdotoolKeySequence(combo: string): string[] | null {
 
 async function runInputLinux(action: DesktopAction, bounds: ScreenBounds): Promise<{ ok: boolean; message: string }> {
   const { px, py } = percentToPixelCoords(action.x, action.y, bounds);
-  if (await isYdotoolReady()) {
+  const ySock = await findOrStartYdotoolSocket();
+  if (ySock) {
+    const yEnv = { ...process.env, YDOTOOL_SOCKET: ySock };
     if (action.kind === 'move' || action.kind === 'click' || action.kind === 'double_click' || action.kind === 'right_click') {
-      await execFileAsync('ydotool', ['mousemove', '--absolute', '-x', String(px), '-y', String(py)], { timeout: 3000 });
+      await execFileAsync('ydotool', ['mousemove', '--absolute', '-x', String(px), '-y', String(py)], { timeout: 3000, env: yEnv });
       if (action.kind === 'click') {
-        await execFileAsync('ydotool', ['click', '0xC0'], { timeout: 3000 });
+        await execFileAsync('ydotool', ['click', '0xC0'], { timeout: 3000, env: yEnv });
       } else if (action.kind === 'double_click') {
-        await execFileAsync('ydotool', ['click', '--repeat', '2', '--next-delay', '60', '0xC0'], { timeout: 3000 });
+        await execFileAsync('ydotool', ['click', '--repeat', '2', '--next-delay', '60', '0xC0'], { timeout: 3000, env: yEnv });
       } else if (action.kind === 'right_click') {
-        await execFileAsync('ydotool', ['click', '0xC1'], { timeout: 3000 });
+        await execFileAsync('ydotool', ['click', '0xC1'], { timeout: 3000, env: yEnv });
       }
       return { ok: true, message: `Executed ${action.kind} at (${px}, ${py})` };
     }
     if (action.kind === 'scroll') {
       const steps = Math.max(-20, Math.min(20, Math.round(action.delta ?? -3)));
-      await execFileAsync('ydotool', ['mousemove', '-w', '--', '0', String(steps)], { timeout: 3000 });
+      await execFileAsync('ydotool', ['mousemove', '-w', '--', '0', String(steps)], { timeout: 3000, env: yEnv });
       return { ok: true, message: `Scrolled ${steps}` };
     }
     if (action.kind === 'type' && action.text) {
-      await execFileAsync('ydotool', ['type', '--', action.text], { timeout: 5000 });
+      await execFileAsync('ydotool', ['type', '--', action.text], { timeout: 5000, env: yEnv });
       return { ok: true, message: `Typed ${action.text.length} chars` };
     }
     if (action.kind === 'key' && action.combo) {
       const seq = toYdotoolKeySequence(action.combo);
       if (!seq) return { ok: false, message: `Unsupported key combo: ${action.combo}` };
-      await execFileAsync('ydotool', ['key', ...seq], { timeout: 3000 });
+      await execFileAsync('ydotool', ['key', ...seq], { timeout: 3000, env: yEnv });
       return { ok: true, message: `Pressed ${action.combo}` };
     }
   }

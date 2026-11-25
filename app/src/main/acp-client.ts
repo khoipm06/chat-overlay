@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +8,7 @@ import { HARNESS_LIST } from '../shared/types';
 import type {
   AppSettings,
   ChatAttachment,
+  DesktopControlMode,
   HarnessKind,
   MarkupAnnotation,
   PermissionOption,
@@ -60,8 +62,24 @@ function toEnvArray(env: unknown): Array<{ name: string; value: string }> {
   }));
 }
 
+const MCP_DESKTOP_HINT =
+  '\n\n[Computer Use MCP tools (`desktop_screenshot`, `desktop_list_windows`, `desktop_window_control`, `desktop_mouse`, `desktop_keyboard`, `desktop_clipboard`, `desktop_system`, `desktop_wait`) are enabled. Call `desktop_screenshot` or `desktop_list_windows` to inspect UI before clicking, and use normalized 0-1000 coordinates in `desktop_mouse`.]';
+
+export function resolveComputerUseMcpPath(): string | null {
+  for (const candidate of [
+    path.join(__dirname, 'mcp-computer-use.js'),
+    path.resolve(__dirname, '../../dist/main/mcp-computer-use.js'),
+    path.resolve(process.cwd(), 'dist/main/mcp-computer-use.js'),
+    path.resolve(process.cwd(), 'app/dist/main/mcp-computer-use.js'),
+  ]) {
+    if (fsSync.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 export async function loadMcpServersForSession(
   workspaceDir: string,
+  settings?: Pick<AppSettings, 'desktopControlMode'>,
 ): Promise<Array<Record<string, unknown>>> {
   const servers: Array<Record<string, unknown>> = [];
   try {
@@ -145,6 +163,23 @@ export async function loadMcpServersForSession(
       // ignore
     }
   }
+  if (settings && settings.desktopControlMode !== 'off' && !servers.some((s) => s.name === 'computer-use')) {
+    const mcpPath = resolveComputerUseMcpPath();
+    if (mcpPath) {
+      const envEntries: Array<{ name: string; value: string }> = [
+        { name: 'ELECTRON_RUN_AS_NODE', value: '1' },
+      ];
+      for (const k of ['DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'XDG_RUNTIME_DIR', 'YDOTOOL_SOCKET']) {
+        if (process.env[k]) envEntries.push({ name: k, value: process.env[k]! });
+      }
+      servers.push({
+        name: 'computer-use',
+        command: process.execPath,
+        args: [mcpPath],
+        env: envEntries,
+      });
+    }
+  }
   return servers;
 }
 
@@ -184,6 +219,8 @@ export class AcpAgentController {
   private currentHarness: HarnessKind;
   private currentWorkspace: string;
   private permissionPolicy: PermissionPolicy;
+  private desktopControlMode: DesktopControlMode;
+  private autoApproveDesktopActions: boolean;
   private sessionAllowedTools = new Set<string>();
   private catalog: SessionCatalog;
   private disposed = false;
@@ -204,6 +241,8 @@ export class AcpAgentController {
     this.currentWorkspace = settings.workspaceDir;
     this.permissionPolicy =
       settings.permissionPolicy ?? (settings.autoApprovePermissions ? 'yolo' : 'auto_read');
+    this.desktopControlMode = settings.desktopControlMode ?? 'confirm';
+    this.autoApproveDesktopActions = settings.autoApproveDesktopActions !== false;
     this.onEvent = onEvent;
     this.onMarkupAnnotations = onMarkupAnnotations;
     this.catalog = this.emptyCatalog(this.currentHarness, 'idle', 'Waiting to connect');
@@ -240,6 +279,8 @@ export class AcpAgentController {
     this.currentWorkspace = settings.workspaceDir;
     this.permissionPolicy =
       settings.permissionPolicy ?? (settings.autoApprovePermissions ? 'yolo' : 'auto_read');
+    this.desktopControlMode = settings.desktopControlMode ?? 'confirm';
+    this.autoApproveDesktopActions = settings.autoApproveDesktopActions !== false;
     this.turnActive = false;
     await this.shutdownProcess();
     if (gen !== this.warmupSeq) {
@@ -284,7 +325,7 @@ export class AcpAgentController {
         },
         clientInfo: {
           name: 'chat-overlay',
-          version: '3.2.9',
+          version: '3.2.10',
         },
       }, 20_000)) as Record<string, unknown> | null;
       if (gen !== this.warmupSeq) return this.catalog;
@@ -317,7 +358,7 @@ export class AcpAgentController {
       }
 
       if (!parsed) {
-        const mcpServers = await loadMcpServersForSession(settings.workspaceDir);
+        const mcpServers = await loadMcpServersForSession(settings.workspaceDir, settings);
         const sessionRes = (await this.sendRpc('session/new', {
           cwd: settings.workspaceDir,
           mcpServers,
@@ -434,7 +475,7 @@ export class AcpAgentController {
 
     const meta = HARNESS_LIST.find((h) => h.id === settings.harness) ?? HARNESS_LIST[0];
     this.emitStatus('warming', `Creating ${meta.shortLabel} session...`);
-    const mcpServers = await loadMcpServersForSession(settings.workspaceDir);
+    const mcpServers = await loadMcpServersForSession(settings.workspaceDir, settings);
     const sessionRes = (await this.sendRpc(
       'session/new',
       {
@@ -644,6 +685,11 @@ export class AcpAgentController {
     this.permissionPolicy = policy;
   }
 
+  setDesktopSettings(mode: DesktopControlMode, autoApprove: boolean): void {
+    this.desktopControlMode = mode;
+    this.autoApproveDesktopActions = autoApprove;
+  }
+
   clearSessionAllowedTools(): void {
     this.sessionAllowedTools.clear();
   }
@@ -829,7 +875,9 @@ export class AcpAgentController {
       this.replayedTurns = [];
       this.currentReplayedTurn = null;
       this.catalog.sessionId = sessionId;
-      const mcpServers = await loadMcpServersForSession(this.currentWorkspace);
+      const mcpServers = await loadMcpServersForSession(this.currentWorkspace, {
+        desktopControlMode: this.desktopControlMode,
+      });
       await this.sendRpc(
         'session/load',
         {
@@ -986,7 +1034,7 @@ export class AcpAgentController {
       finalText += SCREEN_MARKUP_HINT;
     }
     if (settings.desktopControlMode !== 'off') {
-      finalText += DESKTOP_CONTROL_HINT;
+      finalText += resolveComputerUseMcpPath() ? MCP_DESKTOP_HINT : DESKTOP_CONTROL_HINT;
     }
     blocks.push({ type: 'text', text: finalText });
     return blocks;
@@ -1202,6 +1250,7 @@ export class AcpAgentController {
             Boolean(o.kind && o.kind.toLowerCase().startsWith('allow')),
         );
 
+      const isDesktopTool = /(desktop_|computer[-_]use)/i.test(toolKey);
       const isReadOnlyTool = /\b(read|view|cat|glob|grep|find|list|search|ls)\b/i.test(toolKey);
       const isWorkspaceEditTool = /\b(edit|write|patch|create)\b/i.test(toolKey);
       const targetPath =
@@ -1215,12 +1264,15 @@ export class AcpAgentController {
               : '');
       const insideWorkspace = targetPath ? Boolean(this.resolveWorkspacePath(targetPath)) : false;
 
-      const autoPermitted =
-        this.permissionPolicy === 'yolo' ||
-        this.sessionAllowedTools.has(toolKey) ||
-        (this.permissionPolicy === 'auto_read' && isReadOnlyTool) ||
-        (this.permissionPolicy === 'auto_workspace' &&
-          (isReadOnlyTool || (isWorkspaceEditTool && insideWorkspace)));
+      const autoPermitted = isDesktopTool
+        ? this.permissionPolicy === 'yolo' ||
+          this.autoApproveDesktopActions === true ||
+          this.sessionAllowedTools.has(toolKey)
+        : this.permissionPolicy === 'yolo' ||
+          this.sessionAllowedTools.has(toolKey) ||
+          (this.permissionPolicy === 'auto_read' && isReadOnlyTool) ||
+          (this.permissionPolicy === 'auto_workspace' &&
+            (isReadOnlyTool || (isWorkspaceEditTool && insideWorkspace)));
 
       if (autoPermitted && options.length > 0) {
         const allowOpt = pickAllowOption();

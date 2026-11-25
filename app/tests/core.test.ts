@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -48,7 +48,12 @@ import {
   syncLinuxAutostartDesktopFile,
   unmarkDeletedSessionId,
 } from '../src/main/settings';
-import { AcpAgentController, isSessionNotFoundError, loadMcpServersForSession } from '../src/main/acp-client';
+import {
+  AcpAgentController,
+  isSessionNotFoundError,
+  loadMcpServersForSession,
+  resolveComputerUseMcpPath,
+} from '../src/main/acp-client';
 import {
   cleanAudioMimeType,
   detectLocalSpeechBackend,
@@ -1285,6 +1290,90 @@ describe('ACP question tool, shell output & settings updates', () => {
       if (prevXdg === undefined) delete process.env.XDG_CONFIG_HOME;
       else process.env.XDG_CONFIG_HOME = prevXdg;
       fs.rmSync(tmpCfg, { recursive: true, force: true });
+    }
+  });
+
+  it('attaches built-in computer-use MCP server when desktopControlMode is enabled and omits when off', async () => {
+    const mcpPath = resolveComputerUseMcpPath();
+    expect(mcpPath).not.toBeNull();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'co-mcp-'));
+    try {
+      const enabled = await loadMcpServersForSession(tmpDir, { desktopControlMode: 'confirm' });
+      const cu = enabled.find((s) => s.name === 'computer-use');
+      expect(cu).toBeDefined();
+      expect(Array.isArray(cu?.args)).toBe(true);
+      expect((cu?.env as Array<{ name: string; value: string }>).some((e) => e.name === 'ELECTRON_RUN_AS_NODE' && e.value === '1')).toBe(true);
+
+      const disabled = await loadMcpServersForSession(tmpDir, { desktopControlMode: 'off' });
+      expect(disabled.some((s) => s.name === 'computer-use')).toBe(false);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('runs built-in mcp-computer-use stdio server cleanly for initialize, tools/list, and tools/call', async () => {
+    const mcpPath = path.resolve(__dirname, '../dist/main/mcp-computer-use.js');
+    expect(fs.existsSync(mcpPath)).toBe(true);
+
+    const child = spawn(process.execPath, [mcpPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const responses: Array<Record<string, any>> = [];
+    let buffer = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString('utf8');
+      let nl = buffer.indexOf('\n');
+      while (nl >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (line) {
+          try {
+            responses.push(JSON.parse(line));
+          } catch {}
+        }
+        nl = buffer.indexOf('\n');
+      }
+    });
+
+    const waitForId = async (id: number, timeoutMs = 5000) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < timeoutMs) {
+        const found = responses.find((r) => r.id === id);
+        if (found) return found;
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      throw new Error(`Timed out waiting for MCP response id=${id}`);
+    };
+
+    try {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } })}\n`);
+      const initRes = await waitForId(1);
+      expect(initRes.result?.serverInfo?.name).toBe('computer-use');
+
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })}\n`);
+      const listRes = await waitForId(2);
+      const names = (listRes.result?.tools || []).map((t: any) => t.name);
+      expect(names).toEqual([
+        'desktop_screenshot',
+        'desktop_list_windows',
+        'desktop_window_control',
+        'desktop_mouse',
+        'desktop_keyboard',
+        'desktop_clipboard',
+        'desktop_system',
+        'desktop_wait',
+      ]);
+
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'desktop_wait', arguments: { ms: 60 } } })}\n`);
+      const waitRes = await waitForId(3);
+      expect(waitRes.result?.isError).not.toBe(true);
+      expect(waitRes.result?.content?.[0]?.text).toContain('Waited 60ms');
+
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'desktop_system', arguments: { action: 'list_apps' } } })}\n`);
+      const appsRes = await waitForId(4);
+      expect(appsRes.result?.content?.[0]?.text).toBeDefined();
+
+      expect(pickToolKind('mcp_computer-use_desktop_mouse').verb).toBe('Desktop');
+    } finally {
+      child.kill('SIGTERM');
     }
   });
 });
