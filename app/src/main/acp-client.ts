@@ -23,7 +23,7 @@ import {
   pickDesktopActionsFromText,
   pickMarkupAnnotationsFromText,
 } from './acp-parser';
-import { resolveHarnessLaunch } from './settings';
+import { loadCachedCatalog, resolveHarnessLaunch, saveCachedCatalog } from './settings';
 
 interface PendingRpc {
   resolve: (value: unknown) => void;
@@ -175,6 +175,7 @@ export class AcpAgentController {
   private activeTools = new Map<string, ToolTracker>();
   private pendingElicitations = new Map<string, unknown>();
   private currentContextSize: number | undefined;
+  private agentCapabilities: Record<string, unknown> = {};
 
   private sessionLoading = false;
   private replayedTurns: StoredTurn[] = [];
@@ -268,7 +269,7 @@ export class AcpAgentController {
       this.emitCatalog();
       this.emitStatus('warming', `Fetching live models & effort options from ${meta.label}...`);
 
-      await this.sendRpc('initialize', {
+      const initRes = (await this.sendRpc('initialize', {
         protocolVersion: 1,
         clientCapabilities: {
           fs: { readTextFile: true, writeTextFile: true },
@@ -283,79 +284,89 @@ export class AcpAgentController {
         },
         clientInfo: {
           name: 'chat-overlay',
-          version: '3.2.8',
+          version: '3.2.9',
         },
-      }, 20_000);
+      }, 20_000)) as Record<string, unknown> | null;
       if (gen !== this.warmupSeq) return this.catalog;
 
-      const mcpServers = await loadMcpServersForSession(settings.workspaceDir);
-      const sessionRes = (await this.sendRpc('session/new', {
-        cwd: settings.workspaceDir,
-        mcpServers,
-      }, 25_000)) as Record<string, unknown>;
-      if (gen !== this.warmupSeq) return this.catalog;
+      this.agentCapabilities =
+        initRes?.agentCapabilities && typeof initRes.agentCapabilities === 'object'
+          ? (initRes.agentCapabilities as Record<string, unknown>)
+          : {};
 
-      let parsed = parseSessionNewCatalog(
-        settings.harness,
-        sessionRes,
-        `Connected (${meta.shortLabel})`,
-      );
+      let parsed: SessionCatalog | null = null;
+      const cached = loadCachedCatalog(settings.harness);
+      if (cached && Array.isArray(cached.models) && cached.models.length > 0) {
+        parsed = {
+          harness: settings.harness,
+          status: 'ready',
+          statusMessage: `Connected (${meta.shortLabel})`,
+          sessionId: null,
+          models: cached.models,
+          currentModel: cached.currentModel || cached.models[0]?.id || '',
+          thinking: cached.thinking || {
+            configId: null,
+            supported: false,
+            currentValue: '',
+            options: [],
+          },
+          modes: cached.modes || [],
+          currentMode: cached.currentMode || cached.modes?.[0]?.id || '',
+          commands: cached.commands || [],
+        };
+      }
 
-      // Apply remembered per-harness model if it exists in the live catalog
+      if (!parsed) {
+        const mcpServers = await loadMcpServersForSession(settings.workspaceDir);
+        const sessionRes = (await this.sendRpc('session/new', {
+          cwd: settings.workspaceDir,
+          mcpServers,
+        }, 25_000)) as Record<string, unknown>;
+        if (gen !== this.warmupSeq) return this.catalog;
+
+        parsed = parseSessionNewCatalog(
+          settings.harness,
+          sessionRes,
+          `Connected (${meta.shortLabel})`,
+        );
+        saveCachedCatalog(settings.harness, parsed);
+
+        // Immediately clean up the ephemeral probe session so zero 0-turn empty sessions remain on server
+        const probeId = parsed.sessionId;
+        parsed = { ...parsed, sessionId: null };
+        if (probeId) {
+          void this.deleteRemoteSession(probeId);
+        }
+      }
+
+      // Apply remembered per-harness preferences onto local lazy catalog (RPC happens when ensureSession creates session)
       const desiredModel = settings.harnessModels[settings.harness];
       if (
         desiredModel &&
-        desiredModel !== parsed.currentModel &&
         parsed.models.some((m) => m.id === desiredModel)
       ) {
-        parsed = await this.applyModelRpc(parsed, desiredModel);
+        parsed = { ...parsed, currentModel: desiredModel };
       }
-      if (gen !== this.warmupSeq) return this.catalog;
 
-      // Apply remembered mode if supported by this harness
       const desiredMode = settings.harnessModes[settings.harness];
       if (
         desiredMode &&
-        desiredMode !== parsed.currentMode &&
         parsed.modes.some((m) => m.id === desiredMode)
       ) {
-        try {
-          await this.sendRpc('session/set_mode', {
-            sessionId: parsed.sessionId,
-            modeId: desiredMode,
-          });
-          parsed.currentMode = desiredMode;
-        } catch {
-          // Ignore unsupported mode
-        }
+        parsed = { ...parsed, currentMode: desiredMode };
       }
-      if (gen !== this.warmupSeq) return this.catalog;
 
-      // Apply remembered thinking effort only if this model exposes a compatible option
       const desiredEffort = settings.harnessEfforts[settings.harness];
       if (
         desiredEffort &&
         parsed.thinking.supported &&
-        parsed.thinking.configId &&
-        desiredEffort !== parsed.thinking.currentValue &&
         parsed.thinking.options.some((o) => o.value === desiredEffort)
       ) {
-        try {
-          const updated = (await this.sendRpc('session/set_config_option', {
-            sessionId: parsed.sessionId,
-            configId: parsed.thinking.configId,
-            value: desiredEffort,
-          })) as Record<string, unknown>;
-          if (Array.isArray(updated?.configOptions)) {
-            parsed = applyConfigOptionsToCatalog(parsed, updated.configOptions);
-          } else {
-            parsed.thinking.currentValue = desiredEffort;
-          }
-        } catch {
-          // Keep harness default
-        }
+        parsed = {
+          ...parsed,
+          thinking: { ...parsed.thinking, currentValue: desiredEffort },
+        };
       }
-      if (gen !== this.warmupSeq) return this.catalog;
 
       this.catalog = parsed;
       this.emitCatalog();
@@ -411,11 +422,114 @@ export class AcpAgentController {
     }
   }
 
+  async ensureSession(settings: AppSettings): Promise<string | null> {
+    if (this.catalog.sessionId && this.proc) {
+      return this.catalog.sessionId;
+    }
+    if (!this.proc || this.catalog.status !== 'ready') {
+      await this.warmup(settings);
+    }
+    if (!this.proc) return null;
+    if (this.catalog.sessionId) return this.catalog.sessionId;
+
+    const meta = HARNESS_LIST.find((h) => h.id === settings.harness) ?? HARNESS_LIST[0];
+    this.emitStatus('warming', `Creating ${meta.shortLabel} session...`);
+    const mcpServers = await loadMcpServersForSession(settings.workspaceDir);
+    const sessionRes = (await this.sendRpc(
+      'session/new',
+      {
+        cwd: settings.workspaceDir,
+        mcpServers,
+      },
+      25_000,
+    )) as Record<string, unknown>;
+
+    let parsed = parseSessionNewCatalog(
+      settings.harness,
+      sessionRes,
+      `Connected (${meta.shortLabel})`,
+    );
+
+    const desiredModel =
+      this.catalog.currentModel || settings.harnessModels[settings.harness];
+    if (
+      desiredModel &&
+      desiredModel !== parsed.currentModel &&
+      parsed.models.some((m) => m.id === desiredModel)
+    ) {
+      parsed = await this.applyModelRpc(parsed, desiredModel);
+    }
+
+    const desiredMode = this.catalog.currentMode || settings.harnessModes[settings.harness];
+    if (
+      desiredMode &&
+      desiredMode !== parsed.currentMode &&
+      parsed.modes.some((m) => m.id === desiredMode)
+    ) {
+      try {
+        await this.sendRpc('session/set_mode', {
+          sessionId: parsed.sessionId,
+          modeId: desiredMode,
+        });
+        parsed.currentMode = desiredMode;
+      } catch {
+        // Ignore unsupported mode
+      }
+    }
+
+    const desiredEffort =
+      (this.catalog.thinking.supported ? this.catalog.thinking.currentValue : '') ||
+      settings.harnessEfforts[settings.harness];
+    if (
+      desiredEffort &&
+      parsed.thinking.supported &&
+      parsed.thinking.configId &&
+      desiredEffort !== parsed.thinking.currentValue &&
+      parsed.thinking.options.some((o) => o.value === desiredEffort)
+    ) {
+      try {
+        const updated = (await this.sendRpc('session/set_config_option', {
+          sessionId: parsed.sessionId,
+          configId: parsed.thinking.configId,
+          value: desiredEffort,
+        })) as Record<string, unknown>;
+        if (Array.isArray(updated?.configOptions)) {
+          parsed = applyConfigOptionsToCatalog(parsed, updated.configOptions);
+        } else {
+          parsed.thinking.currentValue = desiredEffort;
+        }
+      } catch {
+        // Keep default
+      }
+    }
+
+    saveCachedCatalog(settings.harness, parsed);
+    this.catalog = parsed;
+    this.emitCatalog();
+    return this.catalog.sessionId;
+  }
+
+  async detachActiveSession(): Promise<SessionCatalog> {
+    this.catalog = {
+      ...this.catalog,
+      sessionId: null,
+    };
+    this.sessionAllowedTools.clear();
+    this.emitCatalog();
+    return this.catalog;
+  }
+
   async setModel(modelId: string, settings: AppSettings): Promise<SessionCatalog> {
-    if (!this.catalog.sessionId || this.catalog.status !== 'ready') {
+    if (this.catalog.status !== 'ready') {
       return this.catalog;
     }
     if (!this.catalog.models.some((m) => m.id === modelId)) {
+      return this.catalog;
+    }
+
+    if (!this.catalog.sessionId) {
+      this.catalog = { ...this.catalog, currentModel: modelId };
+      this.emitCatalog();
       return this.catalog;
     }
 
@@ -446,6 +560,7 @@ export class AcpAgentController {
         }
       }
 
+      saveCachedCatalog(this.currentHarness, this.catalog);
       this.emitCatalog();
       if (!this.turnActive) this.emitStatus('idle', 'Model updated');
     } catch (err) {
@@ -457,14 +572,19 @@ export class AcpAgentController {
   }
 
   async setThinkingEffort(value: string): Promise<SessionCatalog> {
-    if (
-      !this.catalog.sessionId ||
-      !this.catalog.thinking.supported ||
-      !this.catalog.thinking.configId
-    ) {
+    if (!this.catalog.thinking.supported) {
       return this.catalog;
     }
     if (!this.catalog.thinking.options.some((o) => o.value === value)) {
+      return this.catalog;
+    }
+
+    if (!this.catalog.sessionId || !this.catalog.thinking.configId) {
+      this.catalog = {
+        ...this.catalog,
+        thinking: { ...this.catalog.thinking, currentValue: value },
+      };
+      this.emitCatalog();
       return this.catalog;
     }
 
@@ -486,6 +606,7 @@ export class AcpAgentController {
           thinking: { ...this.catalog.thinking, currentValue: value },
         };
       }
+      saveCachedCatalog(this.currentHarness, this.catalog);
       this.emitCatalog();
       if (!this.turnActive) this.emitStatus('idle', 'Effort updated');
     } catch (err) {
@@ -497,8 +618,12 @@ export class AcpAgentController {
   }
 
   async setMode(modeId: string): Promise<SessionCatalog> {
-    if (!this.catalog.sessionId) return this.catalog;
     if (!this.catalog.modes.some((m) => m.id === modeId)) return this.catalog;
+    if (!this.catalog.sessionId) {
+      this.catalog = { ...this.catalog, currentMode: modeId };
+      this.emitCatalog();
+      return this.catalog;
+    }
 
     try {
       await this.sendRpc('session/set_mode', {
@@ -506,6 +631,7 @@ export class AcpAgentController {
         modeId,
       });
       this.catalog = { ...this.catalog, currentMode: modeId };
+      saveCachedCatalog(this.currentHarness, this.catalog);
       this.emitCatalog();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -528,7 +654,7 @@ export class AcpAgentController {
     settings: AppSettings,
   ): Promise<void> {
     if (!this.catalog.sessionId || this.catalog.status !== 'ready') {
-      await this.warmup(settings);
+      await this.ensureSession(settings);
     }
     if (!this.catalog.sessionId) {
       this.onEvent({
@@ -560,7 +686,7 @@ export class AcpAgentController {
           console.warn('[acp-client] Session not found error encountered during prompt. Auto-recovering fresh session...', promptErr);
           this.emitStatus('warming', 'Session expired, re-initializing fresh session...');
           this.catalog.sessionId = null;
-          await this.warmup(settings);
+          await this.ensureSession(settings);
           if (!this.catalog.sessionId) {
             throw new Error(`Failed to recover ACP session after session loss: ${promptErr instanceof Error ? promptErr.message : String(promptErr)}`);
           }
@@ -748,6 +874,19 @@ export class AcpAgentController {
         }
       }
     }
+  }
+
+  async renameRemoteSession(sessionId: string, title: string): Promise<boolean> {
+    if (!this.proc) return false;
+    for (const method of ['session/set_title', 'session/rename']) {
+      try {
+        await this.sendRpc(method, { sessionId, title, cwd: this.currentWorkspace }, 3000);
+        return true;
+      } catch {
+        // try next method or fall back to local title override
+      }
+    }
+    return false;
   }
 
   async shutdownProcess(): Promise<void> {
@@ -1221,19 +1360,31 @@ export class AcpAgentController {
       case 'user_message_chunk': {
         const text = extractChunkText(update.content);
         if (this.sessionLoading) {
-          if (this.currentReplayedTurn) {
-            this.replayedTurns.push(this.currentReplayedTurn);
+          const msgId = typeof update.messageId === 'string' && update.messageId ? update.messageId : '';
+          if (
+            this.currentReplayedTurn &&
+            msgId &&
+            this.currentReplayedTurn.id === msgId &&
+            this.currentReplayedTurn.tools.length === 0 &&
+            !this.currentReplayedTurn.assistantMarkdown &&
+            !this.currentReplayedTurn.thinkingText
+          ) {
+            this.currentReplayedTurn.userText += text;
+          } else {
+            if (this.currentReplayedTurn) {
+              this.replayedTurns.push(this.currentReplayedTurn);
+            }
+            this.currentReplayedTurn = {
+              id: msgId || `turn_${Date.now()}_${this.replayedTurns.length}`,
+              userText: text,
+              attachments: [],
+              thinkingText: '',
+              thinkingDurationMs: 0,
+              assistantMarkdown: '',
+              tools: [],
+              segments: [],
+            };
           }
-          this.currentReplayedTurn = {
-            id: String(update.messageId || `turn_${Date.now()}`),
-            userText: text,
-            attachments: [],
-            thinkingText: '',
-            thinkingDurationMs: 0,
-            assistantMarkdown: '',
-            tools: [],
-            segments: [],
-          };
         }
         break;
       }

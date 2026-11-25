@@ -59,6 +59,7 @@ export interface AgentOverlayApi {
   listSessions: () => Promise<SavedSession[]>;
   saveSession: (session: SavedSession) => Promise<SavedSession[]>;
   deleteSession: (id: string) => Promise<SavedSession[]>;
+  renameSession: (id: string, title: string) => Promise<SavedSession[]>;
   getGitGlance: (workspaceDir?: string) => Promise<GitGlance>;
   getGitDiffReport: (workspaceDir?: string, targetFile?: string) => Promise<GitDiffReport>;
   restoreGitFile: (
@@ -152,6 +153,7 @@ const api: AgentOverlayApi = {
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   saveSession: (session) => ipcRenderer.invoke('sessions:save', session),
   deleteSession: (id) => ipcRenderer.invoke('sessions:delete', id),
+  renameSession: (id, title) => ipcRenderer.invoke('sessions:rename', id, title),
   getGitGlance: (workspaceDir) => ipcRenderer.invoke('git:glance', workspaceDir),
   getGitDiffReport: (workspaceDir, targetFile) =>
     ipcRenderer.invoke('git:diff-report', workspaceDir, targetFile),
